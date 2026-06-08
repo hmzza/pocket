@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { Footer } from "@/components/site/footer";
-import { Header } from "@/components/site/header";
+import { AppShell } from "@/components/site/app-shell";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -11,6 +10,11 @@ export const metadata: Metadata = {
   },
   description: "Pocket Shawarma Spot in Islamabad serving bold wraps, loaded fries, combos, and fast delivery.",
   metadataBase: new URL("https://pocketshawarma.example"),
+  icons: {
+    icon: "/icon.svg",
+    shortcut: "/icon.svg",
+    apple: "/icon.svg"
+  },
   openGraph: {
     title: "POCKET - The Shawarma Spot",
     description: "Real Shawarma, Served The Pocket Way",
@@ -29,12 +33,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" suppressHydrationWarning>
       <body>
         <Providers>
-          <Header />
-          <main>{children}</main>
-          <Footer />
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>
   );
 }
-

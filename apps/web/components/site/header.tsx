@@ -12,8 +12,7 @@ const links = [
   { href: "/", label: "Home" },
   { href: "/menu", label: "Menu" },
   { href: "/search", label: "Search" },
-  { href: "/orders", label: "Track Order" },
-  { href: "/admin", label: "Admin" }
+  { href: "/orders", label: "Track Order" }
 ];
 
 export function Header() {
@@ -74,4 +73,3 @@ export function Header() {
     </header>
   );
 }
-

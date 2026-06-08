@@ -120,6 +120,16 @@ export type DashboardData = {
   sales: Array<{ label: string; revenue: number }>;
 };
 
+export type AdminCustomer = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  totalOrders: number;
+  totalSpend: number;
+  lastOrderDate?: string | null;
+};
+
 export type AdminProduct = {
   id: string;
   categoryId: string;

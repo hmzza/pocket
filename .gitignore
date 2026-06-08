@@ -2,11 +2,10 @@
 node_modules
 dist
 coverage
-.env
-.env.local
 .turbo
 *.log
 .postgres-local
 prisma/dev.db
 apps/web/.next
 apps/api/dist
+config.bat

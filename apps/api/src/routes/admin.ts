@@ -464,6 +464,37 @@ router.put("/cms/:key", async (req, res, next) => {
   }
 });
 
+router.get("/settings", async (_req, res) => {
+  const settings = await prisma.setting.findMany({ orderBy: { key: "asc" } });
+  return res.json({ settings });
+});
+
+router.put("/settings/:key", async (req, res, next) => {
+  try {
+    const payload = z.object({ value: z.any() }).parse(req.body);
+    const setting = await prisma.setting.upsert({
+      where: { key: req.params.key },
+      update: { value: payload.value as Prisma.InputJsonValue },
+      create: {
+        key: req.params.key,
+        value: payload.value as Prisma.InputJsonValue
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "setting.update",
+      entityType: "setting",
+      entityId: setting.id,
+      payload
+    });
+
+    return res.json({ setting });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/notifications", async (_req, res) => {
   const notifications = await prisma.notification.findMany({
     orderBy: { createdAt: "desc" },

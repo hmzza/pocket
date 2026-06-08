@@ -5,8 +5,15 @@ import { formatCurrency } from "@/lib/utils";
 
 const statusSteps = ["PENDING", "CONFIRMED", "PREPARING", "READY", "OUT_FOR_DELIVERY", "DELIVERED"];
 
-export default async function OrdersPage() {
-  const order = await getTrackedOrder("PKT-2026-000123");
+export default async function OrdersPage({
+  searchParams
+}: {
+  searchParams?: {
+    orderNumber?: string;
+  };
+}) {
+  const orderNumber = searchParams?.orderNumber?.trim() ?? "";
+  const order = orderNumber ? await getTrackedOrder(orderNumber) : null;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 md:px-6">
@@ -14,6 +21,24 @@ export default async function OrdersPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Order Tracking</p>
         <h1 className="text-4xl font-black text-pocket-navy">Track your live order</h1>
       </div>
+      <Card className="mt-8 p-6">
+        <form className="grid gap-4 md:grid-cols-[1fr_auto]">
+          <input
+            type="text"
+            name="orderNumber"
+            defaultValue={orderNumber}
+            placeholder="Enter your order number"
+            className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
+          />
+          <button
+            type="submit"
+            className="inline-flex h-11 items-center justify-center rounded-md bg-pocket-orange px-6 text-sm font-semibold text-white transition hover:bg-pocket-deep-orange"
+          >
+            Track
+          </button>
+        </form>
+        {!order && orderNumber ? <p className="mt-4 text-sm font-medium text-red-600">Order not found.</p> : null}
+      </Card>
 
       {order ? (
         <div className="mt-8 grid gap-6">
@@ -69,4 +94,3 @@ export default async function OrdersPage() {
     </div>
   );
 }
-

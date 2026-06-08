@@ -1,48 +1,194 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
+import { useLiveProducts } from "@/components/site/use-live-products";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/components/store/store-provider";
-import { products } from "@/lib/mock-data";
+import { branch } from "@/lib/mock-data";
+import { calculateOrderTotals, readStoredCoupon, rememberOrder, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCurrency } from "@/lib/utils";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const paymentMethods = [
+  { label: "Cash on Delivery", value: "CASH_ON_DELIVERY" },
+  { label: "Card Payment (future ready)", value: "CARD" },
+  { label: "JazzCash (future ready)", value: "JAZZCASH" },
+  { label: "EasyPaisa (future ready)", value: "EASYPAISA" }
+] as const;
+
 export default function CheckoutPage() {
-  const { getCartProducts } = useStore();
-  const [confirmed, setConfirmed] = useState(false);
+  const { cart, getCartProducts, clearCart } = useStore();
+  const { products, loading: catalogLoading, error: catalogError } = useLiveProducts();
+  const [confirmedOrderNumber, setConfirmedOrderNumber] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [couponMessage, setCouponMessage] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [addressLine1, setAddressLine1] = useState("");
+  const [city, setCity] = useState("Islamabad");
+  const [addressNotes, setAddressNotes] = useState("");
+  const [deliveryInstructions, setDeliveryInstructions] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentMethods)[number]["value"]>("CASH_ON_DELIVERY");
+
   const cartProducts = getCartProducts(products);
-  const totals = useMemo(() => {
-    const subtotal = cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const tax = subtotal * 0.12;
-    const delivery = cartProducts.length ? 180 : 0;
-    return { subtotal, tax, delivery, total: subtotal + tax + delivery };
-  }, [cartProducts]);
+  const missingItems = Math.max(0, cart.length - cartProducts.length);
+  const subtotal = useMemo(() => cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0), [cartProducts]);
+  const totals = useMemo(() => calculateOrderTotals(subtotal, cartProducts.length ? branch.deliveryFee : 0, couponDiscount), [cartProducts.length, couponDiscount, subtotal]);
+
+  useEffect(() => {
+    setCouponCode(readStoredCoupon());
+  }, []);
+
+  async function applyCoupon() {
+    if (!couponCode.trim()) {
+      setCouponDiscount(0);
+      setCouponMessage("");
+      writeStoredCoupon("");
+      return;
+    }
+
+    setCouponLoading(true);
+    setCouponMessage("");
+    try {
+      const nextCoupon = await validateCouponCode(couponCode, subtotal);
+      setCouponCode(nextCoupon.code);
+      setCouponDiscount(nextCoupon.discount);
+      setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");
+      writeStoredCoupon(nextCoupon.code);
+    } catch (validationError) {
+      setCouponDiscount(0);
+      setCouponMessage(validationError instanceof Error ? validationError.message : "Coupon is unavailable.");
+      writeStoredCoupon("");
+    } finally {
+      setCouponLoading(false);
+    }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+
+    try {
+      if (catalogError) {
+        throw new Error("Live catalog is unavailable. Retry after the API connection is restored.");
+      }
+
+      let activeCouponCode: string | undefined;
+      if (couponCode.trim()) {
+        const nextCoupon = await validateCouponCode(couponCode, subtotal);
+        setCouponCode(nextCoupon.code);
+        setCouponDiscount(nextCoupon.discount);
+        setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");
+        writeStoredCoupon(nextCoupon.code);
+        activeCouponCode = nextCoupon.code;
+      } else {
+        setCouponDiscount(0);
+        setCouponMessage("");
+        writeStoredCoupon("");
+      }
+
+      const response = await fetch(`${API_URL}/api/checkout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: customerName,
+          phone: customerPhone,
+          email: customerEmail,
+          branchSlug: branch.slug,
+          paymentMethod,
+          couponCode: activeCouponCode,
+          deliveryInstructions: deliveryInstructions.trim() || undefined,
+          address: {
+            label: "Home",
+            addressLine1,
+            city,
+            instructions: addressNotes
+          },
+          items: cartProducts.map((item) => ({
+            productId: item.id,
+            quantity: item.quantity
+          }))
+        })
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const fieldErrors = payload?.issues?.fieldErrors
+          ? Object.values(payload.issues.fieldErrors).flat().filter(Boolean).join(" ")
+          : "";
+        throw new Error(fieldErrors || payload?.message || "Unable to place order.");
+      }
+
+      const data = (await response.json()) as {
+        order: {
+          orderNumber: string;
+          expectedDeliveryAt?: string;
+        };
+      };
+
+      setConfirmedOrderNumber(data.order.orderNumber);
+      rememberOrder(data.order.orderNumber);
+      writeStoredCoupon("");
+      clearCart();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Unable to place order.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
-      {confirmed ? (
+      {confirmedOrderNumber ? (
         <div className="mb-8 rounded-lg border border-emerald-500/20 bg-emerald-50 p-5 text-emerald-900">
           <p className="text-xs font-semibold uppercase tracking-[0.25em]">Order Confirmed</p>
-          <p className="mt-2 text-2xl font-black">PKT-2026-000123</p>
-          <p className="mt-2 text-sm">Expected delivery time: 25-35 minutes from confirmation.</p>
+          <p className="mt-2 text-2xl font-black">{confirmedOrderNumber}</p>
+          <p className="mt-2 text-sm">Use the tracking page to follow live status updates for this order.</p>
+          <Link href={`/orders?orderNumber=${confirmedOrderNumber}`} className="mt-4 inline-flex text-sm font-semibold text-emerald-900 underline">
+            Track this order
+          </Link>
         </div>
       ) : null}
-      <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
+
+      <form onSubmit={handleSubmit} className="grid gap-8 lg:grid-cols-[1fr_360px]">
         <div className="space-y-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Checkout</p>
             <h1 className="text-4xl font-black text-pocket-navy">Step-by-step order confirmation</h1>
           </div>
+          {missingItems ? (
+            <Card className="border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              Some saved items are no longer in the live catalog. Remove them from the cart and add current menu items again.
+            </Card>
+          ) : null}
+          {catalogError ? (
+            <Card className="border-red-300 bg-red-50 p-4 text-sm text-red-700">
+              Live catalog is unavailable right now. Checkout is blocked until the storefront reconnects to the API.
+            </Card>
+          ) : null}
+          {catalogLoading && !cartProducts.length && cart.length ? (
+            <Card className="p-4 text-sm text-pocket-navy/70">Refreshing live checkout items...</Card>
+          ) : null}
 
           <Card className="p-5">
             <p className="text-lg font-black text-pocket-navy">1. Customer Information</p>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <Input placeholder="Full name" defaultValue="Ayesha Khan" />
-              <Input placeholder="Phone" defaultValue="+92-300-0000022" />
+              <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Full name" required />
+              <Input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="+92-300-1234567" required />
               <div className="md:col-span-2">
-                <Input placeholder="Email" defaultValue="customer@pocketshawarma.com" />
+                <Input type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} placeholder="Email address" required />
               </div>
             </div>
           </Card>
@@ -50,27 +196,28 @@ export default function CheckoutPage() {
           <Card className="p-5">
             <p className="text-lg font-black text-pocket-navy">2. Delivery Details</p>
             <div className="mt-4 grid gap-4">
-              <Input placeholder="Address line 1" defaultValue="House 14, Street 10, G-11/3" />
+              <Input value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} placeholder="Address line 1" required />
               <div className="grid gap-4 md:grid-cols-2">
-                <Input placeholder="City" defaultValue="Islamabad" />
-                <Input placeholder="Instructions" defaultValue="Ring bell once" />
+                <Input value={city} onChange={(event) => setCity(event.target.value)} placeholder="City" required />
+                <Input value={addressNotes} onChange={(event) => setAddressNotes(event.target.value)} placeholder="Instructions" />
               </div>
-              <Textarea placeholder="Extra instructions" defaultValue="Cash on delivery. Keep sauces separate." />
+              <Textarea value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value)} placeholder="Extra instructions" />
             </div>
           </Card>
 
           <Card className="p-5">
             <p className="text-lg font-black text-pocket-navy">3. Payment Method</p>
             <div className="mt-4 grid gap-3">
-              {[
-                "Cash on Delivery",
-                "Card Payment (future ready)",
-                "JazzCash (future ready)",
-                "EasyPaisa (future ready)"
-              ].map((option, index) => (
-                <label key={option} className="flex items-center gap-3 rounded-md border border-pocket-navy/10 px-4 py-3">
-                  <input type="radio" name="payment" defaultChecked={index === 0} />
-                  <span className="text-sm font-medium text-pocket-navy">{option}</span>
+              {paymentMethods.map((option) => (
+                <label key={option.value} className="flex items-center gap-3 rounded-md border border-pocket-navy/10 px-4 py-3">
+                  <input
+                    type="radio"
+                    name="payment"
+                    value={option.value}
+                    checked={paymentMethod === option.value}
+                    onChange={() => setPaymentMethod(option.value)}
+                  />
+                  <span className="text-sm font-medium text-pocket-navy">{option.label}</span>
                 </label>
               ))}
             </div>
@@ -96,6 +243,10 @@ export default function CheckoutPage() {
               <span>{formatCurrency(totals.subtotal)}</span>
             </div>
             <div className="flex justify-between">
+              <span>Discount</span>
+              <span>-{formatCurrency(totals.discount)}</span>
+            </div>
+            <div className="flex justify-between">
               <span>Tax</span>
               <span>{formatCurrency(totals.tax)}</span>
             </div>
@@ -108,14 +259,31 @@ export default function CheckoutPage() {
               <span className="text-pocket-orange">{formatCurrency(totals.total)}</span>
             </div>
           </div>
-          <div className="mt-6 rounded-lg bg-pocket-cream p-4 text-sm text-pocket-navy">
-            Demo confirmation number: <span className="font-black">PKT-2026-000123</span>
+          <div className="mt-5">
+            <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">Coupon</label>
+            <div className="mt-2 flex gap-2">
+              <Input
+                value={couponCode}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setCouponCode(nextValue);
+                  setCouponDiscount(0);
+                  setCouponMessage("");
+                }}
+                placeholder="Enter coupon code"
+              />
+              <Button type="button" variant="outline" onClick={() => void applyCoupon()} disabled={!subtotal || couponLoading}>
+                {couponLoading ? "Applying..." : "Apply"}
+              </Button>
+            </div>
+            {couponMessage ? <p className={`mt-2 text-sm ${couponDiscount ? "text-emerald-700" : "text-red-600"}`}>{couponMessage}</p> : null}
           </div>
-          <Button className="mt-6 w-full" disabled={!cartProducts.length} onClick={() => setConfirmed(true)}>
-            Place Order
+          {error ? <p className="mt-4 text-sm font-medium text-red-600">{error}</p> : null}
+          <Button className="mt-6 w-full" disabled={!cartProducts.length || loading || catalogLoading || Boolean(catalogError)}>
+            {loading ? "Placing Order..." : "Place Order"}
           </Button>
         </Card>
-      </div>
+      </form>
     </div>
   );
 }

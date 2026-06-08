@@ -1,0 +1,11 @@
+.git
+.gitignore
+node_modules
+apps/web/.next
+apps/api/dist
+.postgres-local
+.env
+.env.local
+coverage
+*.log
+
