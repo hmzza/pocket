@@ -1,0 +1,17 @@
+<svg width="1200" height="900" viewBox="0 0 1200 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="900" fill="#D65A31"/>
+  <circle cx="600" cy="410" r="260" fill="#F0936D"/>
+  <circle cx="600" cy="410" r="242" stroke="#F5EBD8" stroke-opacity="0.22" stroke-width="4"/>
+  <path d="M474 300C534 270 666 270 726 300L782 738C789 802 738 856 673 856H527C462 856 411 802 418 738L474 300Z" fill="#F5EBD8" stroke="#102A43" stroke-width="8"/>
+  <path d="M457 369C446 311 512 265 560 296L606 326L646 284C691 236 770 283 750 344L695 505L518 492L457 369Z" fill="#FFD166"/>
+  <circle cx="562" cy="408" r="27" fill="#102A43"/>
+  <circle cx="621" cy="386" r="26" fill="#FFF2D8"/>
+  <circle cx="680" cy="416" r="28" fill="#C4491D"/>
+  <circle cx="725" cy="366" r="21" fill="#102A43"/>
+  <circle cx="583" cy="480" r="24" fill="#1B1B1B"/>
+  <path d="M646 456C689 453 717 502 695 540C665 592 674 654 637 656C603 657 609 600 580 561C546 515 594 458 646 456Z" fill="#FFF2D8"/>
+  <text x="134" y="126" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="124" font-weight="900">POCKET</text>
+  <text x="138" y="210" fill="#102A43" font-family="Arial, sans-serif" font-size="40" font-weight="700" letter-spacing="12">SPECIAL SHAWARMA</text>
+  <text x="138" y="798" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="30" font-weight="700">DOUBLE PROTEIN / OLIVES / CORN / FIRE SAUCE</text>
+</svg>
+

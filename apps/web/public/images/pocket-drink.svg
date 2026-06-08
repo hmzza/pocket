@@ -1,0 +1,11 @@
+<svg width="900" height="900" viewBox="0 0 900 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="900" height="900" fill="#F5EBD8"/>
+  <rect x="290" y="170" width="320" height="560" rx="56" fill="#D65A31"/>
+  <rect x="332" y="226" width="236" height="448" rx="32" fill="#102A43"/>
+  <path d="M456 154H526L560 226H494L456 154Z" fill="#102A43"/>
+  <path d="M455 186H491" stroke="#F5EBD8" stroke-width="18" stroke-linecap="round"/>
+  <text x="338" y="408" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="76" font-weight="900">POCKET</text>
+  <text x="384" y="482" fill="#D65A31" font-family="Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="8">DRINK</text>
+  <text x="195" y="820" fill="#102A43" font-family="Arial, sans-serif" font-size="44" font-weight="700" letter-spacing="12">CHILLED ADD-ON</text>
+</svg>
+

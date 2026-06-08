@@ -1,0 +1,12 @@
+<svg width="1200" height="900" viewBox="0 0 1200 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="900" fill="#F5EBD8"/>
+  <rect x="118" y="124" width="964" height="652" rx="36" fill="#102A43"/>
+  <rect x="168" y="174" width="430" height="552" rx="26" fill="#D65A31"/>
+  <rect x="628" y="174" width="404" height="552" rx="26" fill="#F5EBD8"/>
+  <path d="M248 250C292 228 388 228 432 250L474 585C479 633 440 672 392 672H288C240 672 201 633 206 585L248 250Z" fill="#F5EBD8" stroke="#1B1B1B" stroke-width="8"/>
+  <path d="M233 304C224 261 272 227 308 250L343 271L372 240C406 207 465 239 451 283L410 403L275 392L233 304Z" fill="#FFD166"/>
+  <rect x="746" y="246" width="170" height="356" rx="30" fill="#D65A31"/>
+  <rect x="778" y="286" width="106" height="244" rx="20" fill="#102A43"/>
+  <text x="184" y="828" fill="#D65A31" font-family="Arial, sans-serif" font-size="120" font-weight="900">SHAWARMA + DRINK</text>
+</svg>
+

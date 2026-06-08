@@ -1,0 +1,18 @@
+<svg width="1200" height="900" viewBox="0 0 1200 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="900" fill="#F5EBD8"/>
+  <rect x="248" y="266" width="704" height="466" rx="42" fill="#102A43"/>
+  <rect x="288" y="316" width="624" height="356" rx="28" fill="#D65A31"/>
+  <rect x="335" y="356" width="82" height="236" rx="28" fill="#FFD166"/>
+  <rect x="431" y="336" width="82" height="256" rx="28" fill="#E9C46A"/>
+  <rect x="527" y="316" width="82" height="276" rx="28" fill="#F4A261"/>
+  <rect x="623" y="336" width="82" height="256" rx="28" fill="#FFD166"/>
+  <rect x="719" y="356" width="82" height="236" rx="28" fill="#E9C46A"/>
+  <circle cx="415" cy="462" r="22" fill="#FFF2D8"/>
+  <circle cx="589" cy="448" r="22" fill="#FFF2D8"/>
+  <circle cx="705" cy="492" r="22" fill="#FFF2D8"/>
+  <circle cx="506" cy="522" r="18" fill="#102A43"/>
+  <circle cx="651" cy="394" r="18" fill="#102A43"/>
+  <text x="120" y="170" fill="#102A43" font-family="Arial, sans-serif" font-size="124" font-weight="900">LOADED FRIES</text>
+  <text x="120" y="780" fill="#D65A31" font-family="Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="10">CRISPY / CHICKEN / GARLIC DRIZZLE</text>
+</svg>
+

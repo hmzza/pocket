@@ -1,0 +1,30 @@
+{
+  "name": "pocket-shawarma",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace @pocket/api\" \"npm run dev --workspace @pocket/web\"",
+    "dev:web": "npm run dev --workspace @pocket/web",
+    "dev:api": "npm run dev --workspace @pocket/api",
+    "db:local:start": "pg_ctl -D .postgres-local -l .postgres-local/server.log -o \"-p 5433\" start",
+    "db:local:stop": "pg_ctl -D .postgres-local stop",
+    "db:local:status": "pg_ctl -D .postgres-local status",
+    "build": "npm run build --workspace @pocket/api && npm run build --workspace @pocket/web",
+    "lint": "npm run lint --workspace @pocket/api && npm run lint --workspace @pocket/web",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "prisma": "^5.20.0",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

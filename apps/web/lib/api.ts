@@ -1,0 +1,235 @@
+import { branch, categories, dashboardData, homeContent, mockCustomers, products, trackedOrders } from "./mock-data";
+import type { DashboardData, Product, TrackedOrder } from "./types";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? process.env.API_URL ?? "http://localhost:4000";
+
+async function fetchJson<T>(path: string): Promise<T | null> {
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      next: { revalidate: 60 }
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function getHomeData() {
+  const data = await fetchJson<any>("/api/content/home");
+  if (!data) {
+    return {
+      hero: homeContent.hero,
+      whyPocket: homeContent.whyPocket,
+      testimonials: homeContent.testimonials,
+      featured: products.filter((product) => product.featured).slice(0, 4),
+      bestSellers: products.filter((product) => product.bestSeller).slice(0, 4),
+      categories,
+      branch,
+      contact: {
+        value: {
+          phone: branch.phone,
+          email: "hello@pocketshawarma.com",
+          instagram: "@pocket.pakistan"
+        }
+      }
+    };
+  }
+
+  return {
+    hero: data.hero?.content ?? homeContent.hero,
+    whyPocket: data.whyPocket?.content ?? homeContent.whyPocket,
+    testimonials: data.testimonials?.content ?? homeContent.testimonials,
+    featured: normalizeProducts(data.featured),
+    bestSellers: normalizeProducts(data.bestSellers),
+    categories: data.categories ?? categories,
+    branch: data.branch
+      ? {
+          id: data.branch.id,
+          slug: data.branch.slug,
+          name: data.branch.name,
+          city: data.branch.city,
+          addressLine1: data.branch.addressLine1,
+          phone: data.branch.phone,
+          deliveryFee: Number(data.branch.deliveryFee)
+        }
+      : branch,
+    contact: data.contact ?? {
+      value: {
+        phone: branch.phone,
+        email: "hello@pocketshawarma.com",
+        instagram: "@pocket.pakistan"
+      }
+    }
+  };
+}
+
+function normalizeProducts(items: any[] | undefined): Product[] {
+  if (!items?.length) return products;
+  return items.map((item) => {
+    const category = categories.find((entry) => entry.slug === item.category?.slug) ?? categories[0]!;
+    return {
+      id: item.id,
+      slug: item.slug,
+      name: item.name,
+      description: item.description,
+      price: Number(item.branchPricing?.[0]?.price ?? item.basePrice),
+      calories: item.calories ?? undefined,
+      category,
+      imageUrl: item.images?.[0]?.url ?? category.imageUrl,
+      gallery: item.images?.map((image: any) => image.url) ?? [category.imageUrl],
+      featured: item.featured,
+      bestSeller: item.bestSeller,
+      prepTimeMinutes: item.prepTimeMinutes ?? 20,
+      spiceLevel: item.spiceLevel ?? 2,
+      ingredients: item.ingredients ?? [],
+      nutrition: {
+        calories: item.nutritionInfo?.calories ?? item.calories ?? 0,
+        protein: item.nutritionInfo?.macros?.protein ?? 0,
+        carbs: item.nutritionInfo?.macros?.carbs ?? 0,
+        fats: item.nutritionInfo?.macros?.fats ?? 0
+      },
+      addOnGroups:
+        item.addOnGroups?.map((group: any) => ({
+          id: group.id,
+          name: group.name,
+          minSelect: group.minSelect,
+          maxSelect: group.maxSelect,
+          options: group.options.map((option: any) => ({
+            id: option.id,
+            name: option.name,
+            priceDelta: Number(option.priceDelta)
+          }))
+        })) ?? [],
+      reviews:
+        item.reviews?.map((review: any) => ({
+          id: review.id,
+          author: review.user?.name ?? "Pocket Customer",
+          rating: review.rating,
+          title: review.title,
+          body: review.body
+        })) ?? []
+    };
+  });
+}
+
+export async function getProducts() {
+  const data = await fetchJson<any>("/api/products");
+  return data ? normalizeProducts(data.products) : products;
+}
+
+export async function getProductBySlug(slug: string) {
+  const data = await fetchJson<any>(`/api/products/${slug}`);
+  if (!data) {
+    const product = products.find((entry) => entry.slug === slug) ?? null;
+    return product
+      ? {
+          product,
+          related: products.filter((entry) => entry.category.slug === product.category.slug && entry.slug !== slug).slice(0, 4)
+        }
+      : null;
+  }
+
+  const normalized = normalizeProducts([data.product])[0]!;
+  return {
+    product: normalized,
+    related: normalizeProducts(data.related)
+  };
+}
+
+export async function getDashboardData(): Promise<DashboardData> {
+  const [dashboard, sales] = await Promise.all([
+    fetchJson<any>("/api/admin/dashboard"),
+    fetchJson<any>("/api/admin/analytics/sales")
+  ]);
+
+  if (!dashboard || !sales) {
+    return dashboardData;
+  }
+
+  return {
+    kpis: {
+      todayOrders: dashboard.kpis.todayOrders,
+      revenue: dashboard.kpis.revenue,
+      totalCustomers: dashboard.kpis.totalCustomers,
+      averageOrderValue: dashboard.kpis.averageOrderValue
+    },
+    topProducts: dashboard.topProducts.map((entry: any) => ({
+      productName: entry.productName,
+      quantity: entry._sum.quantity
+    })),
+    recentOrders: dashboard.recentOrders.map((order: any) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customer.name,
+      status: order.status,
+      totalAmount: Number(order.totalAmount)
+    })),
+    lowStock: dashboard.lowStock.map((entry: any) => ({
+      ingredient: entry.ingredient.name,
+      branch: entry.branch.name,
+      quantityOnHand: Number(entry.quantityOnHand)
+    })),
+    sales: sales.sales.map((entry: any) => ({
+      label: new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(entry.date)),
+      revenue: Number(entry.revenue)
+    }))
+  };
+}
+
+export async function getTrackedOrder(orderNumber: string): Promise<TrackedOrder | null> {
+  const data = await fetchJson<any>(`/api/track/${orderNumber}`);
+  if (!data) {
+    return trackedOrders.find((entry) => entry.orderNumber === orderNumber) ?? null;
+  }
+
+  return {
+    id: data.order.id,
+    orderNumber: data.order.orderNumber,
+    status: data.order.status,
+    branch: data.order.branch.name,
+    expectedDeliveryAt: data.order.expectedDeliveryAt,
+    totalAmount: Number(data.order.totalAmount),
+    placedAt: data.order.placedAt,
+    items: data.order.items.map((item: any) => ({
+      id: item.id,
+      productName: item.productName,
+      quantity: item.quantity,
+      unitPrice: Number(item.unitPrice)
+    }))
+  };
+}
+
+export async function getAdminCustomers() {
+  const data = await fetchJson<any>("/api/admin/customers");
+  return data?.customers ?? mockCustomers;
+}
+
+export async function getAdminOrders() {
+  const data = await fetchJson<any>("/api/admin/orders");
+  return (
+    data?.orders?.map((order: any) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customer.name,
+      status: order.status,
+      branch: order.branch.name,
+      totalAmount: Number(order.totalAmount),
+      itemCount: order.items.length
+    })) ??
+    dashboardData.recentOrders.map((order) => ({
+      ...order,
+      branch: branch.name,
+      itemCount: 2
+    }))
+  );
+}
+
+export async function getAdminProducts() {
+  const data = await fetchJson<any>("/api/admin/products");
+  return data?.products ? normalizeProducts(data.products) : products;
+}

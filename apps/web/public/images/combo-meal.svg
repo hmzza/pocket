@@ -1,0 +1,13 @@
+<svg width="1200" height="900" viewBox="0 0 1200 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="900" fill="#102A43"/>
+  <rect x="88" y="108" width="1024" height="684" rx="36" fill="#F5EBD8"/>
+  <path d="M178 244C222 222 318 222 362 244L404 579C409 627 370 666 322 666H218C170 666 131 627 136 579L178 244Z" fill="#D65A31" stroke="#1B1B1B" stroke-width="8"/>
+  <path d="M163 298C154 255 202 221 238 244L273 265L302 234C336 201 395 233 381 277L340 397L205 386L163 298Z" fill="#FFD166"/>
+  <rect x="470" y="238" width="320" height="428" rx="34" fill="#D65A31"/>
+  <rect x="510" y="288" width="86" height="268" rx="28" fill="#FFD166"/>
+  <rect x="610" y="268" width="86" height="288" rx="28" fill="#F4A261"/>
+  <rect x="720" y="288" width="86" height="268" rx="28" fill="#E9C46A"/>
+  <rect x="852" y="238" width="172" height="428" rx="30" fill="#D65A31"/>
+  <rect x="884" y="288" width="108" height="244" rx="20" fill="#102A43"/>
+  <text x="104" y="828" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="96" font-weight="900">SHAWARMA + FRIES + DRINK</text>
+</svg>

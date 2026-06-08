@@ -1,0 +1,23 @@
+<svg width="1400" height="900" viewBox="0 0 1400 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1400" height="900" fill="#F5EBD8"/>
+  <rect width="700" height="450" fill="#D65A31"/>
+  <rect x="700" width="700" height="450" fill="#102A43"/>
+  <rect y="450" width="700" height="450" fill="#102A43"/>
+  <rect x="700" y="450" width="700" height="450" fill="#D65A31"/>
+  <text x="84" y="156" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="120" font-weight="900">POCKET</text>
+  <text x="84" y="250" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="10">THE SHAWARMA SPOT</text>
+  <text x="800" y="156" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="54" font-weight="700">LOADED CULT STATUS</text>
+  <text x="800" y="226" fill="#F5EBD8" fill-opacity="0.8" font-family="Arial, sans-serif" font-size="30" font-weight="400">BOLD FLAVOR. TIGHT SERVICE. CLEAN BRAND.</text>
+  <path d="M930 336C984 312 1059 312 1113 336L1161 777C1166 826 1127 866 1078 866H966C917 866 878 826 883 777L930 336Z" fill="#F5EBD8" stroke="#102A43" stroke-width="8"/>
+  <path d="M921 382C912 338 962 303 1000 327L1038 351L1068 318C1104 281 1165 316 1150 365L1107 496L962 484L921 382Z" fill="#F7B267"/>
+  <circle cx="989" cy="413" r="24" fill="#C4491D"/>
+  <circle cx="1041" cy="397" r="22" fill="#FFD166"/>
+  <circle cx="1092" cy="423" r="26" fill="#102A43"/>
+  <path d="M1062 463C1100 461 1124 503 1105 535C1079 576 1087 625 1055 626C1024 627 1030 581 1007 550C978 513 1020 465 1062 463Z" fill="#FFF2D8"/>
+  <text x="80" y="610" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="52" font-weight="700">ISLAMABAD BRANCH</text>
+  <text x="80" y="680" fill="#F5EBD8" fill-opacity="0.8" font-family="Arial, sans-serif" font-size="28" font-weight="400">MULTI-BRANCH READY FOUNDATION</text>
+  <text x="80" y="740" fill="#F5EBD8" fill-opacity="0.8" font-family="Arial, sans-serif" font-size="28" font-weight="400">LAHORE / KARACHI READY</text>
+  <text x="800" y="626" fill="#F5EBD8" font-family="Arial, sans-serif" font-size="62" font-weight="900">FAST FOOD, STARTUP MINDSET</text>
+  <text x="800" y="710" fill="#F5EBD8" fill-opacity="0.85" font-family="Arial, sans-serif" font-size="30" font-weight="400">A responsive storefront, admin portal, inventory-ready schema, and ordering stack.</text>
+</svg>
+
