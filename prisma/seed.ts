@@ -9,6 +9,17 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
+  const seedVersion = Number(process.env.SEED_VERSION ?? "1");
+  const forceSeed = process.env.FORCE_SEED === "true";
+  const existingSeedMarker = await prisma.setting.findUnique({
+    where: { key: "system.seed.version" }
+  });
+
+  if (existingSeedMarker && !forceSeed) {
+    console.log(`Seed marker found for version ${seedVersion}. Skipping seed.`);
+    return;
+  }
+
   const [customerRole, adminRole, superAdminRole] = await Promise.all([
     prisma.role.upsert({
       where: { code: RoleCode.CUSTOMER },
@@ -666,6 +677,23 @@ async function main() {
       payload: { branch: branch.slug, categories: categories.length, products: products.length }
     }
   });
+
+  await prisma.setting.upsert({
+    where: { key: "system.seed.version" },
+    update: {
+      value: {
+        version: seedVersion,
+        seededAt: new Date().toISOString()
+      }
+    },
+    create: {
+      key: "system.seed.version",
+      value: {
+        version: seedVersion,
+        seededAt: new Date().toISOString()
+      }
+    }
+  });
 }
 
 main()
@@ -677,4 +705,3 @@ main()
     await prisma.$disconnect();
     process.exit(1);
   });
-

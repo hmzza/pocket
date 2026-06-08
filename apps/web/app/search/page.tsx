@@ -1,11 +1,13 @@
 import { SearchExplorer } from "@/components/site/search-explorer";
-import { products } from "@/lib/mock-data";
+import { getProducts } from "@/lib/api";
 
 export const metadata = {
   title: "Search"
 };
 
-export default function SearchPage() {
+export default async function SearchPage() {
+  const products = await getProducts();
+
   return (
     <div className="mx-auto max-w-4xl px-4 py-12 md:px-6">
       <div className="space-y-2">
@@ -19,4 +21,3 @@ export default function SearchPage() {
     </div>
   );
 }
-

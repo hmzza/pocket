@@ -1,15 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState("admin@pocketshawarma.com");
-  const [password, setPassword] = useState("PocketAdmin123!");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,9 +32,9 @@ export default function AdminLoginPage() {
         throw new Error("Invalid credentials");
       }
 
-      router.replace("/admin");
+      window.location.replace("/admin");
     } catch {
-      setError("Login failed. Use the seeded admin credentials.");
+      setError("Login failed. Check the admin email and password.");
     } finally {
       setLoading(false);
     }
@@ -47,10 +45,10 @@ export default function AdminLoginPage() {
       <Card className="w-full p-6">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Admin Login</p>
         <h1 className="mt-3 text-3xl font-black text-pocket-navy">Secure operations access</h1>
-        <p className="mt-2 text-sm text-pocket-navy/70">Seeded credentials are prefilled for local evaluation.</p>
+        <p className="mt-2 text-sm text-pocket-navy/70">Use the private admin route and valid staff credentials to continue.</p>
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <Input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" />
-          <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" />
+          <Input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" required />
+          <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" required />
           {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in..." : "Login"}

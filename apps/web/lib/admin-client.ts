@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminOrder, AdminProduct, Category } from "@/lib/types";
+import type { AdminCustomer, AdminOrder, AdminProduct, Category, DashboardData } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -160,4 +160,90 @@ export async function updateAdminOrderStatus(orderId: string, status: string) {
     body: JSON.stringify({ status })
   });
   return data.order;
+}
+
+export async function fetchAdminDashboard(): Promise<DashboardData> {
+  const [dashboard, sales] = await Promise.all([
+    adminFetch<any>("/api/admin/dashboard"),
+    adminFetch<any>("/api/admin/analytics/sales")
+  ]);
+
+  return {
+    kpis: {
+      todayOrders: dashboard.kpis.todayOrders,
+      revenue: Number(dashboard.kpis.revenue),
+      totalCustomers: dashboard.kpis.totalCustomers,
+      averageOrderValue: Number(dashboard.kpis.averageOrderValue)
+    },
+    topProducts: dashboard.topProducts.map((entry: any) => ({
+      productName: entry.productName,
+      quantity: entry._sum.quantity
+    })),
+    recentOrders: dashboard.recentOrders.map((order: any) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customer.name,
+      status: order.status,
+      totalAmount: Number(order.totalAmount)
+    })),
+    lowStock: dashboard.lowStock.map((entry: any) => ({
+      ingredient: entry.ingredient.name,
+      branch: entry.branch.name,
+      quantityOnHand: Number(entry.quantityOnHand)
+    })),
+    sales: sales.sales.map((entry: any) => ({
+      label: new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(new Date(entry.date)),
+      revenue: Number(entry.revenue)
+    }))
+  };
+}
+
+export async function fetchAdminCustomers(): Promise<AdminCustomer[]> {
+  const data = await adminFetch<{ customers: any[] }>("/api/admin/customers");
+  return data.customers.map((customer) => ({
+    id: customer.id,
+    name: customer.name,
+    email: customer.email,
+    phone: customer.phone ?? undefined,
+    totalOrders: customer.totalOrders,
+    totalSpend: Number(customer.totalSpend),
+    lastOrderDate: customer.lastOrderDate
+  }));
+}
+
+export async function fetchAdminCms() {
+  const [cmsResponse, settingsResponse] = await Promise.all([
+    adminFetch<{ blocks: Array<{ key: string; title: string; content: unknown }> }>("/api/admin/cms"),
+    adminFetch<{ settings: Array<{ key: string; value: unknown }> }>("/api/admin/settings")
+  ]);
+
+  return {
+    blocks: cmsResponse.blocks.reduce<Record<string, { title: string; content: unknown }>>((accumulator, block) => {
+      accumulator[block.key] = {
+        title: block.title,
+        content: block.content
+      };
+      return accumulator;
+    }, {}),
+    settings: settingsResponse.settings.reduce<Record<string, unknown>>((accumulator, setting) => {
+      accumulator[setting.key] = setting.value;
+      return accumulator;
+    }, {})
+  };
+}
+
+export async function updateAdminCmsBlock(key: string, payload: { title: string; content: unknown }) {
+  const data = await adminFetch<{ block: { key: string; title: string; content: unknown } }>(`/api/admin/cms/${key}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+  return data.block;
+}
+
+export async function updateAdminSetting(key: string, value: unknown) {
+  const data = await adminFetch<{ setting: { key: string; value: unknown } }>(`/api/admin/settings/${key}`, {
+    method: "PUT",
+    body: JSON.stringify({ value })
+  });
+  return data.setting;
 }
