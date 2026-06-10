@@ -116,6 +116,15 @@ router.get("/products", async (req, res, next) => {
       include: {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
+        addOnGroups: {
+          orderBy: { sortOrder: "asc" },
+          include: {
+            options: {
+              where: { isActive: true },
+              orderBy: { sortOrder: "asc" }
+            }
+          }
+        },
         branchPricing: branchSlug
           ? {
               where: { branch: { is: { slug: branchSlug } } },

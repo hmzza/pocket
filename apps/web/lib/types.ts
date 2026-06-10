@@ -155,11 +155,17 @@ export type AdminOrder = {
   orderNumber: string;
   customerName: string;
   customerPhone?: string;
+  channel?: string;
+  serviceType?: string;
   status: string;
   branch: string;
   totalAmount: number;
   paymentMethod: string;
   paymentStatus: string;
+  cashReceivedAmount?: number;
+  changeDueAmount?: number;
+  manualDiscountType?: string;
+  manualDiscountValue?: number;
   placedAt: string;
   deliveryInstructions?: string;
   address?: {
@@ -170,6 +176,7 @@ export type AdminOrder = {
   items: Array<{
     id: string;
     productName: string;
+    customDescription?: string;
     quantity: number;
     unitPrice: number;
     note?: string;

@@ -16,6 +16,7 @@ const links: Array<{
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/products", label: "Products", icon: Boxes },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
+  { href: "/pos", label: "POS", icon: ShoppingCart },
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/admin/cms", label: "CMS", icon: FilePenLine }

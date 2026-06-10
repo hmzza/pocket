@@ -10,6 +10,7 @@ datasource db {
 
 enum RoleCode {
   CUSTOMER
+  POS_STAFF
   ADMIN
   SUPER_ADMIN
 }
@@ -27,6 +28,17 @@ enum OrderStatus {
   OUT_FOR_DELIVERY
   DELIVERED
   CANCELLED
+}
+
+enum OrderChannel {
+  ONLINE
+  POS
+}
+
+enum ServiceType {
+  DELIVERY
+  TAKEAWAY
+  DINE_IN
 }
 
 enum PaymentMethod {
@@ -278,9 +290,13 @@ model Order {
   id                  String         @id @default(cuid())
   orderNumber         String         @unique
   customerId          String
+  customerName        String?
+  customerPhone       String?
   branchId            String
   addressId           String?
   couponId            String?
+  channel             OrderChannel   @default(ONLINE)
+  serviceType         ServiceType    @default(DELIVERY)
   status              OrderStatus    @default(PENDING)
   paymentMethod       PaymentMethod
   paymentStatus       PaymentStatus  @default(PENDING)
@@ -288,7 +304,11 @@ model Order {
   taxAmount           Decimal        @db.Decimal(10, 2)
   deliveryFee         Decimal        @db.Decimal(10, 2)
   discountAmount      Decimal        @db.Decimal(10, 2)
+  manualDiscountType  DiscountType?
+  manualDiscountValue Decimal?       @db.Decimal(10, 2)
   totalAmount         Decimal        @db.Decimal(10, 2)
+  cashReceivedAmount  Decimal?       @db.Decimal(10, 2)
+  changeDueAmount     Decimal?       @db.Decimal(10, 2)
   expectedDeliveryAt  DateTime?
   deliveryInstructions String?
   placedAt            DateTime       @default(now())
@@ -303,14 +323,15 @@ model Order {
 model OrderItem {
   id           String          @id @default(cuid())
   orderId      String
-  productId    String
+  productId    String?
   productName  String
+  customDescription String?
   quantity     Int
   unitPrice    Decimal         @db.Decimal(10, 2)
   note         String?
   createdAt    DateTime        @default(now())
   order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product      Product         @relation(fields: [productId], references: [id])
+  product      Product?        @relation(fields: [productId], references: [id])
   addOns       OrderItemAddOn[]
 }
 

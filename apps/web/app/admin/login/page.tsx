@@ -17,7 +17,7 @@ export default function AdminLoginPage() {
     setError("");
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/auth/login`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/auth/admin-login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -28,11 +28,13 @@ export default function AdminLoginPage() {
       if (response.ok) {
         const data = await response.json();
         window.localStorage.setItem("pocket-admin-token", data.token);
+        window.localStorage.setItem("pocket-admin-user", JSON.stringify(data.user));
       } else {
         throw new Error("Invalid credentials");
       }
 
-      window.location.replace("/admin");
+      const next = new URLSearchParams(window.location.search).get("next");
+      window.location.replace(next && next.startsWith("/") ? next : "/admin");
     } catch {
       setError("Login failed. Check the admin email and password.");
     } finally {

@@ -306,18 +306,21 @@ router.get("/orders", async (req, res, next) => {
       })
       .parse(req.query);
 
-    const orders = await prisma.order.findMany({
-      where: {
+    const where: Prisma.OrderWhereInput = {
         ...(query.status ? { status: query.status } : {}),
         ...(query.search
           ? {
               OR: [
                 { orderNumber: { contains: query.search, mode: "insensitive" } },
+                { customerName: { contains: query.search, mode: "insensitive" } },
                 { customer: { is: { name: { contains: query.search, mode: "insensitive" } } } }
               ]
             }
           : {})
-      },
+      };
+
+    const orders = await prisma.order.findMany({
+      where,
       include: {
         customer: true,
         branch: true,

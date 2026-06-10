@@ -22,6 +22,10 @@ function OrderDetails({ order }: { order: AdminOrder }) {
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Payment</p>
           <p className="mt-2 text-sm font-medium text-pocket-navy">{order.paymentMethod.replaceAll("_", " ")}</p>
           <p className="text-sm text-pocket-navy/60">{order.paymentStatus.replaceAll("_", " ")}</p>
+          {order.channel ? <p className="mt-2 text-sm text-pocket-navy/60">Channel: {order.channel.replaceAll("_", " ")}</p> : null}
+          {order.serviceType ? <p className="text-sm text-pocket-navy/60">Service: {order.serviceType.replaceAll("_", " ")}</p> : null}
+          {typeof order.cashReceivedAmount === "number" ? <p className="text-sm text-pocket-navy/60">Paid: {formatCurrency(order.cashReceivedAmount)}</p> : null}
+          {typeof order.changeDueAmount === "number" ? <p className="text-sm text-pocket-navy/60">Change: {formatCurrency(order.changeDueAmount)}</p> : null}
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Delivery</p>
@@ -46,6 +50,7 @@ function OrderDetails({ order }: { order: AdminOrder }) {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="font-semibold text-pocket-navy">{item.productName}</p>
+                  {item.customDescription ? <p className="text-sm text-pocket-navy/60">{item.customDescription}</p> : null}
                   <p className="text-sm text-pocket-navy/60">Qty {item.quantity}</p>
                   {item.note ? <p className="mt-1 text-sm text-pocket-navy/60">Note: {item.note}</p> : null}
                 </div>

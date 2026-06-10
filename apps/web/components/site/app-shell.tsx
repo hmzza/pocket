@@ -6,9 +6,9 @@ import { Header } from "@/components/site/header";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isAdminRoute = pathname.startsWith("/admin");
+  const usesStandaloneShell = pathname.startsWith("/admin") || pathname.startsWith("/pos");
 
-  if (isAdminRoute) {
+  if (usesStandaloneShell) {
     return <main className="min-h-screen bg-pocket-cream/40">{children}</main>;
   }
 

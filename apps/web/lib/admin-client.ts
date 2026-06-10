@@ -121,13 +121,19 @@ export async function fetchAdminOrders() {
   const orders: AdminOrder[] = data.orders.map((order) => ({
     id: order.id,
     orderNumber: order.orderNumber,
-    customerName: order.customer.name,
-    customerPhone: order.customer.phone ?? undefined,
+    customerName: order.customerName ?? order.customer.name,
+    customerPhone: order.customerPhone ?? order.customer.phone ?? undefined,
+    channel: order.channel ?? undefined,
+    serviceType: order.serviceType ?? undefined,
     status: order.status,
     branch: order.branch.name,
     totalAmount: Number(order.totalAmount),
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+    cashReceivedAmount: order.cashReceivedAmount ? Number(order.cashReceivedAmount) : undefined,
+    changeDueAmount: order.changeDueAmount ? Number(order.changeDueAmount) : undefined,
+    manualDiscountType: order.manualDiscountType ?? undefined,
+    manualDiscountValue: order.manualDiscountValue ? Number(order.manualDiscountValue) : undefined,
     placedAt: order.placedAt,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
     address: order.address
@@ -140,6 +146,7 @@ export async function fetchAdminOrders() {
     items: order.items.map((item: any) => ({
       id: item.id,
       productName: item.productName,
+      customDescription: item.customDescription ?? undefined,
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       note: item.note ?? undefined,
@@ -182,7 +189,7 @@ export async function fetchAdminDashboard(): Promise<DashboardData> {
     recentOrders: dashboard.recentOrders.map((order: any) => ({
       id: order.id,
       orderNumber: order.orderNumber,
-      customerName: order.customer.name,
+      customerName: order.customerName ?? order.customer.name,
       status: order.status,
       totalAmount: Number(order.totalAmount)
     })),

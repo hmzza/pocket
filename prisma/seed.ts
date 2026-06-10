@@ -9,7 +9,7 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "1");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "2");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
@@ -20,11 +20,16 @@ async function main() {
     return;
   }
 
-  const [customerRole, adminRole, superAdminRole] = await Promise.all([
+  const [customerRole, posStaffRole, adminRole, superAdminRole] = await Promise.all([
     prisma.role.upsert({
       where: { code: RoleCode.CUSTOMER },
       update: { label: "Customer" },
       create: { code: RoleCode.CUSTOMER, label: "Customer" }
+    }),
+    prisma.role.upsert({
+      where: { code: RoleCode.POS_STAFF },
+      update: { label: "POS Staff" },
+      create: { code: RoleCode.POS_STAFF, label: "POS Staff" }
     }),
     prisma.role.upsert({
       where: { code: RoleCode.ADMIN },
@@ -40,6 +45,7 @@ async function main() {
 
   const adminPasswordHash = await bcrypt.hash(process.env.INITIAL_ADMIN_PASSWORD ?? "PocketAdmin123!", 12);
   const customerPasswordHash = await bcrypt.hash("PocketCustomer123!", 12);
+  const posPasswordHash = await bcrypt.hash(process.env.INITIAL_POS_PASSWORD ?? "PocketPos123!", 12);
 
   const admin = await prisma.user.upsert({
     where: { email: process.env.INITIAL_ADMIN_EMAIL ?? "admin@pocketshawarma.com" },
@@ -72,6 +78,24 @@ async function main() {
       phone: "+92-300-0000022",
       passwordHash: customerPasswordHash,
       roleId: customerRole.id
+    }
+  });
+
+  await prisma.user.upsert({
+    where: { email: process.env.INITIAL_POS_EMAIL ?? "counter@pocketshawarma.com" },
+    update: {
+      name: "Pocket Counter Staff",
+      phone: "+92-300-0000033",
+      passwordHash: posPasswordHash,
+      roleId: posStaffRole.id,
+      isActive: true
+    },
+    create: {
+      name: "Pocket Counter Staff",
+      email: process.env.INITIAL_POS_EMAIL ?? "counter@pocketshawarma.com",
+      phone: "+92-300-0000033",
+      passwordHash: posPasswordHash,
+      roleId: posStaffRole.id
     }
   });
 
@@ -436,40 +460,98 @@ async function main() {
     products.push(product);
   }
 
-  const chicken = products.find((product) => product.slug === "pocket-chicken-shawarma");
-  const beef = products.find((product) => product.slug === "pocket-beef-shawarma");
-  const special = products.find((product) => product.slug === "pocket-special-shawarma");
+  const addOnDefinitions = new Map([
+    [
+      "pocket-chicken-shawarma",
+      {
+        name: "Customize Your Wrap",
+        minSelect: 0,
+        maxSelect: 3,
+        options: [
+          { name: "Extra cheese", priceDelta: 90, sortOrder: 1 },
+          { name: "Extra sauce", priceDelta: 50, sortOrder: 2 },
+          { name: "Double meat", priceDelta: 190, sortOrder: 3 }
+        ]
+      }
+    ],
+    [
+      "pocket-beef-shawarma",
+      {
+        name: "Customize Your Wrap",
+        minSelect: 0,
+        maxSelect: 3,
+        options: [
+          { name: "Extra cheese", priceDelta: 90, sortOrder: 1 },
+          { name: "Extra sauce", priceDelta: 50, sortOrder: 2 },
+          { name: "Double meat", priceDelta: 190, sortOrder: 3 }
+        ]
+      }
+    ],
+    [
+      "pocket-special-shawarma",
+      {
+        name: "Customize Your Wrap",
+        minSelect: 0,
+        maxSelect: 4,
+        options: [
+          { name: "Extra cheese", priceDelta: 90, sortOrder: 1 },
+          { name: "Extra sauce", priceDelta: 50, sortOrder: 2 },
+          { name: "Double meat", priceDelta: 190, sortOrder: 3 },
+          { name: "Pocket fire sauce", priceDelta: 40, sortOrder: 4 }
+        ]
+      }
+    ],
+    [
+      "shawarma-drink-combo",
+      {
+        name: "Choose Your Drink",
+        minSelect: 1,
+        maxSelect: 1,
+        options: [
+          { name: "Coke", priceDelta: 0, sortOrder: 1 },
+          { name: "Sprite", priceDelta: 0, sortOrder: 2 },
+          { name: "Mirinda", priceDelta: 0, sortOrder: 3 }
+        ]
+      }
+    ],
+    [
+      "shawarma-fries-drink-combo",
+      {
+        name: "Choose Your Drink",
+        minSelect: 1,
+        maxSelect: 1,
+        options: [
+          { name: "Coke", priceDelta: 0, sortOrder: 1 },
+          { name: "Sprite", priceDelta: 0, sortOrder: 2 },
+          { name: "Mirinda", priceDelta: 0, sortOrder: 3 }
+        ]
+      }
+    ]
+  ]);
 
-  if (chicken && beef && special) {
-    await prisma.addOnGroup.deleteMany({ where: { productId: { in: [chicken.id, beef.id, special.id] } } });
-    for (const product of [chicken, beef, special]) {
-      const group = await prisma.addOnGroup.create({
+  const configurableProducts = products.filter((product) => addOnDefinitions.has(product.slug));
+  if (configurableProducts.length) {
+    await prisma.addOnGroup.deleteMany({
+      where: {
+        productId: { in: configurableProducts.map((product) => product.id) }
+      }
+    });
+
+    for (const product of configurableProducts) {
+      const definition = addOnDefinitions.get(product.slug)!;
+      await prisma.addOnGroup.create({
         data: {
           productId: product.id,
-          name: "Customize Your Wrap",
-          minSelect: 0,
-          maxSelect: 3,
+          name: definition.name,
+          minSelect: definition.minSelect,
+          maxSelect: definition.maxSelect,
+          isRequired: definition.minSelect > 0,
           sortOrder: 1,
           options: {
-            create: [
-              { name: "Extra cheese", priceDelta: 90, sortOrder: 1 },
-              { name: "Extra sauce", priceDelta: 50, sortOrder: 2 },
-              { name: "Double meat", priceDelta: 190, sortOrder: 3 }
-            ]
+            create: definition.options
           }
         }
       });
-
-      if (product.id === special.id) {
-        await prisma.addOnOption.create({
-          data: {
-            groupId: group.id,
-            name: "Pocket fire sauce",
-            priceDelta: 40,
-            sortOrder: 4
-          }
-        });
-      }
     }
   }
 

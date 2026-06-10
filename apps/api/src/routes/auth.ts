@@ -6,6 +6,8 @@ import { hashPassword, signToken, verifyPassword } from "../lib/auth.js";
 import { authenticate } from "../middleware/auth.js";
 
 const router = Router();
+const adminRoles = new Set([RoleCode.ADMIN, RoleCode.SUPER_ADMIN]);
+const posRoles = new Set([RoleCode.ADMIN, RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF]);
 
 const registerSchema = z.object({
   name: z.string().min(2).max(80),
@@ -49,29 +51,37 @@ const loginSchema = z.object({
   password: z.string().min(8)
 });
 
-router.post("/login", async (req, res, next) => {
-  try {
-    const payload = loginSchema.parse(req.body);
-    const user = await prisma.user.findUnique({
-      where: { email: payload.email },
-      include: { role: true }
-    });
+async function loginWithRoles(
+  email: string,
+  password: string,
+  allowedRoles?: Set<RoleCode>
+) {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: { role: true }
+  });
 
-    if (!user) {
-      return res.status(401).json({ message: "Invalid credentials." });
-    }
+  if (!user) {
+    return { status: 401 as const, body: { message: "Invalid credentials." } };
+  }
 
-    const isValid = await verifyPassword(payload.password, user.passwordHash);
-    if (!isValid) {
-      return res.status(401).json({ message: "Invalid credentials." });
-    }
+  const isValid = await verifyPassword(password, user.passwordHash);
+  if (!isValid) {
+    return { status: 401 as const, body: { message: "Invalid credentials." } };
+  }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() }
-    });
+  if (allowedRoles && !allowedRoles.has(user.role.code)) {
+    return { status: 403 as const, body: { message: "This account cannot access this area." } };
+  }
 
-    return res.json({
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() }
+  });
+
+  return {
+    status: 200 as const,
+    body: {
       token: signToken({ sub: user.id, email: user.email, role: user.role.code }),
       user: {
         id: user.id,
@@ -80,7 +90,35 @@ router.post("/login", async (req, res, next) => {
         phone: user.phone,
         role: user.role.code
       }
-    });
+    }
+  };
+}
+
+router.post("/login", async (req, res, next) => {
+  try {
+    const payload = loginSchema.parse(req.body);
+    const result = await loginWithRoles(payload.email, payload.password);
+    return res.status(result.status).json(result.body);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/admin-login", async (req, res, next) => {
+  try {
+    const payload = loginSchema.parse(req.body);
+    const result = await loginWithRoles(payload.email, payload.password, adminRoles);
+    return res.status(result.status).json(result.body);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/pos-login", async (req, res, next) => {
+  try {
+    const payload = loginSchema.parse(req.body);
+    const result = await loginWithRoles(payload.email, payload.password, posRoles);
+    return res.status(result.status).json(result.body);
   } catch (error) {
     return next(error);
   }
