@@ -15,7 +15,7 @@ export default async function MenuPage() {
       <SectionHeading
         eyebrow="Menu"
         title="Built for fast browsing and faster ordering"
-        description="Browse shawarmas, loaded fries, drinks, and combos with real pricing, product imagery, and quick cart actions."
+        description="Browse shawarma, fries, add-ons, chillers, shakes, and soft drinks with real pricing, product imagery, and quick cart actions."
       />
       <div className="mt-10">
         <MenuBrowser products={products} categories={categories} />

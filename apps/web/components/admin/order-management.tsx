@@ -14,6 +14,11 @@ function OrderDetails({ order }: { order: AdminOrder }) {
     <div className="grid gap-6 rounded-lg bg-pocket-cream p-5 lg:grid-cols-[0.85fr_1.15fr]">
       <div className="space-y-4">
         <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Order ID</p>
+          <p className="mt-2 text-base font-bold text-pocket-navy">{order.orderNumber}</p>
+          <p className="text-sm text-pocket-navy/60">{order.channel.replaceAll("_", " ")} · {order.serviceType.replaceAll("_", " ")}</p>
+        </div>
+        <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Customer</p>
           <p className="mt-2 text-base font-bold text-pocket-navy">{order.customerName}</p>
           {order.customerPhone ? <p className="text-sm text-pocket-navy/60">{order.customerPhone}</p> : null}
@@ -78,6 +83,7 @@ export function OrderManagement() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [viewFilter, setViewFilter] = useState<"ACTIVE" | "DELIVERED" | "ALL">("ACTIVE");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [expandedOrderId, setExpandedOrderId] = useState("");
@@ -105,12 +111,15 @@ export function OrderManagement() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
+      const isActive = order.status !== "DELIVERED" && order.status !== "CANCELLED";
+      const matchesView =
+        viewFilter === "ALL" ? true : viewFilter === "ACTIVE" ? isActive : order.status === "DELIVERED";
       const matchesStatus = statusFilter === "ALL" || order.status === statusFilter;
-      const haystack = `${order.orderNumber} ${order.customerName} ${order.branch}`.toLowerCase();
+      const haystack = `${order.orderNumber} ${order.customerName} ${order.branch} ${order.channel} ${order.address?.addressLine1 ?? ""} ${order.address?.city ?? ""}`.toLowerCase();
       const matchesSearch = !search || haystack.includes(search.toLowerCase());
-      return matchesStatus && matchesSearch;
+      return matchesView && matchesStatus && matchesSearch;
     });
-  }, [orders, search, statusFilter]);
+  }, [orders, search, statusFilter, viewFilter]);
 
   async function changeStatus(orderId: string, status: string) {
     setUpdatingOrderId(orderId);
@@ -128,39 +137,57 @@ export function OrderManagement() {
   return (
     <div className="space-y-6">
       <Card className="p-5">
-        <div className="grid gap-4 lg:grid-cols-[1fr_220px_auto]">
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order number or customer" />
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-            className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
-          >
-            <option value="ALL">All statuses</option>
-            {ORDER_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {status.replaceAll("_", " ")}
-              </option>
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {[
+              { value: "ACTIVE", label: "Active" },
+              { value: "DELIVERED", label: "Delivered" },
+              { value: "ALL", label: "All" }
+            ].map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                variant={viewFilter === option.value ? "default" : "outline"}
+                onClick={() => setViewFilter(option.value as "ACTIVE" | "DELIVERED" | "ALL")}
+              >
+                {option.label}
+              </Button>
             ))}
-          </select>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setRefreshing(true);
-              void loadOrders();
-            }}
-            disabled={refreshing}
-          >
-            <RefreshCcw className="h-4 w-4" />
-            Refresh
-          </Button>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[1fr_220px_auto]">
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, customer, branch, or address" />
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
+            >
+              <option value="ALL">All statuses</option>
+              {ORDER_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {status.replaceAll("_", " ")}
+                </option>
+              ))}
+            </select>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRefreshing(true);
+                void loadOrders();
+              }}
+              disabled={refreshing}
+            >
+              <RefreshCcw className="h-4 w-4" />
+              Refresh
+            </Button>
+          </div>
         </div>
-        <p className="mt-4 text-sm text-pocket-navy/60">Orders are controlled through fulfillment status. Line items remain a post-checkout snapshot.</p>
+        <p className="mt-4 text-sm text-pocket-navy/60">Active orders stay visible until delivery is completed. Online orders include the customer address when present.</p>
       </Card>
 
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
 
       <Card className="overflow-hidden">
-        <div className="grid grid-cols-[1.15fr_1.2fr_1.1fr_0.7fr_0.8fr_0.7fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
+        <div className="grid grid-cols-[1.25fr_1.2fr_1.05fr_0.65fr_0.8fr_0.7fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
           <span>Order</span>
           <span>Customer</span>
           <span>Status Control</span>
@@ -175,7 +202,7 @@ export function OrderManagement() {
             const open = expandedOrderId === order.id;
             return (
               <div key={order.id} className="border-b border-pocket-navy/10 last:border-0">
-                <div className="grid grid-cols-[1.15fr_1.2fr_1.1fr_0.7fr_0.8fr_0.7fr] gap-4 px-5 py-4 text-sm">
+                <div className="grid grid-cols-[1.25fr_1.2fr_1.05fr_0.65fr_0.8fr_0.7fr] gap-4 px-5 py-4 text-sm">
                   <div>
                     <p className="font-bold text-pocket-navy">{order.orderNumber}</p>
                     <p className="text-pocket-navy/60">{order.branch}</p>
@@ -193,6 +220,11 @@ export function OrderManagement() {
                     <p className="font-medium text-pocket-navy">{order.customerName}</p>
                     {order.customerPhone ? <p className="text-pocket-navy/60">{order.customerPhone}</p> : null}
                     <p className="text-xs font-medium uppercase tracking-wide text-pocket-navy/40">{order.serviceType.replaceAll("_", " ")}</p>
+                    {order.address ? (
+                      <p className="mt-1 text-xs text-pocket-navy/60">
+                        {order.address.addressLine1}, {order.address.city}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <select

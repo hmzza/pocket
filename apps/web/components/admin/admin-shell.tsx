@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, Boxes, FilePenLine, LayoutDashboard, LogOut, ShoppingCart, Users } from "lucide-react";
+import { BarChart3, Boxes, LayoutDashboard, LogOut, ShoppingCart, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -18,8 +18,7 @@ const links: Array<{
   { href: "/admin/products", label: "Products", icon: Boxes },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/customers", label: "Customers", icon: Users },
-  { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/admin/cms", label: "CMS", icon: FilePenLine }
+  { href: "/admin/analytics", label: "Analytics", icon: BarChart3 }
 ];
 
 export function AdminShell({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {

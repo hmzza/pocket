@@ -79,7 +79,7 @@ export default async function HomePage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-14 md:px-6">
-        <SectionHeading eyebrow="Best Sellers" title="Most ordered right now" description="Menu leaders across wraps, fries, and combo stacks." />
+        <SectionHeading eyebrow="Best Sellers" title="Most ordered right now" description="Menu leaders across shawarma, fries, shakes, and drinks." />
         <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
           {data.bestSellers.map((product) => (
             <ProductCard key={product.id} product={product} />

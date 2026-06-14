@@ -9,6 +9,7 @@ import authRoutes from "./routes/auth.js";
 import catalogRoutes from "./routes/catalog.js";
 import customerRoutes from "./routes/customer.js";
 import adminRoutes from "./routes/admin.js";
+import opsRoutes from "./routes/ops.js";
 import posRoutes from "./routes/pos.js";
 import { csrfGuard } from "./middleware/security.js";
 import { notFound } from "./middleware/not-found.js";
@@ -53,6 +54,7 @@ export function createApp() {
   app.use("/api", catalogRoutes);
   app.use("/api/customer", customerRoutes);
   app.use("/api/admin", adminRoutes);
+  app.use("/api/ops", opsRoutes);
   app.use("/api/pos", posRoutes);
   app.use(notFound);
   app.use(errorHandler);

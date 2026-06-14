@@ -8,12 +8,12 @@ export const metadata: Metadata = {
     default: "POCKET - The Shawarma Spot",
     template: "%s | POCKET"
   },
-  description: "Pocket Shawarma Spot in Islamabad serving bold wraps, loaded fries, combos, and fast delivery.",
+  description: "Pocket Shawarma Spot in Islamabad serving shawarma, fries, add-ons, chillers, shakes, and fast delivery.",
   metadataBase: new URL("https://pocketshawarma.example"),
   icons: {
-    icon: "/icon.svg",
-    shortcut: "/icon.svg",
-    apple: "/icon.svg"
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png"
   },
   openGraph: {
     title: "POCKET - The Shawarma Spot",

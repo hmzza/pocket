@@ -72,21 +72,36 @@ const checkoutSchema = z.object({
 });
 
 function formatOrderForReceipt(order: any) {
+  const taxRate = Number(order.taxRate);
+  const serviceFee = Number(order.deliveryFee ?? 0);
+  const grossTotal = Number(order.subtotal);
+  const discountAmount = Number(order.discountAmount);
+  const totalTax = Number(order.taxAmount);
+  const netTotal = Number(order.totalAmount);
+
   return {
     id: order.id,
+    receiptNumber: order.orderNumber,
     orderNumber: order.orderNumber,
+    posNo: "001",
+    userId: order.cashierId ?? "Admin",
     channel: order.channel,
     serviceType: order.serviceType,
+    orderType: order.serviceType,
     status: order.status,
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? null,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
-    subtotal: Number(order.subtotal),
-    discountAmount: Number(order.discountAmount),
-    taxRate: Number(order.taxRate),
-    taxAmount: Number(order.taxAmount),
-    totalAmount: Number(order.totalAmount),
+    createdAt: order.placedAt,
+    subtotal: grossTotal,
+    grossTotal,
+    discountAmount,
+    serviceFee,
+    taxRate,
+    totalTax,
+    netTotal,
+    totalAmount: netTotal,
     paidAmount: Number(order.cashReceivedAmount ?? order.totalAmount),
     changeDueAmount: Number(order.changeDueAmount ?? 0),
     placedAt: order.placedAt,
@@ -102,6 +117,9 @@ function formatOrderForReceipt(order: any) {
       customDescription: item.customDescription ?? null,
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
+      taxRate,
+      taxAmount: Number((Number(item.unitPrice) * item.quantity * taxRate / 100).toFixed(2)),
+      lineTotal: Number((Number(item.unitPrice) * item.quantity * (1 + taxRate / 100)).toFixed(2)),
       note: item.note ?? null,
       addOns: item.addOns.map((addOn: any) => ({
         id: addOn.id,
@@ -147,7 +165,7 @@ router.get("/catalog", async (req, res, next) => {
         ...posProductInclude,
         branchPricing: branchId ? { where: { branchId } } : true
       },
-      orderBy: [{ category: { sortOrder: "asc" } }, { name: "asc" }]
+      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
     });
 
     const categories = await prisma.category.findMany({
@@ -315,6 +333,7 @@ router.post("/checkout", async (req, res, next) => {
         status: "CONFIRMED",
         paymentMethod: payload.paymentMethod as PaymentMethod,
         paymentStatus: PaymentStatus.PAID,
+        cashierId: req.user!.id,
         subtotal,
         taxRate: payload.taxRate,
         taxAmount,

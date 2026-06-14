@@ -133,7 +133,7 @@ export default function CartPage() {
           ) : (
             <Card className="p-8">
               <p className="text-lg font-bold text-pocket-navy">Your cart is empty.</p>
-              <p className="mt-2 text-sm text-pocket-navy/60">Start with shawarmas, combos, or loaded fries.</p>
+              <p className="mt-2 text-sm text-pocket-navy/60">Start with shawarma, fries, shakes, or soft drinks.</p>
               <Link href="/menu" className="mt-4 inline-flex">
                 <Button>Browse Menu</Button>
               </Link>

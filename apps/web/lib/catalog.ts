@@ -24,8 +24,6 @@ export function normalizeProducts(items: any[] | undefined): Product[] {
       gallery: item.images?.map((image: any) => image.url) ?? [category.imageUrl],
       featured: Boolean(item.featured),
       bestSeller: Boolean(item.bestSeller),
-      prepTimeMinutes: item.prepTimeMinutes ?? 20,
-      spiceLevel: item.spiceLevel ?? 2,
       ingredients: item.ingredients ?? [],
       nutrition: {
         calories: item.nutritionInfo?.calories ?? item.calories ?? 0,

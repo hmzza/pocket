@@ -13,7 +13,7 @@ export default async function SearchPage() {
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Global Search</p>
         <h1 className="text-4xl font-black text-pocket-navy">Instant menu lookup</h1>
-        <p className="text-sm text-pocket-navy/70">Search shawarmas, drinks, combos, or category keywords with immediate results.</p>
+        <p className="text-sm text-pocket-navy/70">Search shawarma, fries, add-ons, chillers, shakes, or category keywords with immediate results.</p>
       </div>
       <div className="mt-8">
         <SearchExplorer products={products} />

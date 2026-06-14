@@ -1,7 +1,6 @@
 import { API_URL } from "./catalog";
 
 export const ORDER_TAX_RATE = 0.12;
-export const ORDER_HISTORY_KEY = "pocket-order-history";
 export const STORED_COUPON_KEY = "pocket-coupon-code";
 
 export type CouponValidationResult = {
@@ -71,26 +70,4 @@ export function writeStoredCoupon(code: string) {
   }
 
   window.localStorage.setItem(STORED_COUPON_KEY, normalizedCode);
-}
-
-export function rememberOrder(orderNumber: string) {
-  if (typeof window === "undefined") return;
-
-  const current = readRememberedOrders();
-  const next = [orderNumber, ...current.filter((entry) => entry !== orderNumber)].slice(0, 10);
-  window.localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(next));
-}
-
-export function readRememberedOrders() {
-  if (typeof window === "undefined") return [] as string[];
-
-  try {
-    const raw = window.localStorage.getItem(ORDER_HISTORY_KEY);
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
-  } catch {
-    return [];
-  }
 }

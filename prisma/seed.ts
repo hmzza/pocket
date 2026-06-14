@@ -9,13 +9,15 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "1");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "2");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
   });
 
-  if (existingSeedMarker && !forceSeed) {
+  const existingSeedVersion = Number((existingSeedMarker?.value as { version?: unknown } | null)?.version ?? 0);
+
+  if (existingSeedMarker && existingSeedVersion === seedVersion && !forceSeed) {
     console.log(`Seed marker found for version ${seedVersion}. Skipping seed.`);
     return;
   }
@@ -155,7 +157,7 @@ async function main() {
         eyebrow: "Islamabad's newest shawarma ritual",
         headline: "POCKET",
         subheadline: "Real Shawarma, Served The Pocket Way",
-        description: "Fresh carved wraps, loaded fries, bold sauces, and fast delivery from G-11 Markaz.",
+        description: "Fresh shawarmas, crispy fries, chillers, shakes, and fast delivery from G-11 Markaz.",
         primaryCta: { label: "Order Now", href: "/menu" },
         secondaryCta: { label: "View Menu", href: "/menu" }
       }
@@ -173,9 +175,9 @@ async function main() {
       key: "homepage.testimonials",
       title: "Testimonials",
       content: [
-        { author: "Hassan R.", body: "Pocket special with extra sauce is already my default lunch order.", rating: 5 },
-        { author: "Maria N.", body: "Loaded fries hit the right balance. Fast prep and clean packaging.", rating: 5 },
-        { author: "Ali Z.", body: "The wraps actually taste premium. Good portions too.", rating: 4 }
+        { author: "Hassan R.", body: "Classic Pocket is clean, filling, and easy to recommend.", rating: 5 },
+        { author: "Maria N.", body: "Loaded Fries and the chillers both hold up really well.", rating: 5 },
+        { author: "Ali Z.", body: "The shakes are consistent and the portions are solid.", rating: 4 }
       ]
     },
     {
@@ -222,261 +224,467 @@ async function main() {
       update: {
         value: {
           title: "Pocket - The Shawarma Spot",
-          description: "Pocket Shawarma Spot in Islamabad serving bold wraps, loaded fries, and combo meals."
+          description: "Pocket Shawarma Spot in Islamabad serving shawarmas, fries, chillers, shakes, and soft drinks."
         }
       },
       create: {
         key: "store.seo",
         value: {
           title: "Pocket - The Shawarma Spot",
-          description: "Pocket Shawarma Spot in Islamabad serving bold wraps, loaded fries, and combo meals."
+          description: "Pocket Shawarma Spot in Islamabad serving shawarmas, fries, chillers, shakes, and soft drinks."
         }
       }
     })
   ]);
 
-  const categories = await Promise.all([
-    prisma.category.upsert({
-      where: { slug: "shawarmas" },
-      update: { name: "Shawarmas", description: "Pocket signature wraps", sortOrder: 1, imageUrl: "/images/shawarma-pocket.svg" },
-      create: { slug: "shawarmas", name: "Shawarmas", description: "Pocket signature wraps", sortOrder: 1, imageUrl: "/images/shawarma-pocket.svg" }
-    }),
-    prisma.category.upsert({
-      where: { slug: "fries" },
-      update: { name: "Fries", description: "Loaded sides and spice hits", sortOrder: 2, imageUrl: "/images/loaded-fries.svg" },
-      create: { slug: "fries", name: "Fries", description: "Loaded sides and spice hits", sortOrder: 2, imageUrl: "/images/loaded-fries.svg" }
-    }),
-    prisma.category.upsert({
-      where: { slug: "drinks" },
-      update: { name: "Drinks", description: "Cold add-ons", sortOrder: 3, imageUrl: "/images/pocket-drink.svg" },
-      create: { slug: "drinks", name: "Drinks", description: "Cold add-ons", sortOrder: 3, imageUrl: "/images/pocket-drink.svg" }
-    }),
-    prisma.category.upsert({
-      where: { slug: "combos" },
-      update: { name: "Combos", description: "Pocket bundles", sortOrder: 4, imageUrl: "/images/pocket-combo.svg" },
-      create: { slug: "combos", name: "Combos", description: "Pocket bundles", sortOrder: 4, imageUrl: "/images/pocket-combo.svg" }
-    })
-  ]);
+  const categorySeeds = [
+    {
+      legacySlug: "shawarmas",
+      slug: "shawarma",
+      name: "Shawarma",
+      description: "Pocket signature wraps",
+      sortOrder: 1,
+      imageUrl: "/images/shawarma-pocket.svg"
+    },
+    {
+      legacySlug: "fries",
+      slug: "fries",
+      name: "Fries",
+      description: "Crispy sides and spice hits",
+      sortOrder: 2,
+      imageUrl: "/images/loaded-fries.svg"
+    },
+    {
+      slug: "add-ons",
+      name: "Add-ons",
+      description: "Custom extras",
+      sortOrder: 3,
+      imageUrl: "/images/brand-grid.svg"
+    },
+    {
+      legacySlug: "drinks",
+      slug: "chillers",
+      name: "Chillers",
+      description: "Fruit chillers",
+      sortOrder: 4,
+      imageUrl: "/images/pocket-drink.svg"
+    },
+    {
+      legacySlug: "combos",
+      slug: "ice-cream-shakes",
+      name: "Ice Cream Shakes",
+      description: "Creamy shakes",
+      sortOrder: 5,
+      imageUrl: "/images/pocket-combo.svg"
+    },
+    {
+      slug: "soft-drinks",
+      name: "Soft Drinks",
+      description: "Classic soft drinks",
+      sortOrder: 6,
+      imageUrl: "/images/pocket-drink.svg"
+    }
+  ];
+
+  const categories = [];
+  for (const seed of categorySeeds) {
+    const existingCategory =
+      (await prisma.category.findUnique({ where: { slug: seed.slug } })) ??
+      (seed.legacySlug ? await prisma.category.findUnique({ where: { slug: seed.legacySlug } }) : null);
+
+    const category = existingCategory
+      ? await prisma.category.update({
+          where: { id: existingCategory.id },
+          data: {
+            slug: seed.slug,
+            name: seed.name,
+            description: seed.description,
+            sortOrder: seed.sortOrder,
+            imageUrl: seed.imageUrl
+          }
+        })
+      : await prisma.category.create({
+          data: {
+            slug: seed.slug,
+            name: seed.name,
+            description: seed.description,
+            sortOrder: seed.sortOrder,
+            imageUrl: seed.imageUrl
+          }
+        });
+
+    categories.push(category);
+  }
 
   const categoryMap = Object.fromEntries(categories.map((category) => [category.slug, category]));
 
   const productSeeds = [
     {
-      slug: "pocket-chicken-shawarma",
+      legacySlug: "pocket-chicken-shawarma",
+      slug: "classic-pocket",
       sku: "PKT-SHW-001",
-      name: "Pocket Chicken Shawarma",
-      description: "Charred chicken, pickled slaw, garlic sauce, and crunchy lettuce wrapped Pocket style.",
-      categorySlug: "shawarmas",
-      ingredients: ["Chicken", "Garlic sauce", "Pickles", "Lettuce"],
-      basePrice: 590,
-      calories: 640,
+      name: "Classic Pocket",
+      description: "Juicy chicken with classic shawarma sauce, iceberg, carrot, cucumber, and cheese.",
+      categorySlug: "shawarma",
+      ingredients: ["Chicken", "Classic shawarma sauce", "Iceberg", "Carrot", "Cucumber", "Cheese"],
+      basePrice: 450,
+      calories: 560,
       featured: true,
       bestSeller: true,
-      prepTimeMinutes: 16,
-      spiceLevel: 2,
-      nutritionInfo: nutrition(640, 31, 43, 28),
-      images: [
-        { url: "/images/shawarma-pocket.svg", alt: "Pocket chicken shawarma", sortOrder: 1 }
-      ]
+      sortOrder: 1,
+      nutritionInfo: nutrition(560, 29, 41, 24),
+      images: [{ url: "/images/shawarma-pocket.svg", alt: "Classic Pocket", sortOrder: 1 }]
     },
     {
-      slug: "pocket-beef-shawarma",
+      legacySlug: "pocket-beef-shawarma",
+      slug: "spicy-pocket",
       sku: "PKT-SHW-002",
-      name: "Pocket Beef Shawarma",
-      description: "Slow-spiced beef, tahini aioli, onions, and sumac fries crunch tucked into a toasted wrap.",
-      categorySlug: "shawarmas",
-      ingredients: ["Beef", "Tahini aioli", "Onions", "Sumac"],
-      basePrice: 690,
-      calories: 700,
-      featured: true,
-      bestSeller: false,
-      prepTimeMinutes: 18,
-      spiceLevel: 3,
-      nutritionInfo: nutrition(700, 34, 45, 32),
-      images: [
-        { url: "/images/shawarma-beef.svg", alt: "Pocket beef shawarma", sortOrder: 1 }
-      ]
-    },
-    {
-      slug: "pocket-special-shawarma",
-      sku: "PKT-SHW-003",
-      name: "Pocket Special Shawarma",
-      description: "Double protein, olives, corn, jalapeno cream, and Pocket fire sauce.",
-      categorySlug: "shawarmas",
-      ingredients: ["Chicken", "Beef", "Olives", "Corn", "Pocket sauce"],
-      basePrice: 790,
-      calories: 820,
+      name: "Spicy Pocket",
+      description: "Juicy chicken with spicy jalapeno sauce, iceberg, carrot, cucumber, and cheese.",
+      categorySlug: "shawarma",
+      ingredients: ["Chicken", "Spicy jalapeno sauce", "Iceberg", "Carrot", "Cucumber", "Cheese"],
+      basePrice: 550,
+      calories: 590,
       featured: true,
       bestSeller: true,
-      prepTimeMinutes: 20,
-      spiceLevel: 4,
-      nutritionInfo: nutrition(820, 44, 50, 40),
-      images: [
-        { url: "/images/pocket-special.svg", alt: "Pocket special shawarma", sortOrder: 1 }
-      ]
+      sortOrder: 2,
+      nutritionInfo: nutrition(590, 30, 42, 27),
+      images: [{ url: "/images/shawarma-beef.svg", alt: "Spicy Pocket", sortOrder: 1 }]
+    },
+    {
+      legacySlug: "pocket-special-shawarma",
+      slug: "pocket-mai-rocket",
+      sku: "PKT-SHW-003",
+      name: "Pocket Mai Rocket",
+      description: "Premium pocket with black olives, jalapeno, corn, mushrooms, cheese, and your choice of classic or spicy sauce.",
+      categorySlug: "shawarma",
+      ingredients: ["Chicken", "Black olives", "Jalapeno", "Corn", "Mushrooms", "Cheese"],
+      basePrice: 750,
+      calories: 760,
+      featured: true,
+      bestSeller: true,
+      sortOrder: 3,
+      nutritionInfo: nutrition(760, 36, 45, 34),
+      images: [{ url: "/images/pocket-special.svg", alt: "Pocket Mai Rocket", sortOrder: 1 }]
+    },
+    {
+      legacySlug: "loaded-fries",
+      slug: "thela-fries",
+      sku: "PKT-FRY-001",
+      name: "Thela Fries",
+      description: "Crispy french fries with spicy masala.",
+      categorySlug: "fries",
+      ingredients: ["French fries", "Spicy masala"],
+      basePrice: 180,
+      calories: 360,
+      featured: false,
+      bestSeller: true,
+      sortOrder: 1,
+      nutritionInfo: nutrition(360, 4, 44, 18),
+      images: [{ url: "/images/loaded-fries.svg", alt: "Thela Fries", sortOrder: 1 }]
+    },
+    {
+      legacySlug: "masala-fries",
+      slug: "garlic-mayo-fries",
+      sku: "PKT-FRY-002",
+      name: "Garlic Mayo Fries",
+      description: "Crispy french fries with spicy masala and garlic mayo dip.",
+      categorySlug: "fries",
+      ingredients: ["French fries", "Spicy masala", "Garlic mayo dip"],
+      basePrice: 220,
+      calories: 420,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 2,
+      nutritionInfo: nutrition(420, 5, 48, 20),
+      images: [{ url: "/images/masala-fries.svg", alt: "Garlic Mayo Fries", sortOrder: 1 }]
     },
     {
       slug: "loaded-fries",
-      sku: "PKT-FRY-001",
+      sku: "PKT-FRY-003",
       name: "Loaded Fries",
-      description: "Crispy fries with chicken shawarma, garlic drizzle, pickled onions, and parsley.",
+      description: "Loaded with cheese sauce, jalapeno, olives, corn, and juicy chicken.",
       categorySlug: "fries",
-      ingredients: ["Fries", "Chicken", "Garlic drizzle", "Onions"],
-      basePrice: 470,
-      calories: 510,
-      featured: false,
+      ingredients: ["French fries", "Cheese sauce", "Jalapeno", "Olives", "Corn", "Chicken"],
+      basePrice: 399,
+      calories: 640,
+      featured: true,
       bestSeller: true,
-      prepTimeMinutes: 12,
-      spiceLevel: 2,
-      nutritionInfo: nutrition(510, 18, 53, 24),
-      images: [
-        { url: "/images/loaded-fries.svg", alt: "Loaded fries", sortOrder: 1 }
-      ]
+      sortOrder: 3,
+      nutritionInfo: nutrition(640, 17, 50, 30),
+      images: [{ url: "/images/loaded-fries.svg", alt: "Loaded Fries", sortOrder: 1 }]
     },
     {
-      slug: "masala-fries",
-      sku: "PKT-FRY-002",
-      name: "Masala Fries",
-      description: "Crispy fries dusted in Pocket masala and served with cool dip.",
-      categorySlug: "fries",
-      ingredients: ["Fries", "Masala seasoning", "Dip"],
-      basePrice: 280,
+      slug: "olives",
+      sku: "PKT-ADD-001",
+      name: "Olives",
+      description: "Add-on item.",
+      categorySlug: "add-ons",
+      ingredients: ["Olives"],
+      basePrice: 40,
+      calories: 40,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 1,
+      nutritionInfo: nutrition(40, 0, 2, 4),
+      images: [{ url: "/images/brand-grid.svg", alt: "Olives", sortOrder: 1 }]
+    },
+    {
+      slug: "mushrooms",
+      sku: "PKT-ADD-002",
+      name: "Mushrooms",
+      description: "Add-on item.",
+      categorySlug: "add-ons",
+      ingredients: ["Mushrooms"],
+      basePrice: 40,
+      calories: 35,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 2,
+      nutritionInfo: nutrition(35, 1, 4, 0),
+      images: [{ url: "/images/brand-grid.svg", alt: "Mushrooms", sortOrder: 1 }]
+    },
+    {
+      slug: "chicken-add-on",
+      sku: "PKT-ADD-003",
+      name: "Chicken",
+      description: "Add-on item.",
+      categorySlug: "add-ons",
+      ingredients: ["Chicken"],
+      basePrice: 90,
+      calories: 120,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 3,
+      nutritionInfo: nutrition(120, 14, 0, 5),
+      images: [{ url: "/images/brand-grid.svg", alt: "Chicken add-on", sortOrder: 1 }]
+    },
+    {
+      slug: "cheese",
+      sku: "PKT-ADD-004",
+      name: "Cheese",
+      description: "Add-on item.",
+      categorySlug: "add-ons",
+      ingredients: ["Cheese"],
+      basePrice: 40,
+      calories: 80,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 4,
+      nutritionInfo: nutrition(80, 4, 1, 6),
+      images: [{ url: "/images/brand-grid.svg", alt: "Cheese", sortOrder: 1 }]
+    },
+    {
+      legacySlug: "coke",
+      slug: "kiwi-passion",
+      sku: "PKT-CHL-001",
+      name: "Kiwi Passion",
+      description: "Fruit chiller.",
+      categorySlug: "chillers",
+      ingredients: ["Kiwi", "Passion fruit"],
+      basePrice: 410,
+      calories: 220,
+      featured: false,
+      bestSeller: true,
+      sortOrder: 1,
+      nutritionInfo: nutrition(220, 1, 54, 0),
+      images: [{ url: "/images/pocket-drink.svg", alt: "Kiwi Passion", sortOrder: 1 }]
+    },
+    {
+      legacySlug: "sprite",
+      slug: "strawberry-cherry",
+      sku: "PKT-CHL-002",
+      name: "Strawberry Cherry",
+      description: "Fruit chiller.",
+      categorySlug: "chillers",
+      ingredients: ["Strawberry", "Cherry"],
+      basePrice: 410,
+      calories: 230,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 2,
+      nutritionInfo: nutrition(230, 1, 56, 0),
+      images: [{ url: "/images/pocket-drink.svg", alt: "Strawberry Cherry", sortOrder: 1 }]
+    },
+    {
+      legacySlug: "mirinda",
+      slug: "watermelon-guava",
+      sku: "PKT-CHL-003",
+      name: "Watermelon Guava",
+      description: "Fruit chiller.",
+      categorySlug: "chillers",
+      ingredients: ["Watermelon", "Guava"],
+      basePrice: 410,
+      calories: 240,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 3,
+      nutritionInfo: nutrition(240, 1, 58, 0),
+      images: [{ url: "/images/pocket-drink.svg", alt: "Watermelon Guava", sortOrder: 1 }]
+    },
+    {
+      slug: "chocolate",
+      sku: "PKT-SHK-001",
+      name: "Chocolate",
+      description: "Ice cream shake.",
+      categorySlug: "ice-cream-shakes",
+      ingredients: ["Chocolate ice cream", "Milk"],
+      basePrice: 300,
+      calories: 410,
+      featured: true,
+      bestSeller: true,
+      sortOrder: 1,
+      nutritionInfo: nutrition(410, 8, 48, 18),
+      images: [{ url: "/images/pocket-combo.svg", alt: "Chocolate shake", sortOrder: 1 }]
+    },
+    {
+      slug: "vanilla",
+      sku: "PKT-SHK-002",
+      name: "Vanilla",
+      description: "Ice cream shake.",
+      categorySlug: "ice-cream-shakes",
+      ingredients: ["Vanilla ice cream", "Milk"],
+      basePrice: 300,
       calories: 390,
       featured: false,
       bestSeller: false,
-      prepTimeMinutes: 8,
-      spiceLevel: 3,
-      nutritionInfo: nutrition(390, 6, 49, 18),
-      images: [
-        { url: "/images/masala-fries.svg", alt: "Masala fries", sortOrder: 1 }
-      ]
+      sortOrder: 2,
+      nutritionInfo: nutrition(390, 7, 46, 16),
+      images: [{ url: "/images/pocket-combo.svg", alt: "Vanilla shake", sortOrder: 1 }]
     },
     {
-      slug: "coke",
-      sku: "PKT-DRK-001",
-      name: "Coke",
-      description: "Chilled can.",
-      categorySlug: "drinks",
+      slug: "mango",
+      sku: "PKT-SHK-003",
+      name: "Mango",
+      description: "Ice cream shake.",
+      categorySlug: "ice-cream-shakes",
+      ingredients: ["Mango", "Ice cream", "Milk"],
+      basePrice: 300,
+      calories: 400,
+      featured: false,
+      bestSeller: true,
+      sortOrder: 3,
+      nutritionInfo: nutrition(400, 7, 49, 15),
+      images: [{ url: "/images/pocket-combo.svg", alt: "Mango shake", sortOrder: 1 }]
+    },
+    {
+      slug: "oreo",
+      sku: "PKT-SHK-004",
+      name: "Oreo",
+      description: "Ice cream shake.",
+      categorySlug: "ice-cream-shakes",
+      ingredients: ["Oreo", "Ice cream", "Milk"],
+      basePrice: 300,
+      calories: 430,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 4,
+      nutritionInfo: nutrition(430, 8, 52, 18),
+      images: [{ url: "/images/pocket-combo.svg", alt: "Oreo shake", sortOrder: 1 }]
+    },
+    {
+      slug: "strawberry",
+      sku: "PKT-SHK-005",
+      name: "Strawberry",
+      description: "Ice cream shake.",
+      categorySlug: "ice-cream-shakes",
+      ingredients: ["Strawberry", "Ice cream", "Milk"],
+      basePrice: 300,
+      calories: 395,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 5,
+      nutritionInfo: nutrition(395, 7, 47, 16),
+      images: [{ url: "/images/pocket-combo.svg", alt: "Strawberry shake", sortOrder: 1 }]
+    },
+    {
+      slug: "pepsi",
+      sku: "PKT-SFT-001",
+      name: "Pepsi",
+      description: "Soft drink.",
+      categorySlug: "soft-drinks",
       ingredients: ["Carbonated beverage"],
-      basePrice: 120,
+      basePrice: 80,
       calories: 140,
       featured: false,
       bestSeller: true,
-      prepTimeMinutes: 1,
-      spiceLevel: 0,
+      sortOrder: 1,
       nutritionInfo: nutrition(140, 0, 39, 0),
-      images: [
-        { url: "/images/pocket-drink.svg", alt: "Coke can", sortOrder: 1 }
-      ]
+      images: [{ url: "/images/pocket-drink.svg", alt: "Pepsi", sortOrder: 1 }]
     },
     {
-      slug: "sprite",
-      sku: "PKT-DRK-002",
-      name: "Sprite",
-      description: "Chilled can.",
-      categorySlug: "drinks",
+      slug: "seven-up",
+      sku: "PKT-SFT-002",
+      name: "7UP",
+      description: "Soft drink.",
+      categorySlug: "soft-drinks",
       ingredients: ["Carbonated beverage"],
-      basePrice: 120,
-      calories: 140,
+      basePrice: 80,
+      calories: 135,
       featured: false,
       bestSeller: false,
-      prepTimeMinutes: 1,
-      spiceLevel: 0,
-      nutritionInfo: nutrition(140, 0, 39, 0),
-      images: [
-        { url: "/images/pocket-drink.svg", alt: "Sprite can", sortOrder: 1 }
-      ]
+      sortOrder: 2,
+      nutritionInfo: nutrition(135, 0, 38, 0),
+      images: [{ url: "/images/pocket-drink.svg", alt: "7UP", sortOrder: 1 }]
     },
     {
-      slug: "mirinda",
-      sku: "PKT-DRK-003",
-      name: "Mirinda",
-      description: "Chilled can.",
-      categorySlug: "drinks",
+      slug: "fanta",
+      sku: "PKT-SFT-003",
+      name: "Fanta",
+      description: "Soft drink.",
+      categorySlug: "soft-drinks",
       ingredients: ["Carbonated beverage"],
-      basePrice: 120,
-      calories: 150,
+      basePrice: 80,
+      calories: 145,
       featured: false,
       bestSeller: false,
-      prepTimeMinutes: 1,
-      spiceLevel: 0,
-      nutritionInfo: nutrition(150, 0, 41, 0),
-      images: [
-        { url: "/images/pocket-drink.svg", alt: "Mirinda can", sortOrder: 1 }
-      ]
-    },
-    {
-      slug: "shawarma-drink-combo",
-      sku: "PKT-CMB-001",
-      name: "Shawarma + Drink",
-      description: "Pocket chicken shawarma paired with a chilled drink.",
-      categorySlug: "combos",
-      ingredients: ["Chicken shawarma", "Soft drink"],
-      basePrice: 670,
-      calories: 780,
-      featured: true,
-      bestSeller: true,
-      prepTimeMinutes: 16,
-      spiceLevel: 2,
-      nutritionInfo: nutrition(780, 31, 82, 28),
-      images: [
-        { url: "/images/pocket-combo.svg", alt: "Shawarma combo", sortOrder: 1 }
-      ]
-    },
-    {
-      slug: "shawarma-fries-drink-combo",
-      sku: "PKT-CMB-002",
-      name: "Shawarma + Fries + Drink",
-      description: "The all-in Pocket order built for lunch rush or late-night cravings.",
-      categorySlug: "combos",
-      ingredients: ["Chicken shawarma", "Fries", "Soft drink"],
-      basePrice: 890,
-      calories: 1090,
-      featured: true,
-      bestSeller: true,
-      prepTimeMinutes: 20,
-      spiceLevel: 2,
-      nutritionInfo: nutrition(1090, 38, 121, 42),
-      images: [
-        { url: "/images/combo-meal.svg", alt: "Pocket meal combo", sortOrder: 1 }
-      ]
+      sortOrder: 3,
+      nutritionInfo: nutrition(145, 0, 40, 0),
+      images: [{ url: "/images/pocket-drink.svg", alt: "Fanta", sortOrder: 1 }]
     }
   ];
 
   const products = [];
   for (const seed of productSeeds) {
-    const product = await prisma.product.upsert({
-      where: { slug: seed.slug },
-      update: {
-        categoryId: categoryMap[seed.categorySlug].id,
-        sku: seed.sku,
-        name: seed.name,
-        description: seed.description,
-        ingredients: seed.ingredients,
-        basePrice: seed.basePrice,
-        calories: seed.calories,
-        featured: seed.featured,
-        bestSeller: seed.bestSeller,
-        prepTimeMinutes: seed.prepTimeMinutes,
-        spiceLevel: seed.spiceLevel,
-        nutritionInfo: seed.nutritionInfo
-      },
-      create: {
-        categoryId: categoryMap[seed.categorySlug].id,
-        slug: seed.slug,
-        sku: seed.sku,
-        name: seed.name,
-        description: seed.description,
-        ingredients: seed.ingredients,
-        basePrice: seed.basePrice,
-        calories: seed.calories,
-        featured: seed.featured,
-        bestSeller: seed.bestSeller,
-        prepTimeMinutes: seed.prepTimeMinutes,
-        spiceLevel: seed.spiceLevel,
-        nutritionInfo: seed.nutritionInfo
-      }
-    });
+    const existingProduct =
+      (await prisma.product.findUnique({ where: { slug: seed.slug } })) ??
+      (seed.legacySlug ? await prisma.product.findUnique({ where: { slug: seed.legacySlug } }) : null);
+
+    const product = existingProduct
+      ? await prisma.product.update({
+          where: { id: existingProduct.id },
+          data: {
+            categoryId: categoryMap[seed.categorySlug].id,
+            slug: seed.slug,
+            sku: seed.sku,
+            name: seed.name,
+            description: seed.description,
+            ingredients: seed.ingredients,
+            basePrice: seed.basePrice,
+            calories: seed.calories,
+            featured: seed.featured,
+            bestSeller: seed.bestSeller,
+            nutritionInfo: seed.nutritionInfo,
+            sortOrder: seed.sortOrder,
+            isActive: true
+          }
+        })
+      : await prisma.product.create({
+          data: {
+            categoryId: categoryMap[seed.categorySlug].id,
+            slug: seed.slug,
+            sku: seed.sku,
+            name: seed.name,
+            description: seed.description,
+            ingredients: seed.ingredients,
+            basePrice: seed.basePrice,
+            calories: seed.calories,
+            featured: seed.featured,
+            bestSeller: seed.bestSeller,
+            nutritionInfo: seed.nutritionInfo,
+            sortOrder: seed.sortOrder
+          }
+        });
 
     await prisma.productImage.deleteMany({ where: { productId: product.id } });
     await prisma.productImage.createMany({
@@ -488,73 +696,31 @@ async function main() {
 
     await prisma.branchProduct.upsert({
       where: { branchId_productId: { branchId: branch.id, productId: product.id } },
-      update: { price: seed.basePrice, isAvailable: true },
-      create: { branchId: branch.id, productId: product.id, price: seed.basePrice, isAvailable: true }
+      update: { price: seed.basePrice, isAvailable: true, stockStatus: "IN_STOCK" },
+      create: { branchId: branch.id, productId: product.id, price: seed.basePrice, isAvailable: true, stockStatus: "IN_STOCK" }
     });
 
-    products.push(product);
-  }
-
-  const chicken = products.find((product) => product.slug === "pocket-chicken-shawarma");
-  const beef = products.find((product) => product.slug === "pocket-beef-shawarma");
-  const special = products.find((product) => product.slug === "pocket-special-shawarma");
-  const comboProducts = products.filter((product) => ["shawarma-drink-combo", "shawarma-fries-drink-combo"].includes(product.slug));
-  const drinkProducts = products.filter((product) => ["coke", "sprite", "mirinda"].includes(product.slug));
-
-  if (chicken && beef && special) {
-    await prisma.addOnGroup.deleteMany({ where: { productId: { in: [chicken.id, beef.id, special.id] } } });
-    for (const product of [chicken, beef, special]) {
-      const group = await prisma.addOnGroup.create({
-        data: {
-          productId: product.id,
-          name: "Customize Your Wrap",
-          minSelect: 0,
-          maxSelect: 3,
-          sortOrder: 1,
-          options: {
-            create: [
-              { name: "Extra cheese", priceDelta: 90, sortOrder: 1 },
-              { name: "Extra sauce", priceDelta: 50, sortOrder: 2 },
-              { name: "Double meat", priceDelta: 190, sortOrder: 3 }
-            ]
-          }
-        }
-      });
-
-      if (product.id === special.id) {
-        await prisma.addOnOption.create({
-          data: {
-            groupId: group.id,
-            name: "Pocket fire sauce",
-            priceDelta: 40,
-            sortOrder: 4
-          }
-        });
-      }
-    }
-  }
-
-  if (comboProducts.length && drinkProducts.length) {
-    await prisma.addOnGroup.deleteMany({ where: { productId: { in: comboProducts.map((product) => product.id) } } });
-    for (const product of comboProducts) {
+    await prisma.addOnGroup.deleteMany({ where: { productId: product.id } });
+    if (seed.slug === "pocket-mai-rocket") {
       await prisma.addOnGroup.create({
         data: {
           productId: product.id,
-          name: "Choose Your Drink",
+          name: "Choose Sauce",
           minSelect: 1,
           maxSelect: 1,
           isRequired: true,
           sortOrder: 1,
           options: {
-            create: drinkProducts.map((drink, index) => ({
-              name: drink.name,
-              priceDelta: 0,
-              sortOrder: index + 1
-            }))
+            create: [
+              { name: "Classic shawarma sauce", priceDelta: 0, sortOrder: 1 },
+              { name: "Spicy jalapeno sauce", priceDelta: 0, sortOrder: 2 }
+            ]
           }
         }
       });
     }
+
+    products.push(product);
   }
 
   const supplier = await prisma.supplier.upsert({
@@ -608,30 +774,30 @@ async function main() {
     });
   }
 
-  const pocketChicken = products.find((product) => product.slug === "pocket-chicken-shawarma");
-  if (pocketChicken) {
+  const classicPocket = products.find((product) => product.slug === "classic-pocket");
+  if (classicPocket) {
     await prisma.favorite.upsert({
-      where: { userId_productId: { userId: customer.id, productId: pocketChicken.id } },
+      where: { userId_productId: { userId: customer.id, productId: classicPocket.id } },
       update: {},
-      create: { userId: customer.id, productId: pocketChicken.id }
+      create: { userId: customer.id, productId: classicPocket.id }
     });
 
     await prisma.review.upsert({
-      where: { id: "review-pocket-chicken" },
+      where: { id: "review-classic-pocket" },
       update: {
         userId: customer.id,
-        productId: pocketChicken.id,
+        productId: classicPocket.id,
         rating: 5,
         title: "High repeat order potential",
-        body: "Good crunch, strong garlic, and it still arrives well packed."
+        body: "Classic Pocket stays crisp and balanced on repeat orders."
       },
       create: {
-        id: "review-pocket-chicken",
+        id: "review-classic-pocket",
         userId: customer.id,
-        productId: pocketChicken.id,
+        productId: classicPocket.id,
         rating: 5,
         title: "High repeat order potential",
-        body: "Good crunch, strong garlic, and it still arrives well packed."
+        body: "Classic Pocket stays crisp and balanced on repeat orders."
       }
     });
   }
@@ -662,30 +828,30 @@ async function main() {
     create: { userId: customer.id, branchId: branch.id }
   });
 
-  if (pocketChicken) {
+  if (classicPocket) {
     await prisma.cartItem.upsert({
       where: { id: "demo-cart-item" },
       update: {
         cartId: cart.id,
-        productId: pocketChicken.id,
+        productId: classicPocket.id,
         quantity: 2,
         selectedAddOnIds: []
       },
       create: {
         id: "demo-cart-item",
         cartId: cart.id,
-        productId: pocketChicken.id,
+        productId: classicPocket.id,
         quantity: 2,
         selectedAddOnIds: []
       }
     });
   }
 
-  const combo = products.find((product) => product.slug === "shawarma-drink-combo");
+  const classicPocketOrder = classicPocket;
   const customerAddress = await prisma.address.findFirstOrThrow({ where: { userId: customer.id, isDefault: true } });
   const launchCoupon = await prisma.coupon.findUniqueOrThrow({ where: { code: "POCKET10" } });
 
-  if (combo) {
+  if (classicPocketOrder) {
     await prisma.order.upsert({
       where: { orderNumber: "PKT-2026-000123" },
       update: {
@@ -699,12 +865,12 @@ async function main() {
         serviceType: "DELIVERY",
         customerName: customer.name,
         customerPhone: customer.phone,
-        subtotal: combo.basePrice,
+        subtotal: classicPocketOrder.basePrice,
         taxRate: 12,
-        taxAmount: 80,
+        taxAmount: 54,
         deliveryFee: 180,
-        discountAmount: 67,
-        totalAmount: 883,
+        discountAmount: 0,
+        totalAmount: 684,
         status: "OUT_FOR_DELIVERY"
       },
       create: {
@@ -719,21 +885,21 @@ async function main() {
         serviceType: "DELIVERY",
         customerName: customer.name,
         customerPhone: customer.phone,
-        subtotal: combo.basePrice,
+        subtotal: classicPocketOrder.basePrice,
         taxRate: 12,
-        taxAmount: 80,
+        taxAmount: 54,
         deliveryFee: 180,
-        discountAmount: 67,
-        totalAmount: 883,
+        discountAmount: 0,
+        totalAmount: 684,
         status: "OUT_FOR_DELIVERY",
         expectedDeliveryAt: new Date(Date.now() + 25 * 60 * 1000),
         items: {
           create: [
             {
-              productId: combo.id,
-              productName: combo.name,
+              productId: classicPocketOrder.id,
+              productName: classicPocketOrder.name,
               quantity: 1,
-              unitPrice: combo.basePrice
+              unitPrice: classicPocketOrder.basePrice
             }
           ]
         }

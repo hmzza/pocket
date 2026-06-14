@@ -155,23 +155,22 @@ model Category {
 }
 
 model Product {
-  id               String             @id @default(cuid())
-  categoryId       String
-  slug             String             @unique
-  sku              String             @unique
-  name             String
-  description      String
-  ingredients      String[]
-  nutritionInfo    Json?
-  basePrice        Decimal            @db.Decimal(10, 2)
-  compareAtPrice   Decimal?           @db.Decimal(10, 2)
-  calories         Int?
-  featured         Boolean            @default(false)
-  bestSeller       Boolean            @default(false)
-  isActive         Boolean            @default(true)
-  stockStatus      String             @default("IN_STOCK")
-  prepTimeMinutes  Int                @default(20)
-  spiceLevel       Int                @default(2)
+    id               String             @id @default(cuid())
+    categoryId       String
+    slug             String             @unique
+    sku              String             @unique
+    name             String
+    description      String
+    ingredients      String[]
+    nutritionInfo    Json?
+    basePrice        Decimal            @db.Decimal(10, 2)
+    compareAtPrice   Decimal?           @db.Decimal(10, 2)
+    calories         Int?
+    featured         Boolean            @default(false)
+    bestSeller       Boolean            @default(false)
+    isActive         Boolean            @default(true)
+    sortOrder        Int                @default(0)
+    stockStatus      String             @default("IN_STOCK")
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
   category         Category           @relation(fields: [categoryId], references: [id])
@@ -291,6 +290,7 @@ model Order {
   id                  String         @id @default(cuid())
   orderNumber         String         @unique
   customerId          String?
+  cashierId           String?
   branchId            String
   addressId           String?
   couponId            String?

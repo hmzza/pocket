@@ -300,7 +300,12 @@ export function PosTerminal() {
       setPaidAmount("");
       setCheckoutNote("");
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Checkout failed.");
+      if (submitError instanceof Error) {
+        const details = (submitError as Error & { details?: string[] }).details ?? [];
+        setError([submitError.message, ...details].filter(Boolean).join("\n"));
+      } else {
+        setError("Checkout failed.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -337,6 +342,13 @@ export function PosTerminal() {
             <Button
               variant="outline"
               className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+              onClick={() => router.push("/pos/orders")}
+            >
+              View Orders
+            </Button>
+            <Button
+              variant="outline"
+              className="border-white/15 bg-white/5 text-white hover:bg-white/10"
               onClick={() => {
                 window.localStorage.removeItem(getPosTokenKey());
                 router.replace("/pos/login");
@@ -348,7 +360,12 @@ export function PosTerminal() {
           </div>
         </div>
 
-        {error ? <p className="rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</p> : null}
+        {error ? (
+          <div className="rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100 whitespace-pre-line">
+            <p className="font-semibold text-red-50">Checkout blocked</p>
+            <p className="mt-1">{error}</p>
+          </div>
+        ) : null}
 
         <div className="grid gap-6 xl:grid-cols-[1.45fr_0.95fr]">
           <div className="space-y-4">

@@ -132,11 +132,7 @@ router.get("/products", async (req, res, next) => {
             }
           : true
       },
-      orderBy: [
-        { featured: "desc" },
-        { bestSeller: "desc" },
-        { createdAt: "desc" }
-      ]
+      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
     });
 
     return res.json({ products });

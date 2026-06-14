@@ -23,8 +23,6 @@ type ProductFormState = {
   bestSeller: boolean;
   isActive: boolean;
   stockStatus: string;
-  prepTimeMinutes: string;
-  spiceLevel: string;
   imageUrl: string;
 };
 
@@ -41,8 +39,6 @@ const EMPTY_FORM: ProductFormState = {
   bestSeller: false,
   isActive: true,
   stockStatus: "IN_STOCK",
-  prepTimeMinutes: "20",
-  spiceLevel: "2",
   imageUrl: "/images/shawarma-pocket.svg"
 };
 
@@ -68,8 +64,6 @@ function mapProductToForm(product: AdminProduct): ProductFormState {
     bestSeller: product.bestSeller,
     isActive: product.isActive,
     stockStatus: product.stockStatus,
-    prepTimeMinutes: String(product.prepTimeMinutes),
-    spiceLevel: String(product.spiceLevel),
     imageUrl: product.imageUrl
   };
 }
@@ -154,14 +148,6 @@ function ProductEditor({
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Calories</label>
             <Input type="number" min="0" value={value.calories} onChange={(event) => onChange({ ...value, calories: event.target.value })} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Prep time (min)</label>
-            <Input type="number" min="1" max="120" value={value.prepTimeMinutes} onChange={(event) => onChange({ ...value, prepTimeMinutes: event.target.value })} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Spice level</label>
-            <Input type="number" min="0" max="5" value={value.spiceLevel} onChange={(event) => onChange({ ...value, spiceLevel: event.target.value })} />
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Stock status</label>
@@ -279,8 +265,6 @@ export function ProductManagement() {
       bestSeller: form.bestSeller,
       isActive: form.isActive,
       stockStatus: form.stockStatus,
-      prepTimeMinutes: Number(form.prepTimeMinutes),
-      spiceLevel: Number(form.spiceLevel),
       imageUrl: form.imageUrl.trim() || "/images/shawarma-pocket.svg"
     };
 

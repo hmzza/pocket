@@ -41,8 +41,6 @@ export type Product = {
   gallery: string[];
   featured?: boolean;
   bestSeller?: boolean;
-  prepTimeMinutes: number;
-  spiceLevel: number;
   ingredients: string[];
   nutrition: {
     calories: number;
@@ -145,8 +143,6 @@ export type AdminProduct = {
   bestSeller: boolean;
   isActive: boolean;
   stockStatus: string;
-  prepTimeMinutes: number;
-  spiceLevel: number;
   imageUrl: string;
   category: Category;
 };
@@ -210,17 +206,26 @@ export type PosBranch = {
 
 export type PosReceiptOrder = {
   id: string;
+  receiptNumber: string;
   orderNumber: string;
+  posNo: string;
+  userId: string;
   channel: string;
   serviceType: string;
+  orderType: string;
   status: string;
   customerName: string;
   customerPhone?: string | null;
   paymentMethod: string;
   paymentStatus: string;
+  createdAt: string;
   subtotal: number;
+  grossTotal: number;
   discountAmount: number;
+  serviceFee: number;
   taxRate: number;
+  totalTax: number;
+  netTotal: number;
   taxAmount: number;
   totalAmount: number;
   paidAmount: number;
@@ -238,6 +243,9 @@ export type PosReceiptOrder = {
     customDescription?: string | null;
     quantity: number;
     unitPrice: number;
+    taxRate: number;
+    taxAmount: number;
+    lineTotal: number;
     note?: string | null;
     addOns: Array<{
       id: string;

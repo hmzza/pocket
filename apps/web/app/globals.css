@@ -37,5 +37,27 @@
   .dark body {
     background-image: linear-gradient(to bottom, #102a43, #091725);
   }
+
+  @page {
+    margin: 0;
+  }
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print\\:hidden {
+    display: none !important;
+  }
 }
 

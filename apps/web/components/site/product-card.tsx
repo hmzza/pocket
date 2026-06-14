@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Clock3, Flame, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import { AddToCartButton } from "@/components/store/add-to-cart-button";
 import { FavoriteButton } from "@/components/store/favorite-button";
 import { Badge } from "@/components/ui/badge";
@@ -33,14 +33,6 @@ export function ProductCard({ product }: { product: Product }) {
 
         <div className="flex flex-wrap gap-4 text-xs font-medium uppercase tracking-wide text-pocket-navy/60">
           <span className="inline-flex items-center gap-1">
-            <Clock3 className="h-3.5 w-3.5" />
-            {product.prepTimeMinutes} min
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Flame className="h-3.5 w-3.5" />
-            Spice {product.spiceLevel}/5
-          </span>
-          <span className="inline-flex items-center gap-1">
             <Star className="h-3.5 w-3.5" />
             {rating || "New"}
           </span>
@@ -49,7 +41,6 @@ export function ProductCard({ product }: { product: Product }) {
         <div className="mt-auto flex items-center justify-between gap-3 pt-2">
           <div>
             <p className="text-2xl font-black text-pocket-navy">{formatCurrency(product.price)}</p>
-            {product.calories ? <p className="text-xs text-pocket-navy/60">{product.calories} kcal</p> : null}
           </div>
           <AddToCartButton productId={product.id} />
         </div>

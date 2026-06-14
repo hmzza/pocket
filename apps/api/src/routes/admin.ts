@@ -80,7 +80,7 @@ router.get("/products", async (_req, res) => {
       images: { orderBy: { sortOrder: "asc" } },
       branchPricing: { include: { branch: true } }
     },
-    orderBy: { createdAt: "desc" }
+    orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
   });
 
   return res.json({ products });
@@ -99,8 +99,6 @@ const productSchema = z.object({
   bestSeller: z.boolean().default(false),
   isActive: z.boolean().default(true),
   stockStatus: z.string().default("IN_STOCK"),
-  prepTimeMinutes: z.number().int().min(1).max(120).default(20),
-  spiceLevel: z.number().int().min(0).max(5).default(2),
   imageUrl: z.string().default("/images/shawarma-pocket.svg")
 });
 
@@ -122,8 +120,6 @@ router.post("/products", async (req, res, next) => {
           bestSeller: payload.bestSeller,
           isActive: payload.isActive,
           stockStatus: payload.stockStatus,
-          prepTimeMinutes: payload.prepTimeMinutes,
-          spiceLevel: payload.spiceLevel,
           images: {
             create: [
               {
@@ -420,46 +416,6 @@ router.post("/coupons", async (req, res, next) => {
       }
     });
     return res.status(201).json({ coupon });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.get("/cms", async (_req, res) => {
-  const blocks = await prisma.cmsContent.findMany({ orderBy: { key: "asc" } });
-  return res.json({ blocks });
-});
-
-router.put("/cms/:key", async (req, res, next) => {
-  try {
-    const payload = z.object({
-      title: z.string().min(2),
-      content: z.any()
-    }).parse(req.body);
-
-    const cmsPayload = {
-      title: payload.title,
-      content: payload.content as Prisma.InputJsonValue
-    };
-
-    const block = await prisma.cmsContent.upsert({
-      where: { key: req.params.key },
-      update: cmsPayload,
-      create: {
-        key: req.params.key,
-        ...cmsPayload
-      }
-    });
-
-    await writeAuditLog({
-      actorId: req.user!.id,
-      action: "cms.update",
-      entityType: "cms_content",
-      entityId: block.id,
-      payload: cmsPayload
-    });
-
-    return res.json({ block });
   } catch (error) {
     return next(error);
   }

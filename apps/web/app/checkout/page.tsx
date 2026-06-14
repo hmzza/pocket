@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useLiveProducts } from "@/components/site/use-live-products";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/components/store/store-provider";
 import { branch } from "@/lib/mock-data";
-import { calculateOrderTotals, readStoredCoupon, rememberOrder, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
+import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCurrency } from "@/lib/utils";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -139,7 +138,6 @@ export default function CheckoutPage() {
       };
 
       setConfirmedOrderNumber(data.order.orderNumber);
-      rememberOrder(data.order.orderNumber);
       writeStoredCoupon("");
       clearCart();
     } catch (submitError) {
@@ -155,10 +153,7 @@ export default function CheckoutPage() {
         <div className="mb-8 rounded-lg border border-emerald-500/20 bg-emerald-50 p-5 text-emerald-900">
           <p className="text-xs font-semibold uppercase tracking-[0.25em]">Order Confirmed</p>
           <p className="mt-2 text-2xl font-black">{confirmedOrderNumber}</p>
-          <p className="mt-2 text-sm">Use the tracking page to follow live status updates for this order.</p>
-          <Link href={`/orders?orderNumber=${confirmedOrderNumber}`} className="mt-4 inline-flex text-sm font-semibold text-emerald-900 underline">
-            Track this order
-          </Link>
+          <p className="mt-2 text-sm">Keep this order number for reference at pickup or delivery.</p>
         </div>
       ) : null}
 

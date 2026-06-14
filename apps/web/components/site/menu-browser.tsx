@@ -24,7 +24,7 @@ export function MenuBrowser({ products, categories }: { products: Product[]; cat
   return (
     <div className="space-y-8">
       <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
-        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search shawarma, drinks, or combos" />
+        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search shawarma, fries, shakes, or drinks" />
         <div className="flex flex-wrap gap-2">
           <button
             type="button"

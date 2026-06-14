@@ -79,8 +79,6 @@ export async function fetchAdminProducts() {
     bestSeller: Boolean(product.bestSeller),
     isActive: Boolean(product.isActive),
     stockStatus: product.stockStatus,
-    prepTimeMinutes: product.prepTimeMinutes ?? 20,
-    spiceLevel: product.spiceLevel ?? 2,
     imageUrl: product.images?.[0]?.url ?? "/images/shawarma-pocket.svg",
     category: {
       id: product.category.id,
@@ -126,7 +124,7 @@ export async function fetchAdminOrders() {
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
     status: order.status,
-    branch: order.branch.name,
+    branch: order.branch?.name ?? "Unknown branch",
     totalAmount: Number(order.totalAmount),
     subtotal: Number(order.subtotal),
     discountAmount: Number(order.discountAmount),
@@ -135,7 +133,7 @@ export async function fetchAdminOrders() {
     paidAmount: Number(order.cashReceivedAmount ?? order.totalAmount),
     changeDueAmount: Number(order.changeDueAmount ?? 0),
     manualDiscountType: order.manualDiscountType ?? undefined,
-    manualDiscountValue: order.manualDiscountValue ? Number(order.manualDiscountValue) : undefined,
+    manualDiscountValue: order.manualDiscountValue == null ? undefined : Number(order.manualDiscountValue),
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     placedAt: order.placedAt,
@@ -147,7 +145,7 @@ export async function fetchAdminOrders() {
           instructions: order.address.instructions ?? undefined
         }
       : undefined,
-    items: order.items.map((item: any) => ({
+    items: (order.items ?? []).map((item: any) => ({
       id: item.id,
       productName: item.productName,
       customDescription: item.customDescription ?? undefined,
@@ -197,13 +195,13 @@ export async function fetchAdminDashboard(): Promise<DashboardData> {
     recentOrders: dashboard.recentOrders.map((order: any) => ({
       id: order.id,
       orderNumber: order.orderNumber,
-      customerName: order.customer.name,
+      customerName: order.customer?.name ?? order.customerName ?? "Walk-in Customer",
       status: order.status,
       totalAmount: Number(order.totalAmount)
     })),
     lowStock: dashboard.lowStock.map((entry: any) => ({
-      ingredient: entry.ingredient.name,
-      branch: entry.branch.name,
+      ingredient: entry.ingredient?.name ?? "Unknown ingredient",
+      branch: entry.branch?.name ?? "Unknown branch",
       quantityOnHand: Number(entry.quantityOnHand)
     })),
     sales: sales.sales.map((entry: any) => ({
@@ -217,42 +215,13 @@ export async function fetchAdminCustomers(): Promise<AdminCustomer[]> {
   const data = await adminFetch<{ customers: any[] }>("/api/admin/customers");
   return data.customers.map((customer) => ({
     id: customer.id,
-    name: customer.name,
+    name: customer.name ?? "Unknown customer",
     email: customer.email,
     phone: customer.phone ?? undefined,
     totalOrders: customer.totalOrders,
     totalSpend: Number(customer.totalSpend),
     lastOrderDate: customer.lastOrderDate
   }));
-}
-
-export async function fetchAdminCms() {
-  const [cmsResponse, settingsResponse] = await Promise.all([
-    adminFetch<{ blocks: Array<{ key: string; title: string; content: unknown }> }>("/api/admin/cms"),
-    adminFetch<{ settings: Array<{ key: string; value: unknown }> }>("/api/admin/settings")
-  ]);
-
-  return {
-    blocks: cmsResponse.blocks.reduce<Record<string, { title: string; content: unknown }>>((accumulator, block) => {
-      accumulator[block.key] = {
-        title: block.title,
-        content: block.content
-      };
-      return accumulator;
-    }, {}),
-    settings: settingsResponse.settings.reduce<Record<string, unknown>>((accumulator, setting) => {
-      accumulator[setting.key] = setting.value;
-      return accumulator;
-    }, {})
-  };
-}
-
-export async function updateAdminCmsBlock(key: string, payload: { title: string; content: unknown }) {
-  const data = await adminFetch<{ block: { key: string; title: string; content: unknown } }>(`/api/admin/cms/${key}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
-  });
-  return data.block;
 }
 
 export async function updateAdminSetting(key: string, value: unknown) {
