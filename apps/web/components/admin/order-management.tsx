@@ -22,6 +22,10 @@ function OrderDetails({ order }: { order: AdminOrder }) {
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Payment</p>
           <p className="mt-2 text-sm font-medium text-pocket-navy">{order.paymentMethod.replaceAll("_", " ")}</p>
           <p className="text-sm text-pocket-navy/60">{order.paymentStatus.replaceAll("_", " ")}</p>
+          <p className="mt-2 text-sm text-pocket-navy/60">Channel: {order.channel.replaceAll("_", " ")}</p>
+          <p className="text-sm text-pocket-navy/60">Service: {order.serviceType.replaceAll("_", " ")}</p>
+          <p className="text-sm text-pocket-navy/60">Paid: {formatCurrency(order.paidAmount)}</p>
+          <p className="text-sm text-pocket-navy/60">Change: {formatCurrency(order.changeDueAmount)}</p>
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Delivery</p>
@@ -47,6 +51,7 @@ function OrderDetails({ order }: { order: AdminOrder }) {
                 <div>
                   <p className="font-semibold text-pocket-navy">{item.productName}</p>
                   <p className="text-sm text-pocket-navy/60">Qty {item.quantity}</p>
+                  {item.customDescription ? <p className="text-sm text-pocket-navy/60">{item.customDescription}</p> : null}
                   {item.note ? <p className="mt-1 text-sm text-pocket-navy/60">Note: {item.note}</p> : null}
                 </div>
                 <p className="font-bold text-pocket-orange">{formatCurrency(item.unitPrice * item.quantity)}</p>
@@ -174,6 +179,7 @@ export function OrderManagement() {
                   <div>
                     <p className="font-bold text-pocket-navy">{order.orderNumber}</p>
                     <p className="text-pocket-navy/60">{order.branch}</p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-pocket-orange">{order.channel.replaceAll("_", " ")}</p>
                     <p className="mt-1 text-xs font-medium uppercase tracking-wide text-pocket-navy/40">
                       {new Intl.DateTimeFormat("en-PK", {
                         month: "short",
@@ -186,6 +192,7 @@ export function OrderManagement() {
                   <div>
                     <p className="font-medium text-pocket-navy">{order.customerName}</p>
                     {order.customerPhone ? <p className="text-pocket-navy/60">{order.customerPhone}</p> : null}
+                    <p className="text-xs font-medium uppercase tracking-wide text-pocket-navy/40">{order.serviceType.replaceAll("_", " ")}</p>
                   </div>
                   <div>
                     <select

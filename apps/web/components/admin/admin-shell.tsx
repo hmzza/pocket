@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BarChart3, Boxes, FilePenLine, LayoutDashboard, LogOut, ShoppingCart, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { fetchAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
 
 const links: Array<{
@@ -27,12 +28,39 @@ export function AdminShell({ title, description, children }: { title: string; de
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const token = window.localStorage.getItem("pocket-admin-token");
-    if (!token) {
-      router.replace("/admin/login");
-      return;
+    let cancelled = false;
+
+    async function validateSession() {
+      const token = window.localStorage.getItem("pocket-admin-token");
+      if (!token) {
+        router.replace("/admin/login");
+        return;
+      }
+
+      try {
+        const session = await fetchAdminSession();
+        if (!cancelled && !["ADMIN", "SUPER_ADMIN"].includes(session.user.role)) {
+          window.localStorage.removeItem("pocket-admin-token");
+          router.replace("/admin/login");
+          return;
+        }
+
+        if (!cancelled) {
+          setReady(true);
+        }
+      } catch {
+        if (!cancelled) {
+          window.localStorage.removeItem("pocket-admin-token");
+          router.replace("/admin/login");
+        }
+      }
     }
-    setReady(true);
+
+    void validateSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   const initial = useMemo(() => title.charAt(0), [title]);

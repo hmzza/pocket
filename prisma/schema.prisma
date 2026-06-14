@@ -12,6 +12,7 @@ enum RoleCode {
   CUSTOMER
   ADMIN
   SUPER_ADMIN
+  POS_STAFF
 }
 
 enum DiscountType {
@@ -31,9 +32,21 @@ enum OrderStatus {
 
 enum PaymentMethod {
   CASH_ON_DELIVERY
+  CASH
   CARD
   JAZZCASH
   EASYPAISA
+}
+
+enum OrderChannel {
+  ONLINE
+  POS
+}
+
+enum ServiceType {
+  DELIVERY
+  TAKEAWAY
+  DINE_IN
 }
 
 enum PaymentStatus {
@@ -277,23 +290,32 @@ model Coupon {
 model Order {
   id                  String         @id @default(cuid())
   orderNumber         String         @unique
-  customerId          String
+  customerId          String?
   branchId            String
   addressId           String?
   couponId            String?
   status              OrderStatus    @default(PENDING)
+  channel             OrderChannel   @default(ONLINE)
+  serviceType         ServiceType    @default(DELIVERY)
+  customerName        String?
+  customerPhone       String?
   paymentMethod       PaymentMethod
   paymentStatus       PaymentStatus  @default(PENDING)
   subtotal            Decimal        @db.Decimal(10, 2)
+  taxRate             Decimal        @db.Decimal(5, 2)
   taxAmount           Decimal        @db.Decimal(10, 2)
   deliveryFee         Decimal        @db.Decimal(10, 2)
   discountAmount      Decimal        @db.Decimal(10, 2)
+  manualDiscountType  DiscountType?
+  manualDiscountValue Decimal?       @db.Decimal(10, 2)
+  cashReceivedAmount  Decimal?       @db.Decimal(10, 2)
+  changeDueAmount     Decimal?       @db.Decimal(10, 2)
   totalAmount         Decimal        @db.Decimal(10, 2)
   expectedDeliveryAt  DateTime?
   deliveryInstructions String?
   placedAt            DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
-  customer            User           @relation(fields: [customerId], references: [id])
+  customer            User?          @relation(fields: [customerId], references: [id])
   branch              Branch         @relation(fields: [branchId], references: [id])
   address             Address?       @relation(fields: [addressId], references: [id])
   coupon              Coupon?        @relation(fields: [couponId], references: [id])
@@ -303,14 +325,15 @@ model Order {
 model OrderItem {
   id           String          @id @default(cuid())
   orderId      String
-  productId    String
+  productId    String?
   productName  String
+  customDescription String?
   quantity     Int
   unitPrice    Decimal         @db.Decimal(10, 2)
   note         String?
   createdAt    DateTime        @default(now())
   order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product      Product         @relation(fields: [productId], references: [id])
+  product      Product?        @relation(fields: [productId], references: [id])
   addOns       OrderItemAddOn[]
 }
 

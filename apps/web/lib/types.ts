@@ -17,6 +17,7 @@ export type AddOnGroup = {
   name: string;
   minSelect: number;
   maxSelect: number;
+  isRequired?: boolean;
   options: AddOnOption[];
 };
 
@@ -153,11 +154,21 @@ export type AdminProduct = {
 export type AdminOrder = {
   id: string;
   orderNumber: string;
+  channel: string;
+  serviceType: string;
   customerName: string;
   customerPhone?: string;
   status: string;
   branch: string;
   totalAmount: number;
+  subtotal: number;
+  discountAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  paidAmount: number;
+  changeDueAmount: number;
+  manualDiscountType?: string;
+  manualDiscountValue?: number;
   paymentMethod: string;
   paymentStatus: string;
   placedAt: string;
@@ -170,9 +181,64 @@ export type AdminOrder = {
   items: Array<{
     id: string;
     productName: string;
+    customDescription?: string | null;
     quantity: number;
     unitPrice: number;
     note?: string;
+    addOns: Array<{
+      id: string;
+      optionName: string;
+      priceDelta: number;
+    }>;
+  }>;
+};
+
+export type PosCatalogProduct = {
+  id: string;
+  name: string;
+  categoryId: string;
+  categoryName: string;
+  price: number;
+  addOnGroups: AddOnGroup[];
+};
+
+export type PosBranch = {
+  id: string;
+  slug: string;
+  name: string;
+};
+
+export type PosReceiptOrder = {
+  id: string;
+  orderNumber: string;
+  channel: string;
+  serviceType: string;
+  status: string;
+  customerName: string;
+  customerPhone?: string | null;
+  paymentMethod: string;
+  paymentStatus: string;
+  subtotal: number;
+  discountAmount: number;
+  taxRate: number;
+  taxAmount: number;
+  totalAmount: number;
+  paidAmount: number;
+  changeDueAmount: number;
+  placedAt: string;
+  branch: {
+    id: string;
+    name: string;
+    addressLine1: string;
+    phone: string;
+  };
+  items: Array<{
+    id: string;
+    productName: string;
+    customDescription?: string | null;
+    quantity: number;
+    unitPrice: number;
+    note?: string | null;
     addOns: Array<{
       id: string;
       optionName: string;

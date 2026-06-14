@@ -313,7 +313,8 @@ router.get("/orders", async (req, res, next) => {
           ? {
               OR: [
                 { orderNumber: { contains: query.search, mode: "insensitive" } },
-                { customer: { is: { name: { contains: query.search, mode: "insensitive" } } } }
+                { customer: { is: { name: { contains: query.search, mode: "insensitive" } } } },
+                { customerName: { contains: query.search, mode: "insensitive" } }
               ]
             }
           : {})
@@ -347,7 +348,7 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 
     await prisma.notification.create({
       data: {
-        userId: order.customerId,
+        userId: order.customerId ?? undefined,
         type: "ORDER",
         title: "Order status updated",
         message: `${order.orderNumber} is now ${payload.status.replaceAll("_", " ")}.`,

@@ -49,38 +49,94 @@ const loginSchema = z.object({
   password: z.string().min(8)
 });
 
+async function authenticateCredentials(email: string, password: string) {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: { role: true }
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  const isValid = await verifyPassword(password, user.passwordHash);
+  if (!isValid || !user.isActive) {
+    return null;
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() }
+  });
+
+  return user;
+}
+
+function buildAuthResponse(user: NonNullable<Awaited<ReturnType<typeof authenticateCredentials>>>) {
+  return {
+    token: signToken({ sub: user.id, email: user.email, role: user.role.code }),
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role.code
+    }
+  };
+}
+
 router.post("/login", async (req, res, next) => {
   try {
     const payload = loginSchema.parse(req.body);
-    const user = await prisma.user.findUnique({
-      where: { email: payload.email },
-      include: { role: true }
-    });
+    const user = await authenticateCredentials(payload.email, payload.password);
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    const isValid = await verifyPassword(payload.password, user.passwordHash);
-    if (!isValid) {
+    if (user.role.code !== RoleCode.CUSTOMER) {
+      return res.status(403).json({ message: "Use the staff login page for this account." });
+    }
+
+    return res.json(buildAuthResponse(user));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/admin-login", async (req, res, next) => {
+  try {
+    const payload = loginSchema.parse(req.body);
+    const user = await authenticateCredentials(payload.email, payload.password);
+
+    if (!user) {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() }
-    });
+    if (user.role.code !== RoleCode.ADMIN && user.role.code !== RoleCode.SUPER_ADMIN) {
+      return res.status(403).json({ message: "Admin access is restricted to admin roles." });
+    }
 
-    return res.json({
-      token: signToken({ sub: user.id, email: user.email, role: user.role.code }),
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role.code
-      }
-    });
+    return res.json(buildAuthResponse(user));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/pos-login", async (req, res, next) => {
+  try {
+    const payload = loginSchema.parse(req.body);
+    const user = await authenticateCredentials(payload.email, payload.password);
+
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials." });
+    }
+
+    if (user.role.code !== RoleCode.ADMIN && user.role.code !== RoleCode.SUPER_ADMIN && user.role.code !== RoleCode.POS_STAFF) {
+      return res.status(403).json({ message: "POS access is restricted to approved staff accounts." });
+    }
+
+    return res.json(buildAuthResponse(user));
   } catch (error) {
     return next(error);
   }

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { DiscountType, PaymentMethod, PaymentStatus, Prisma, RoleCode } from "@prisma/client";
+import { DiscountType, OrderChannel, PaymentMethod, PaymentStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "../lib/prisma.js";
@@ -116,6 +116,15 @@ router.get("/products", async (req, res, next) => {
       include: {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
+        addOnGroups: {
+          orderBy: { sortOrder: "asc" },
+          include: {
+            options: {
+              where: { isActive: true },
+              orderBy: { sortOrder: "asc" }
+            }
+          }
+        },
         branchPricing: branchSlug
           ? {
               where: { branch: { is: { slug: branchSlug } } },
@@ -388,9 +397,14 @@ router.post("/checkout", async (req, res, next) => {
           branchId: branch.id,
           addressId: address.id,
           couponId,
+          channel: OrderChannel.ONLINE,
+          serviceType: ServiceType.DELIVERY,
+          customerName: payload.name,
+          customerPhone: payload.phone,
           paymentMethod: payload.paymentMethod,
           paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
           subtotal,
+          taxRate: 12,
           taxAmount,
           deliveryFee,
           discountAmount,

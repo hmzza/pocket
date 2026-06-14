@@ -121,11 +121,21 @@ export async function fetchAdminOrders() {
   const orders: AdminOrder[] = data.orders.map((order) => ({
     id: order.id,
     orderNumber: order.orderNumber,
-    customerName: order.customer.name,
-    customerPhone: order.customer.phone ?? undefined,
+    channel: order.channel,
+    serviceType: order.serviceType,
+    customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
+    customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
     status: order.status,
     branch: order.branch.name,
     totalAmount: Number(order.totalAmount),
+    subtotal: Number(order.subtotal),
+    discountAmount: Number(order.discountAmount),
+    taxRate: Number(order.taxRate),
+    taxAmount: Number(order.taxAmount),
+    paidAmount: Number(order.cashReceivedAmount ?? order.totalAmount),
+    changeDueAmount: Number(order.changeDueAmount ?? 0),
+    manualDiscountType: order.manualDiscountType ?? undefined,
+    manualDiscountValue: order.manualDiscountValue ? Number(order.manualDiscountValue) : undefined,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     placedAt: order.placedAt,
@@ -140,6 +150,7 @@ export async function fetchAdminOrders() {
     items: order.items.map((item: any) => ({
       id: item.id,
       productName: item.productName,
+      customDescription: item.customDescription ?? undefined,
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       note: item.note ?? undefined,
@@ -152,6 +163,10 @@ export async function fetchAdminOrders() {
   }));
 
   return orders;
+}
+
+export async function fetchAdminSession() {
+  return adminFetch<{ user: { id: string; role: string; name: string; email: string } }>("/api/auth/me");
 }
 
 export async function updateAdminOrderStatus(orderId: string, status: string) {

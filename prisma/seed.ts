@@ -20,7 +20,7 @@ async function main() {
     return;
   }
 
-  const [customerRole, adminRole, superAdminRole] = await Promise.all([
+  const [customerRole, adminRole, superAdminRole, posStaffRole] = await Promise.all([
     prisma.role.upsert({
       where: { code: RoleCode.CUSTOMER },
       update: { label: "Customer" },
@@ -35,10 +35,16 @@ async function main() {
       where: { code: RoleCode.SUPER_ADMIN },
       update: { label: "Super Admin" },
       create: { code: RoleCode.SUPER_ADMIN, label: "Super Admin" }
+    }),
+    prisma.role.upsert({
+      where: { code: RoleCode.POS_STAFF },
+      update: { label: "POS Staff" },
+      create: { code: RoleCode.POS_STAFF, label: "POS Staff" }
     })
   ]);
 
   const adminPasswordHash = await bcrypt.hash(process.env.INITIAL_ADMIN_PASSWORD ?? "PocketAdmin123!", 12);
+  const posPasswordHash = await bcrypt.hash(process.env.INITIAL_POS_PASSWORD ?? "PocketPos123!", 12);
   const customerPasswordHash = await bcrypt.hash("PocketCustomer123!", 12);
 
   const admin = await prisma.user.upsert({
@@ -72,6 +78,23 @@ async function main() {
       phone: "+92-300-0000022",
       passwordHash: customerPasswordHash,
       roleId: customerRole.id
+    }
+  });
+
+  await prisma.user.upsert({
+    where: { email: process.env.INITIAL_POS_EMAIL ?? "counter@pocketshawarma.com" },
+    update: {
+      name: "Pocket Counter",
+      phone: "+92-300-0000033",
+      passwordHash: posPasswordHash,
+      roleId: posStaffRole.id
+    },
+    create: {
+      name: "Pocket Counter",
+      email: process.env.INITIAL_POS_EMAIL ?? "counter@pocketshawarma.com",
+      phone: "+92-300-0000033",
+      passwordHash: posPasswordHash,
+      roleId: posStaffRole.id
     }
   });
 
@@ -347,6 +370,42 @@ async function main() {
       ]
     },
     {
+      slug: "sprite",
+      sku: "PKT-DRK-002",
+      name: "Sprite",
+      description: "Chilled can.",
+      categorySlug: "drinks",
+      ingredients: ["Carbonated beverage"],
+      basePrice: 120,
+      calories: 140,
+      featured: false,
+      bestSeller: false,
+      prepTimeMinutes: 1,
+      spiceLevel: 0,
+      nutritionInfo: nutrition(140, 0, 39, 0),
+      images: [
+        { url: "/images/pocket-drink.svg", alt: "Sprite can", sortOrder: 1 }
+      ]
+    },
+    {
+      slug: "mirinda",
+      sku: "PKT-DRK-003",
+      name: "Mirinda",
+      description: "Chilled can.",
+      categorySlug: "drinks",
+      ingredients: ["Carbonated beverage"],
+      basePrice: 120,
+      calories: 150,
+      featured: false,
+      bestSeller: false,
+      prepTimeMinutes: 1,
+      spiceLevel: 0,
+      nutritionInfo: nutrition(150, 0, 41, 0),
+      images: [
+        { url: "/images/pocket-drink.svg", alt: "Mirinda can", sortOrder: 1 }
+      ]
+    },
+    {
       slug: "shawarma-drink-combo",
       sku: "PKT-CMB-001",
       name: "Shawarma + Drink",
@@ -439,6 +498,8 @@ async function main() {
   const chicken = products.find((product) => product.slug === "pocket-chicken-shawarma");
   const beef = products.find((product) => product.slug === "pocket-beef-shawarma");
   const special = products.find((product) => product.slug === "pocket-special-shawarma");
+  const comboProducts = products.filter((product) => ["shawarma-drink-combo", "shawarma-fries-drink-combo"].includes(product.slug));
+  const drinkProducts = products.filter((product) => ["coke", "sprite", "mirinda"].includes(product.slug));
 
   if (chicken && beef && special) {
     await prisma.addOnGroup.deleteMany({ where: { productId: { in: [chicken.id, beef.id, special.id] } } });
@@ -470,6 +531,29 @@ async function main() {
           }
         });
       }
+    }
+  }
+
+  if (comboProducts.length && drinkProducts.length) {
+    await prisma.addOnGroup.deleteMany({ where: { productId: { in: comboProducts.map((product) => product.id) } } });
+    for (const product of comboProducts) {
+      await prisma.addOnGroup.create({
+        data: {
+          productId: product.id,
+          name: "Choose Your Drink",
+          minSelect: 1,
+          maxSelect: 1,
+          isRequired: true,
+          sortOrder: 1,
+          options: {
+            create: drinkProducts.map((drink, index) => ({
+              name: drink.name,
+              priceDelta: 0,
+              sortOrder: index + 1
+            }))
+          }
+        }
+      });
     }
   }
 
@@ -611,7 +695,12 @@ async function main() {
         couponId: launchCoupon.id,
         paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
         paymentStatus: PaymentStatus.PENDING,
+        channel: "ONLINE",
+        serviceType: "DELIVERY",
+        customerName: customer.name,
+        customerPhone: customer.phone,
         subtotal: combo.basePrice,
+        taxRate: 12,
         taxAmount: 80,
         deliveryFee: 180,
         discountAmount: 67,
@@ -626,7 +715,12 @@ async function main() {
         couponId: launchCoupon.id,
         paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
         paymentStatus: PaymentStatus.PENDING,
+        channel: "ONLINE",
+        serviceType: "DELIVERY",
+        customerName: customer.name,
+        customerPhone: customer.phone,
         subtotal: combo.basePrice,
+        taxRate: 12,
         taxAmount: 80,
         deliveryFee: 180,
         discountAmount: 67,
