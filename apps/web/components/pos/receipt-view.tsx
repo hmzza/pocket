@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { fetchPosReceipt, getPosTokenKey } from "@/lib/pos-client";
 import type { PosReceiptOrder } from "@/lib/types";
@@ -35,6 +35,8 @@ function money(value: number) {
 function plainNumber(value: number) {
   return Math.round(value).toLocaleString("en-PK");
 }
+
+type ReceiptCopy = "customer" | "store";
 
 function ReceiptSlip({
   order,
@@ -154,6 +156,7 @@ function ReceiptSlip({
 
 export function ReceiptView({ orderId }: { orderId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [order, setOrder] = useState<PosReceiptOrder | null>(null);
   const [error, setError] = useState("");
 
@@ -195,6 +198,11 @@ export function ReceiptView({ orderId }: { orderId: string }) {
     };
   }, [order]);
 
+  const copy = searchParams.get("copy") === "store" ? "store" : "customer";
+  const copyLabel = copy === "store" ? "Store Copy" : "Customer Copy";
+  const alternateCopy = copy === "store" ? "customer" : "store";
+  const alternateLabel = alternateCopy === "store" ? "Open Store Copy" : "Open Customer Copy";
+
   if (error) {
     return <div className="mx-auto max-w-sm px-4 py-10 text-sm text-red-600">{error}</div>;
   }
@@ -206,16 +214,18 @@ export function ReceiptView({ orderId }: { orderId: string }) {
   return (
     <div className="bg-[#f4efe5] px-3 py-4 font-mono text-[11px] leading-tight text-black print:bg-white print:px-0 print:py-0 print:font-medium">
       <div className="mx-auto w-full max-w-[80mm] print:max-w-none print:w-[80mm]">
-        <div className="mb-3 flex justify-end print:hidden">
+        <div className="mb-3 flex justify-between gap-2 print:hidden">
+          <Button
+            variant="outline"
+            onClick={() => window.open(`/pos/receipt/${orderId}?copy=${alternateCopy}`, "_blank", "noopener,noreferrer")}
+          >
+            {alternateLabel}
+          </Button>
           <Button variant="outline" onClick={() => window.print()}>
             Print
           </Button>
         </div>
-        <div className="space-y-4 print:space-y-0">
-          <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel="Customer Copy" />
-          <div className="hidden print:block h-4" />
-          <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel="Store Copy" />
-        </div>
+        <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel={copyLabel} />
       </div>
     </div>
   );

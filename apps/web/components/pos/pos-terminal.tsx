@@ -288,8 +288,10 @@ export function PosTerminal() {
         )
       });
 
-      const receiptPath = `/pos/receipt/${response.order.id}`;
-      window.open(receiptPath, "_blank", "noopener,noreferrer");
+      const customerReceiptPath = `/pos/receipt/${response.order.id}?copy=customer`;
+      const storeReceiptPath = `/pos/receipt/${response.order.id}?copy=store`;
+      window.open(customerReceiptPath, "_blank", "noopener,noreferrer");
+      window.open(storeReceiptPath, "_blank", "noopener,noreferrer");
       setTicket([]);
       setCustomerName("");
       setCustomerPhone("");
