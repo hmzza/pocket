@@ -421,7 +421,7 @@ export function PosTerminal() {
             </div>
           </div>
 
-          <Card className="flex flex-col rounded-3xl border-white/10 bg-[#f8f5ef] p-5 text-slate-900 shadow-none xl:sticky xl:top-6 xl:max-h-[calc(100vh-7rem)] xl:overflow-hidden">
+          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-5 text-slate-900 shadow-none xl:sticky xl:top-6 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-600">Live Ticket</p>
@@ -430,7 +430,7 @@ export function PosTerminal() {
               <ShoppingBag className="h-7 w-7 text-orange-600" />
             </div>
 
-            <div className="mt-5 flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
+            <div className="mt-5 space-y-3">
               {ticket.length ? (
                 ticket.map((item) => (
                   <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
