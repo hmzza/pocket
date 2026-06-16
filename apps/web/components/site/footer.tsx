@@ -24,7 +24,7 @@ export function Footer() {
         <div className="space-y-3 text-sm">
           <p className="font-semibold uppercase tracking-[0.2em] text-pocket-orange">Contact</p>
           <p>Shop #17, Al Ghaffar Mall, G-11 Markaz, Islamabad</p>
-          <p>+92-300-POCKET1</p>
+          <p>+92 329 5196981</p>
           <p>hello@pocketshawarma.com</p>
           <p>@pocket.pakistan</p>
         </div>

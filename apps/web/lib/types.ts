@@ -208,6 +208,7 @@ export type PosReceiptOrder = {
   id: string;
   receiptNumber: string;
   orderNumber: string;
+  fbrReferenceNumber: string;
   posNo: string;
   userId: string;
   channel: string;

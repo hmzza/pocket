@@ -9,7 +9,7 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "2");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "3");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
@@ -106,7 +106,7 @@ async function main() {
       name: "Pocket G-11 Markaz",
       city: "Islamabad",
       addressLine1: "Shop #17, Al Ghaffar Mall, G-11 Markaz",
-      phone: "+92-300-POCKET1",
+      phone: "+92 329 5196981",
       email: "g11@pocketshawarma.com",
       deliveryFee: 180
     },
@@ -115,7 +115,7 @@ async function main() {
       name: "Pocket G-11 Markaz",
       city: "Islamabad",
       addressLine1: "Shop #17, Al Ghaffar Mall, G-11 Markaz",
-      phone: "+92-300-POCKET1",
+      phone: "+92 329 5196981",
       email: "g11@pocketshawarma.com",
       deliveryFee: 180,
       hours: {
@@ -205,7 +205,7 @@ async function main() {
       where: { key: "store.contact" },
       update: {
         value: {
-          phone: "+92-300-POCKET1",
+          phone: "+92 329 5196981",
           email: "hello@pocketshawarma.com",
           instagram: "@pocket.pakistan"
         }
@@ -213,7 +213,7 @@ async function main() {
       create: {
         key: "store.contact",
         value: {
-          phone: "+92-300-POCKET1",
+          phone: "+92 329 5196981",
           email: "hello@pocketshawarma.com",
           instagram: "@pocket.pakistan"
         }

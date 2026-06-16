@@ -60,7 +60,7 @@ export const branch: Branch = {
   name: "Pocket G-11 Markaz",
   city: "Islamabad",
   addressLine1: "Shop #17, Al Ghaffar Mall, G-11 Markaz",
-  phone: "+92-300-POCKET1",
+  phone: "+92 329 5196981",
   deliveryFee: 180
 };
 

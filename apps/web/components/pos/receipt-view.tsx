@@ -112,6 +112,7 @@ export function ReceiptView({ orderId }: { orderId: string }) {
             {[
               ["Receipt No", order.receiptNumber],
               ["Order ID", order.id],
+              ["FBR Reference No", order.fbrReferenceNumber],
               ["POS No", order.posNo],
               ["Payment Type", formatPaymentMethod(order.paymentMethod)],
               ["Date", receiptMeta.date],

@@ -32,6 +32,8 @@ const paymentTaxDefaults: Record<PaymentMethod, number> = {
   CARD: 5
 };
 
+const FBR_REFERENCE_NUMBER = "8816692-5";
+
 const cartItemSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("product"),
@@ -83,6 +85,7 @@ function formatOrderForReceipt(order: any) {
     id: order.id,
     receiptNumber: order.orderNumber,
     orderNumber: order.orderNumber,
+    fbrReferenceNumber: FBR_REFERENCE_NUMBER,
     posNo: "001",
     userId: order.cashierId ?? "Admin",
     channel: order.channel,
