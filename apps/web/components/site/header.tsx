@@ -4,7 +4,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { Menu, Search, ShoppingBag } from "lucide-react";
 import { useState } from "react";
-import { ThemeToggle } from "./theme-toggle";
 import { useStore } from "@/components/store/store-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -56,7 +55,6 @@ export function Header() {
               </span>
             ) : null}
           </a>
-          <ThemeToggle />
           <Button variant="ghost" size="sm" className="h-9 w-9 px-0 md:hidden" onClick={() => setOpen((value) => !value)}>
             <Menu className="h-4 w-4" />
           </Button>
