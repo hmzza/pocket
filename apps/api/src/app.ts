@@ -17,10 +17,17 @@ import { errorHandler } from "./middleware/error-handler.js";
 
 export function createApp() {
   const app = express();
+  const allowedOrigins = new Set(env.WEB_ORIGINS);
 
   app.use(
     cors({
-      origin: env.WEB_URL,
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.has(origin)) {
+          return callback(null, true);
+        }
+
+        return callback(new Error("Not allowed by CORS"), false);
+      },
       credentials: true
     })
   );

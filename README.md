@@ -13,6 +13,7 @@ Production-ready starter for a branded food ordering platform with:
 - Express.js + TypeScript
 - PostgreSQL + Prisma
 - JWT auth with role-based access
+- Origin allowlisting for both apex and `www` frontend domains in production
 
 ## Project Structure
 
@@ -158,6 +159,7 @@ API: `http://localhost:4000`
 ## Production Notes
 
 - Replace demo asset artwork with professional brand photography or generated campaign imagery before launch.
+- Set `WEB_ORIGINS` on the backend to include every production frontend origin, for example `https://pocketpakistan.com,https://www.pocketpakistan.com`.
 - Move JWT storage to secure httpOnly cookies if web and API are deployed on the same parent domain.
 - Add payment gateway adapters behind the existing `PaymentMethod` model before enabling card/JazzCash/EasyPaisa.
 - Add Redis for caching and queue-backed order notifications when live traffic increases.
