@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Minus, Plus, Search, Trash2, LogOut, Receipt, ShoppingBag, PencilLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,6 @@ type TicketLine = {
   categoryName: string;
   quantity: number;
   unitPrice: number;
-  note: string;
   customDescription?: string;
   selections: Array<{ groupId: string; optionIds: string[] }>;
   addOns: Array<{ id: string; name: string; priceDelta: number }>;
@@ -89,12 +88,11 @@ export function PosTerminal() {
   const [manualQuantity, setManualQuantity] = useState(1);
   const [manualUnitPrice, setManualUnitPrice] = useState("");
   const [manualNote, setManualNote] = useState("");
+  const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
-  async function loadCatalog(nextBranchId?: string, nextCategoryId?: string, nextSearch?: string) {
+  async function loadCatalog(nextBranchId?: string) {
     const data = await fetchPosCatalog({
-      branchId: nextBranchId || branchId || undefined,
-      categoryId: nextCategoryId && nextCategoryId !== "ALL" ? nextCategoryId : undefined,
-      search: nextSearch || undefined
+      branchId: nextBranchId || branchId || undefined
     });
 
     setBranches(data.branches);
@@ -152,6 +150,18 @@ export function PosTerminal() {
     setTaxRate(defaultTax);
   }, [paymentMethod]);
 
+  const visibleProducts = useMemo(() => {
+    return products.filter((product) => {
+      const categoryMatches = categoryId === "ALL" || product.categoryId === categoryId;
+      if (!categoryMatches) return false;
+
+      if (!deferredSearch) return true;
+
+      const searchTarget = `${product.name} ${product.categoryName}`.toLowerCase();
+      return searchTarget.includes(deferredSearch);
+    });
+  }, [categoryId, deferredSearch, products]);
+
   const subtotal = useMemo(() => ticket.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [ticket]);
   const discountAmount = useMemo(() => {
     if (discountType === "PERCENTAGE") {
@@ -184,7 +194,6 @@ export function PosTerminal() {
         categoryName: product.categoryName,
         quantity: 1,
         unitPrice: product.price,
-        note: "",
         selections: [],
         addOns: []
       },
@@ -213,7 +222,6 @@ export function PosTerminal() {
         categoryName: productDialog.categoryName,
         quantity: productQuantity,
         unitPrice: pricing.unitPrice,
-        note: productNote,
         selections: productSelections,
         addOns: pricing.addOns,
       },
@@ -238,7 +246,6 @@ export function PosTerminal() {
         categoryName: "Manual",
         quantity: manualQuantity,
         unitPrice: price,
-        note: manualNote.trim(),
         customDescription: manualDescription.trim(),
         selections: [],
         addOns: []
@@ -277,14 +284,12 @@ export function PosTerminal() {
                 name: item.name,
                 description: item.customDescription || undefined,
                 quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                note: item.note || undefined
+                unitPrice: item.unitPrice
               }
             : {
                 type: "product",
                 productId: item.productId,
                 quantity: item.quantity,
-                note: item.note || undefined,
                 selections: item.selections
               }
         )
@@ -329,7 +334,7 @@ export function PosTerminal() {
               onChange={(event) => {
                 const nextBranchId = event.target.value;
                 setBranchId(nextBranchId);
-                void loadCatalog(nextBranchId, categoryId, search);
+                void loadCatalog(nextBranchId);
               }}
               className="h-11 rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm"
             >
@@ -376,22 +381,13 @@ export function PosTerminal() {
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        void loadCatalog(branchId, categoryId, search);
-                      }
-                    }}
                     placeholder="Search menu"
                     className="w-full bg-transparent text-sm outline-none placeholder:text-white/40"
                   />
                 </label>
                 <select
                   value={categoryId}
-                  onChange={(event) => {
-                    const nextCategoryId = event.target.value;
-                    setCategoryId(nextCategoryId);
-                    void loadCatalog(branchId, nextCategoryId, search);
-                  }}
+                  onChange={(event) => setCategoryId(event.target.value)}
                   className="h-12 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm"
                 >
                   <option value="ALL">All categories</option>
@@ -408,24 +404,24 @@ export function PosTerminal() {
               </div>
             </Card>
 
-            <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-              {products.map((product) => (
+            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+              {visibleProducts.map((product) => (
                 <button
                   key={product.id}
                   type="button"
                   onClick={() => addProductToTicket(product)}
-                  className="rounded-3xl border border-white/10 bg-white/5 p-5 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10 md:p-3 xl:p-4"
                 >
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80">{product.categoryName}</p>
-                  <p className="mt-3 text-xl font-black">{product.name}</p>
-                  <p className="mt-4 text-lg font-semibold text-amber-200">{formatCurrency(product.price)}</p>
-                  {product.addOnGroups.length ? <p className="mt-3 text-sm text-white/60">Customization required</p> : null}
+                  <p className="mt-2 text-lg font-black leading-tight xl:text-[1.05rem]">{product.name}</p>
+                  <p className="mt-3 text-base font-semibold text-amber-200 xl:text-lg">{formatCurrency(product.price)}</p>
+                  {product.addOnGroups.length ? <p className="mt-2 text-xs text-white/60 xl:text-sm">Customization required</p> : null}
                 </button>
               ))}
             </div>
           </div>
 
-          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-5 text-slate-900 shadow-none">
+          <Card className="flex flex-col rounded-3xl border-white/10 bg-[#f8f5ef] p-5 text-slate-900 shadow-none xl:sticky xl:top-6 xl:max-h-[calc(100vh-7rem)] xl:overflow-hidden">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-600">Live Ticket</p>
@@ -434,7 +430,7 @@ export function PosTerminal() {
               <ShoppingBag className="h-7 w-7 text-orange-600" />
             </div>
 
-            <div className="mt-5 space-y-3">
+            <div className="mt-5 flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
               {ticket.length ? (
                 ticket.map((item) => (
                   <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -464,12 +460,6 @@ export function PosTerminal() {
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
-                    <Textarea
-                      value={item.note}
-                      onChange={(event) => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, note: event.target.value } : line))}
-                      placeholder="Item note"
-                      className="mt-3 min-h-20"
-                    />
                   </div>
                 ))
               ) : (
