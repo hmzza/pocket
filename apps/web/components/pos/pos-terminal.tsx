@@ -25,10 +25,10 @@ type TicketLine = {
 };
 
 const paymentOptions = [
-  { value: "CASH", label: "Cash", taxRate: 15 },
-  { value: "CARD", label: "Card", taxRate: 5 },
-  { value: "EASYPAISA", label: "EasyPaisa", taxRate: 15 },
-  { value: "JAZZCASH", label: "JazzCash", taxRate: 15 }
+  { value: "CASH", label: "Cash" },
+  { value: "CARD", label: "Card" },
+  { value: "EASYPAISA", label: "EasyPaisa" },
+  { value: "JAZZCASH", label: "JazzCash" }
 ] as const;
 
 const serviceTypes = ["TAKEAWAY", "DINE_IN"] as const;
@@ -72,7 +72,6 @@ export function PosTerminal() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [serviceType, setServiceType] = useState<(typeof serviceTypes)[number]>("TAKEAWAY");
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentOptions)[number]["value"]>("CASH");
-  const [taxRate, setTaxRate] = useState(15);
   const [discountType, setDiscountType] = useState<"NONE" | "PERCENTAGE" | "FIXED">("NONE");
   const [discountValue, setDiscountValue] = useState(0);
   const [paidAmount, setPaidAmount] = useState("");
@@ -145,11 +144,6 @@ export function PosTerminal() {
     };
   }, [router]);
 
-  useEffect(() => {
-    const defaultTax = paymentOptions.find((option) => option.value === paymentMethod)?.taxRate ?? 15;
-    setTaxRate(defaultTax);
-  }, [paymentMethod]);
-
   const visibleProducts = useMemo(() => {
     return products.filter((product) => {
       const categoryMatches = categoryId === "ALL" || product.categoryId === categoryId;
@@ -172,8 +166,7 @@ export function PosTerminal() {
     }
     return 0;
   }, [discountType, discountValue, subtotal]);
-  const taxAmount = useMemo(() => ((subtotal - discountAmount) * taxRate) / 100, [discountAmount, subtotal, taxRate]);
-  const total = useMemo(() => Math.max(0, subtotal - discountAmount + taxAmount), [discountAmount, subtotal, taxAmount]);
+  const total = useMemo(() => Math.max(0, subtotal - discountAmount), [discountAmount, subtotal]);
   const change = Math.max(0, Number(paidAmount || 0) - total);
 
   function addProductToTicket(product: PosCatalogProduct) {
@@ -272,7 +265,7 @@ export function PosTerminal() {
         paymentMethod,
         customerName: customerName.trim() || undefined,
         customerPhone: customerPhone.trim() || undefined,
-        taxRate,
+        taxRate: 0,
         discountType,
         discountValue,
         paidAmount: Number(paidAmount || 0),
@@ -488,14 +481,13 @@ export function PosTerminal() {
                   ))}
                 </select>
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2">
                 <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm">
                   <option value="NONE">No discount</option>
                   <option value="PERCENTAGE">Percentage</option>
                   <option value="FIXED">Fixed amount</option>
                 </select>
                 <Input type="number" value={discountValue} onChange={(event) => setDiscountValue(Number(event.target.value || 0))} placeholder="Discount" />
-                <Input type="number" value={taxRate} onChange={(event) => setTaxRate(Number(event.target.value || 0))} placeholder="Tax %" />
               </div>
               <Input type="number" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="Paid amount" />
               <Textarea value={checkoutNote} onChange={(event) => setCheckoutNote(event.target.value)} placeholder="Order note (optional)" className="min-h-20" />
@@ -504,7 +496,6 @@ export function PosTerminal() {
             <div className="mt-5 space-y-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm text-white">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
-              <div className="flex justify-between"><span>Tax ({taxRate}%)</span><span>{formatCurrency(taxAmount)}</span></div>
               <div className="flex justify-between text-base font-bold"><span>Total</span><span>{formatCurrency(total)}</span></div>
               <div className="flex justify-between"><span>Paid</span><span>{formatCurrency(Number(paidAmount || 0))}</span></div>
               <div className="flex justify-between"><span>Change</span><span>{formatCurrency(change)}</span></div>
