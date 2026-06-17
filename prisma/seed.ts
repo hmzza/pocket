@@ -9,7 +9,7 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "4");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "5");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
@@ -260,7 +260,7 @@ async function main() {
       slug: "make-it-a-meal",
       name: "Make It A Meal",
       description: "Pocket wraps bundled with fries and your drink pick",
-      sortOrder: 3,
+      sortOrder: 4,
       imageUrl: "/images/combo-meal.svg",
       isActive: true
     },
@@ -268,16 +268,16 @@ async function main() {
       slug: "add-ons",
       name: "Add-ons",
       description: "Custom extras",
-      sortOrder: 99,
+      sortOrder: 3,
       imageUrl: "/images/brand-grid.svg",
-      isActive: false
+      isActive: true
     },
     {
       legacySlug: "drinks",
       slug: "chillers",
       name: "Chillers",
       description: "Fruit chillers",
-      sortOrder: 4,
+      sortOrder: 5,
       imageUrl: "/images/pocket-drink.svg",
       isActive: true
     },
@@ -286,7 +286,7 @@ async function main() {
       slug: "ice-cream-shakes",
       name: "Ice Cream Shakes",
       description: "Creamy shakes",
-      sortOrder: 5,
+      sortOrder: 6,
       imageUrl: "/images/pocket-combo.svg",
       isActive: true
     },
@@ -294,7 +294,7 @@ async function main() {
       slug: "soft-drinks",
       name: "Soft Drinks",
       description: "Classic soft drinks",
-      sortOrder: 6,
+      sortOrder: 7,
       imageUrl: "/images/pocket-drink.svg",
       isActive: true
     }
@@ -426,6 +426,66 @@ async function main() {
       sortOrder: 2,
       nutritionInfo: nutrition(640, 17, 50, 30),
       images: [{ url: "/images/loaded-fries.svg", alt: "Loaded Fries", sortOrder: 1 }]
+    },
+    {
+      slug: "olives",
+      sku: "PKT-ADD-001",
+      name: "Olives",
+      description: "Add-on item.",
+      categorySlug: "add-ons",
+      ingredients: ["Olives"],
+      basePrice: 40,
+      calories: 40,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 1,
+      nutritionInfo: nutrition(40, 0, 2, 4),
+      images: [{ url: "/images/brand-grid.svg", alt: "Olives", sortOrder: 1 }]
+    },
+    {
+      slug: "mushrooms",
+      sku: "PKT-ADD-002",
+      name: "Mushrooms",
+      description: "Add-on item.",
+      categorySlug: "add-ons",
+      ingredients: ["Mushrooms"],
+      basePrice: 40,
+      calories: 35,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 2,
+      nutritionInfo: nutrition(35, 1, 4, 0),
+      images: [{ url: "/images/brand-grid.svg", alt: "Mushrooms", sortOrder: 1 }]
+    },
+    {
+      slug: "chicken-add-on",
+      sku: "PKT-ADD-003",
+      name: "Chicken",
+      description: "Add-on item.",
+      categorySlug: "add-ons",
+      ingredients: ["Chicken"],
+      basePrice: 90,
+      calories: 120,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 3,
+      nutritionInfo: nutrition(120, 14, 0, 5),
+      images: [{ url: "/images/brand-grid.svg", alt: "Chicken add-on", sortOrder: 1 }]
+    },
+    {
+      slug: "cheese",
+      sku: "PKT-ADD-004",
+      name: "Cheese",
+      description: "Add-on item.",
+      categorySlug: "add-ons",
+      ingredients: ["Cheese"],
+      basePrice: 40,
+      calories: 80,
+      featured: false,
+      bestSeller: false,
+      sortOrder: 4,
+      nutritionInfo: nutrition(80, 4, 1, 6),
+      images: [{ url: "/images/brand-grid.svg", alt: "Cheese", sortOrder: 1 }]
     },
     {
       slug: "classic-pocket-make-it-a-meal",
@@ -646,10 +706,6 @@ async function main() {
   const retiredProductSlugs = [
     "garlic-mayo-fries",
     "masala-fries",
-    "olives",
-    "mushrooms",
-    "chicken-add-on",
-    "cheese",
     "shawarma-drink-combo",
     "shawarma-fries-drink-combo"
   ];

@@ -289,9 +289,7 @@ export function PosTerminal() {
       });
 
       const customerReceiptPath = `/pos/receipt/${response.order.id}?copy=customer`;
-      const storeReceiptPath = `/pos/receipt/${response.order.id}?copy=store`;
       window.open(customerReceiptPath, "_blank", "noopener,noreferrer");
-      window.open(storeReceiptPath, "_blank", "noopener,noreferrer");
       setTicket([]);
       setCustomerName("");
       setCustomerPhone("");
@@ -416,53 +414,68 @@ export function PosTerminal() {
             </div>
           </div>
 
-          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-4 text-slate-900 shadow-none xl:sticky xl:top-6 xl:max-h-[calc(100vh-6.5rem)] xl:overflow-y-auto">
+          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-3.5 text-slate-900 shadow-none xl:sticky xl:top-6 xl:max-h-[calc(100vh-6.25rem)] xl:overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-600">Live Ticket</p>
-                <h2 className="mt-1.5 text-xl font-black">Current Sale</h2>
+                <h2 className="mt-1 text-[1.15rem] font-black leading-none">Current Sale</h2>
               </div>
-              <ShoppingBag className="h-6 w-6 text-orange-600" />
+              <ShoppingBag className="h-5 w-5 text-orange-600" />
             </div>
 
-            <div className="mt-4 space-y-2.5">
+            <div className="mt-3 space-y-2">
               {ticket.length ? (
                 ticket.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
                     <div className="flex items-start justify-between gap-2.5">
-                      <div>
-                        <p className="text-sm font-bold leading-tight">{item.name}</p>
-                        <p className="text-xs text-slate-500">{item.categoryName}</p>
-                        {item.customDescription ? <p className="mt-0.5 text-xs text-slate-500">{item.customDescription}</p> : null}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[0.92rem] font-bold leading-tight">{item.name}</p>
+                        <p className="text-[0.72rem] leading-tight text-slate-500">{item.categoryName}</p>
+                        {item.customDescription ? <p className="mt-0.5 text-[0.72rem] leading-tight text-slate-500">{item.customDescription}</p> : null}
                         {item.addOns.length ? (
-                          <p className="mt-1 text-xs text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
+                          <p className="mt-0.5 text-[0.72rem] leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
                         ) : null}
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
-                        <p className="text-xs text-slate-500">{formatCurrency(item.unitPrice)} each</p>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[0.92rem] font-bold leading-tight text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                        <p className="text-[0.72rem] leading-tight text-slate-500">{formatCurrency(item.unitPrice)} each</p>
                       </div>
                     </div>
-                    <div className="mt-2 flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: Math.max(1, line.quantity - 1) } : line))}>
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 px-0"
+                        onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: Math.max(1, line.quantity - 1) } : line))}
+                      >
                         <Minus className="h-3 w-3" />
                       </Button>
-                      <span className="min-w-7 text-center text-sm font-semibold">{item.quantity}</span>
-                      <Button variant="outline" size="sm" onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line))}>
+                      <span className="min-w-5 text-center text-sm font-semibold">{item.quantity}</span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 px-0"
+                        onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line))}
+                      >
                         <Plus className="h-3 w-3" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="ml-auto text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setTicket((current) => current.filter((line) => line.id !== item.id))}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto h-8 w-8 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                        onClick={() => setTicket((current) => current.filter((line) => line.id !== item.id))}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-white/70 p-4 text-sm text-slate-500">No items on the ticket yet.</div>
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white/70 p-3 text-sm text-slate-500">No items on the ticket yet.</div>
               )}
             </div>
 
-            <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
+            <div className="mt-3 space-y-2.5 border-t border-slate-200 pt-3">
               <div className="grid gap-2.5 md:grid-cols-2">
                 <Input className="h-10" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" />
                 <Input className="h-10" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" />
@@ -495,15 +508,15 @@ export function PosTerminal() {
               <Textarea value={checkoutNote} onChange={(event) => setCheckoutNote(event.target.value)} placeholder="Order note (optional)" className="min-h-16 text-sm" />
             </div>
 
-            <div className="mt-4 space-y-1.5 rounded-2xl bg-slate-950 px-3.5 py-3 text-sm text-white">
+            <div className="mt-3 space-y-1 rounded-2xl bg-slate-950 px-3 py-2.5 text-[0.92rem] text-white">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
-              <div className="flex justify-between text-base font-bold"><span>Total</span><span>{formatCurrency(total)}</span></div>
+              <div className="flex justify-between text-[1rem] font-bold"><span>Total</span><span>{formatCurrency(total)}</span></div>
               <div className="flex justify-between"><span>Paid</span><span>{formatCurrency(Number(paidAmount || 0))}</span></div>
               <div className="flex justify-between"><span>Change</span><span>{formatCurrency(change)}</span></div>
             </div>
 
-            <Button className="mt-4 h-11 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || Number(paidAmount || 0) < total} onClick={() => void submitOrder()}>
+            <Button className="mt-3 h-10 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || Number(paidAmount || 0) < total} onClick={() => void submitOrder()}>
               <Receipt className="h-4 w-4" />
               {submitting ? "Processing..." : "Finish and View Slip"}
             </Button>

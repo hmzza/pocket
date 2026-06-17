@@ -7,6 +7,7 @@ import { generateOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 
 const router = Router();
+const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
 
 const productInclude = {
   category: true,
@@ -36,7 +37,7 @@ router.get("/content/home", async (_req, res) => {
     prisma.cmsContent.findUnique({ where: { key: "homepage.why-pocket" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.testimonials" } }),
     prisma.product.findMany({
-      where: { featured: true, isActive: true },
+      where: { featured: true, isActive: true, category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } } },
       include: {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
@@ -45,7 +46,7 @@ router.get("/content/home", async (_req, res) => {
       take: 4
     }),
     prisma.product.findMany({
-      where: { bestSeller: true, isActive: true },
+      where: { bestSeller: true, isActive: true, category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } } },
       include: {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
@@ -54,7 +55,7 @@ router.get("/content/home", async (_req, res) => {
       take: 4
     }),
     prisma.category.findMany({
-      where: { isActive: true },
+      where: { isActive: true, slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } },
       orderBy: { sortOrder: "asc" }
     }),
     prisma.branch.findFirst({
@@ -79,7 +80,7 @@ router.get("/content/home", async (_req, res) => {
 
 router.get("/categories", async (_req, res) => {
   const categories = await prisma.category.findMany({
-    where: { isActive: true },
+    where: { isActive: true, slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } },
     orderBy: { sortOrder: "asc" }
   });
   return res.json({ categories });
@@ -98,7 +99,10 @@ router.get("/products", async (req, res, next) => {
     const { category, search, featured, bestSeller, branchSlug } = querySchema.parse(req.query);
     const where: Prisma.ProductWhereInput = {
       isActive: true,
-      ...(category ? { category: { is: { slug: category } } } : {}),
+      AND: [
+        { category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } } },
+        ...(category ? [{ category: { is: { slug: category } } }] : [])
+      ],
       ...(search
         ? {
             OR: [
@@ -152,11 +156,12 @@ router.get("/products/:slug", async (req, res) => {
   }
 
   const related = await prisma.product.findMany({
-    where: {
-      categoryId: product.categoryId,
-      id: { not: product.id },
-      isActive: true
-    },
+      where: {
+        categoryId: product.categoryId,
+        id: { not: product.id },
+        isActive: true,
+        category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } }
+      },
     include: {
       category: true,
       images: { orderBy: { sortOrder: "asc" } }
@@ -173,6 +178,7 @@ router.get("/search", async (req, res, next) => {
     const products = await prisma.product.findMany({
       where: {
         isActive: true,
+        category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } },
         OR: [
           { name: { contains: query.q, mode: "insensitive" } },
           { description: { contains: query.q, mode: "insensitive" } },
