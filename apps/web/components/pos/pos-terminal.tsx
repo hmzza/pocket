@@ -367,7 +367,7 @@ export function PosTerminal() {
           </div>
         ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-[1.45fr_0.95fr]">
+        <div className="grid gap-5 xl:grid-cols-[1.6fr_0.82fr]">
           <div className="space-y-4">
             <Card className="rounded-3xl border-white/10 bg-white/5 p-4 shadow-none">
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
@@ -405,49 +405,49 @@ export function PosTerminal() {
                   key={product.id}
                   type="button"
                   onClick={() => addProductToTicket(product)}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10 md:p-3 xl:p-4"
+                  className="rounded-2xl border border-white/10 bg-white/5 p-3 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
                 >
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80">{product.categoryName}</p>
-                  <p className="mt-2 text-lg font-black leading-tight xl:text-[1.05rem]">{product.name}</p>
-                  <p className="mt-3 text-base font-semibold text-amber-200 xl:text-lg">{formatCurrency(product.price)}</p>
-                  {product.addOnGroups.length ? <p className="mt-2 text-xs text-white/60 xl:text-sm">Customization required</p> : null}
+                  <p className="mt-1.5 text-base font-black leading-tight xl:text-[1rem]">{product.name}</p>
+                  <p className="mt-2 text-sm font-semibold text-amber-200 xl:text-base">{formatCurrency(product.price)}</p>
+                  {product.addOnGroups.length ? <p className="mt-1.5 text-xs text-white/60">Customization required</p> : null}
                 </button>
               ))}
             </div>
           </div>
 
-          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-5 text-slate-900 shadow-none xl:sticky xl:top-6 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto">
+          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-4 text-slate-900 shadow-none xl:sticky xl:top-6 xl:max-h-[calc(100vh-6.5rem)] xl:overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-600">Live Ticket</p>
-                <h2 className="mt-2 text-2xl font-black">Current Sale</h2>
+                <h2 className="mt-1.5 text-xl font-black">Current Sale</h2>
               </div>
-              <ShoppingBag className="h-7 w-7 text-orange-600" />
+              <ShoppingBag className="h-6 w-6 text-orange-600" />
             </div>
 
-            <div className="mt-5 space-y-3">
+            <div className="mt-4 space-y-2.5">
               {ticket.length ? (
                 ticket.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4">
-                    <div className="flex items-start justify-between gap-3">
+                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="flex items-start justify-between gap-2.5">
                       <div>
-                        <p className="font-bold">{item.name}</p>
-                        <p className="text-sm text-slate-500">{item.categoryName}</p>
-                        {item.customDescription ? <p className="mt-1 text-sm text-slate-500">{item.customDescription}</p> : null}
+                        <p className="text-sm font-bold leading-tight">{item.name}</p>
+                        <p className="text-xs text-slate-500">{item.categoryName}</p>
+                        {item.customDescription ? <p className="mt-0.5 text-xs text-slate-500">{item.customDescription}</p> : null}
                         {item.addOns.length ? (
-                          <p className="mt-2 text-sm text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
+                          <p className="mt-1 text-xs text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
                         ) : null}
                       </div>
                       <div className="text-right">
-                        <p className="font-bold text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
-                        <p className="text-sm text-slate-500">{formatCurrency(item.unitPrice)} each</p>
+                        <p className="text-sm font-bold text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                        <p className="text-xs text-slate-500">{formatCurrency(item.unitPrice)} each</p>
                       </div>
                     </div>
-                    <div className="mt-3 flex items-center gap-2">
+                    <div className="mt-2 flex items-center gap-2">
                       <Button variant="outline" size="sm" onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: Math.max(1, line.quantity - 1) } : line))}>
                         <Minus className="h-3 w-3" />
                       </Button>
-                      <span className="min-w-8 text-center text-sm font-semibold">{item.quantity}</span>
+                      <span className="min-w-7 text-center text-sm font-semibold">{item.quantity}</span>
                       <Button variant="outline" size="sm" onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line))}>
                         <Plus className="h-3 w-3" />
                       </Button>
@@ -458,24 +458,24 @@ export function PosTerminal() {
                   </div>
                 ))
               ) : (
-                <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-6 text-sm text-slate-500">No items on the ticket yet.</div>
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white/70 p-4 text-sm text-slate-500">No items on the ticket yet.</div>
               )}
             </div>
 
-            <div className="mt-5 space-y-4 border-t border-slate-200 pt-5">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" />
-                <Input value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" />
+            <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
+              <div className="grid gap-2.5 md:grid-cols-2">
+                <Input className="h-10" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" />
+                <Input className="h-10" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" />
               </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number])} className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm">
+              <div className="grid gap-2.5 md:grid-cols-2">
+                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number])} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
                   {serviceTypes.map((entry) => (
                     <option key={entry} value={entry}>
                       {entry.replaceAll("_", " ")}
                     </option>
                   ))}
                 </select>
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm">
+                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
                   {paymentOptions.map((entry) => (
                     <option key={entry.value} value={entry.value}>
                       {entry.label}
@@ -483,19 +483,19 @@ export function PosTerminal() {
                   ))}
                 </select>
               </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm">
+              <div className="grid gap-2.5 md:grid-cols-2">
+                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
                   <option value="NONE">No discount</option>
                   <option value="PERCENTAGE">Percentage</option>
                   <option value="FIXED">Fixed amount</option>
                 </select>
-                <Input type="number" value={discountValue} onChange={(event) => setDiscountValue(Number(event.target.value || 0))} placeholder="Discount" />
+                <Input className="h-10" type="number" value={discountValue} onChange={(event) => setDiscountValue(Number(event.target.value || 0))} placeholder="Discount" />
               </div>
-              <Input type="number" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="Paid amount" />
-              <Textarea value={checkoutNote} onChange={(event) => setCheckoutNote(event.target.value)} placeholder="Order note (optional)" className="min-h-20" />
+              <Input className="h-10" type="number" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="Paid amount" />
+              <Textarea value={checkoutNote} onChange={(event) => setCheckoutNote(event.target.value)} placeholder="Order note (optional)" className="min-h-16 text-sm" />
             </div>
 
-            <div className="mt-5 space-y-2 rounded-2xl bg-slate-950 px-4 py-4 text-sm text-white">
+            <div className="mt-4 space-y-1.5 rounded-2xl bg-slate-950 px-3.5 py-3 text-sm text-white">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
               <div className="flex justify-between text-base font-bold"><span>Total</span><span>{formatCurrency(total)}</span></div>
@@ -503,7 +503,7 @@ export function PosTerminal() {
               <div className="flex justify-between"><span>Change</span><span>{formatCurrency(change)}</span></div>
             </div>
 
-            <Button className="mt-5 h-12 w-full rounded-2xl" disabled={!ticket.length || submitting || Number(paidAmount || 0) < total} onClick={() => void submitOrder()}>
+            <Button className="mt-4 h-11 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || Number(paidAmount || 0) < total} onClick={() => void submitOrder()}>
               <Receipt className="h-4 w-4" />
               {submitting ? "Processing..." : "Finish and View Slip"}
             </Button>
