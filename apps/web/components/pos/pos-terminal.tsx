@@ -314,12 +314,12 @@ export function PosTerminal() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_22%),linear-gradient(135deg,_#111827,_#1f2937_55%,_#0f172a)] px-4 py-6 text-white md:px-6">
-      <div className="mx-auto max-w-[1680px] space-y-6">
-        <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur md:flex-row md:items-center md:justify-between">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_22%),linear-gradient(135deg,_#111827,_#1f2937_55%,_#0f172a)] px-4 py-5 text-white md:px-5">
+      <div className="mx-auto max-w-[1680px] space-y-5">
+        <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-300">Pocket POS</p>
-            <h1 className="mt-2 text-3xl font-black">Counter Terminal</h1>
+            <h1 className="mt-1.5 text-[2rem] font-black leading-none">Counter Terminal</h1>
           </div>
           <div className="flex flex-wrap gap-3">
             <select
@@ -329,7 +329,7 @@ export function PosTerminal() {
                 setBranchId(nextBranchId);
                 void loadCatalog(nextBranchId);
               }}
-              className="h-11 rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm"
+              className="h-10 rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm"
             >
               {branches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
@@ -339,14 +339,14 @@ export function PosTerminal() {
             </select>
             <Button
               variant="outline"
-              className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+              className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
               onClick={() => router.push("/pos/orders")}
             >
               View Orders
             </Button>
             <Button
               variant="outline"
-              className="border-white/15 bg-white/5 text-white hover:bg-white/10"
+              className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
               onClick={() => {
                 window.localStorage.removeItem(getPosTokenKey());
                 router.replace("/pos/login");
@@ -365,11 +365,11 @@ export function PosTerminal() {
           </div>
         ) : null}
 
-        <div className="grid gap-5 xl:grid-cols-[1.6fr_0.82fr]">
+        <div className="grid gap-4 xl:grid-cols-[1.66fr_0.78fr]">
           <div className="space-y-4">
-            <Card className="rounded-3xl border-white/10 bg-white/5 p-4 shadow-none">
+            <Card className="rounded-3xl border-white/10 bg-white/5 p-3.5 shadow-none">
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
-                <label className="flex h-12 items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4">
+                <label className="flex h-11 items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4">
                   <Search className="h-4 w-4 text-white/60" />
                   <input
                     value={search}
@@ -381,7 +381,7 @@ export function PosTerminal() {
                 <select
                   value={categoryId}
                   onChange={(event) => setCategoryId(event.target.value)}
-                  className="h-12 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm"
+                  className="h-11 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm"
                 >
                   <option value="ALL">All categories</option>
                   {categories.map((category) => (
@@ -390,7 +390,7 @@ export function PosTerminal() {
                     </option>
                   ))}
                 </select>
-                <Button className="h-12 rounded-2xl" onClick={() => setManualDialogOpen(true)}>
+                <Button className="h-11 rounded-2xl" onClick={() => setManualDialogOpen(true)}>
                   <PencilLine className="h-4 w-4" />
                   Other Item
                 </Button>
@@ -403,69 +403,73 @@ export function PosTerminal() {
                   key={product.id}
                   type="button"
                   onClick={() => addProductToTicket(product)}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-3 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
+                  className="rounded-2xl border border-white/10 bg-white/5 p-2.5 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
                 >
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80">{product.categoryName}</p>
-                  <p className="mt-1.5 text-base font-black leading-tight xl:text-[1rem]">{product.name}</p>
-                  <p className="mt-2 text-sm font-semibold text-amber-200 xl:text-base">{formatCurrency(product.price)}</p>
-                  {product.addOnGroups.length ? <p className="mt-1.5 text-xs text-white/60">Customization required</p> : null}
+                  <p className="mt-1 text-[0.95rem] font-black leading-tight xl:text-[0.98rem]">{product.name}</p>
+                  <p className="mt-1.5 text-sm font-semibold text-amber-200">{formatCurrency(product.price)}</p>
+                  {product.addOnGroups.length ? <p className="mt-1 text-[0.72rem] text-white/60">Customization required</p> : null}
                 </button>
               ))}
             </div>
           </div>
 
-          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-3.5 text-slate-900 shadow-none xl:sticky xl:top-6 xl:max-h-[calc(100vh-6.25rem)] xl:overflow-y-auto">
+          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-3 text-slate-900 shadow-none xl:sticky xl:top-5 xl:max-h-[calc(100vh-5.75rem)] xl:overflow-y-auto">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-600">Live Ticket</p>
-                <h2 className="mt-1 text-[1.15rem] font-black leading-none">Current Sale</h2>
+                <h2 className="mt-1 text-[1.05rem] font-black leading-none">Current Sale</h2>
               </div>
               <ShoppingBag className="h-5 w-5 text-orange-600" />
             </div>
 
-            <div className="mt-3 space-y-2">
+            <div className="mt-2.5 space-y-1.5">
               {ticket.length ? (
                 ticket.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                    <div className="flex items-start justify-between gap-2.5">
+                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[0.92rem] font-bold leading-tight">{item.name}</p>
-                        <p className="text-[0.72rem] leading-tight text-slate-500">{item.categoryName}</p>
-                        {item.customDescription ? <p className="mt-0.5 text-[0.72rem] leading-tight text-slate-500">{item.customDescription}</p> : null}
+                        <div className="flex items-start gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-0.5 h-7 w-7 shrink-0 px-0"
+                            onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: Math.max(1, line.quantity - 1) } : line))}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="mt-1 min-w-4 shrink-0 text-center text-xs font-semibold">{item.quantity}</span>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-0.5 h-7 w-7 shrink-0 px-0"
+                            onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line))}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[0.84rem] font-bold leading-tight">{item.name}</p>
+                            <p className="text-[0.68rem] leading-tight text-slate-500">{item.categoryName}</p>
+                          </div>
+                        </div>
+                        {item.customDescription ? <p className="mt-0.5 pl-[6.25rem] text-[0.68rem] leading-tight text-slate-500">{item.customDescription}</p> : null}
                         {item.addOns.length ? (
-                          <p className="mt-0.5 text-[0.72rem] leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
+                          <p className="mt-0.5 pl-[6.25rem] text-[0.68rem] leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
                         ) : null}
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="text-[0.92rem] font-bold leading-tight text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
-                        <p className="text-[0.72rem] leading-tight text-slate-500">{formatCurrency(item.unitPrice)} each</p>
+                        <p className="text-[0.84rem] font-bold leading-tight text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                        <p className="text-[0.68rem] leading-tight text-slate-500">{formatCurrency(item.unitPrice)} each</p>
                       </div>
                     </div>
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 w-8 px-0"
-                        onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: Math.max(1, line.quantity - 1) } : line))}
-                      >
-                        <Minus className="h-3 w-3" />
-                      </Button>
-                      <span className="min-w-5 text-center text-sm font-semibold">{item.quantity}</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 w-8 px-0"
-                        onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line))}
-                      >
-                        <Plus className="h-3 w-3" />
-                      </Button>
+                    <div className="mt-0.5 flex justify-end">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="ml-auto h-8 w-8 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                        className="h-7 w-7 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
                         onClick={() => setTicket((current) => current.filter((line) => line.id !== item.id))}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -475,20 +479,20 @@ export function PosTerminal() {
               )}
             </div>
 
-            <div className="mt-3 space-y-2.5 border-t border-slate-200 pt-3">
-              <div className="grid gap-2.5 md:grid-cols-2">
-                <Input className="h-10" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" />
-                <Input className="h-10" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" />
+            <div className="mt-2.5 space-y-2 border-t border-slate-200 pt-2.5">
+              <div className="grid gap-2 md:grid-cols-2">
+                <Input className="h-9 text-sm" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" />
+                <Input className="h-9 text-sm" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" />
               </div>
-              <div className="grid gap-2.5 md:grid-cols-2">
-                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number])} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+              <div className="grid gap-2 md:grid-cols-2">
+                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm">
                   {serviceTypes.map((entry) => (
                     <option key={entry} value={entry}>
                       {entry.replaceAll("_", " ")}
                     </option>
                   ))}
                 </select>
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm">
                   {paymentOptions.map((entry) => (
                     <option key={entry.value} value={entry.value}>
                       {entry.label}
@@ -496,27 +500,27 @@ export function PosTerminal() {
                   ))}
                 </select>
               </div>
-              <div className="grid gap-2.5 md:grid-cols-2">
-                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm">
+              <div className="grid gap-2 md:grid-cols-2">
+                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm">
                   <option value="NONE">No discount</option>
                   <option value="PERCENTAGE">Percentage</option>
                   <option value="FIXED">Fixed amount</option>
                 </select>
-                <Input className="h-10" type="number" value={discountValue} onChange={(event) => setDiscountValue(Number(event.target.value || 0))} placeholder="Discount" />
+                <Input className="h-9 text-sm" type="number" value={discountValue} onChange={(event) => setDiscountValue(Number(event.target.value || 0))} placeholder="Discount" />
               </div>
-              <Input className="h-10" type="number" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="Paid amount" />
-              <Textarea value={checkoutNote} onChange={(event) => setCheckoutNote(event.target.value)} placeholder="Order note (optional)" className="min-h-16 text-sm" />
+              <Input className="h-9 text-sm" type="number" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="Paid amount" />
+              <Textarea value={checkoutNote} onChange={(event) => setCheckoutNote(event.target.value)} placeholder="Order note (optional)" className="min-h-14 text-sm" />
             </div>
 
-            <div className="mt-3 space-y-1 rounded-2xl bg-slate-950 px-3 py-2.5 text-[0.92rem] text-white">
+            <div className="mt-2.5 space-y-1 rounded-2xl bg-slate-950 px-3 py-2 text-[0.84rem] text-white">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
-              <div className="flex justify-between text-[1rem] font-bold"><span>Total</span><span>{formatCurrency(total)}</span></div>
+              <div className="flex justify-between text-[0.94rem] font-bold"><span>Total</span><span>{formatCurrency(total)}</span></div>
               <div className="flex justify-between"><span>Paid</span><span>{formatCurrency(Number(paidAmount || 0))}</span></div>
               <div className="flex justify-between"><span>Change</span><span>{formatCurrency(change)}</span></div>
             </div>
 
-            <Button className="mt-3 h-10 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || Number(paidAmount || 0) < total} onClick={() => void submitOrder()}>
+            <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || Number(paidAmount || 0) < total} onClick={() => void submitOrder()}>
               <Receipt className="h-4 w-4" />
               {submitting ? "Processing..." : "Finish and View Slip"}
             </Button>
