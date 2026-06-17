@@ -423,10 +423,10 @@ export function PosTerminal() {
               <ShoppingBag className="h-5 w-5 text-orange-600" />
             </div>
 
-            <div className="mt-2.5 space-y-1.5">
+            <div className="mt-2 space-y-1.5">
               {ticket.length ? (
                 ticket.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2">
+                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-1.5">
@@ -448,29 +448,29 @@ export function PosTerminal() {
                             <Plus className="h-3 w-3" />
                           </Button>
                           <div className="min-w-0 flex-1">
-                            <p className="text-[0.84rem] font-bold leading-tight">{item.name}</p>
-                            <p className="text-[0.68rem] leading-tight text-slate-500">{item.categoryName}</p>
+                            <p className="text-[0.78rem] font-bold leading-tight">{item.name}</p>
+                            <p className="text-[0.64rem] leading-tight text-slate-500">{item.categoryName}</p>
                           </div>
                         </div>
-                        {item.customDescription ? <p className="mt-0.5 pl-[6.25rem] text-[0.68rem] leading-tight text-slate-500">{item.customDescription}</p> : null}
+                        {item.customDescription ? <p className="mt-0.5 pl-[6.25rem] text-[0.64rem] leading-tight text-slate-500">{item.customDescription}</p> : null}
                         {item.addOns.length ? (
-                          <p className="mt-0.5 pl-[6.25rem] text-[0.68rem] leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
+                          <p className="mt-0.5 pl-[6.25rem] text-[0.64rem] leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
                         ) : null}
                       </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-[0.84rem] font-bold leading-tight text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
-                        <p className="text-[0.68rem] leading-tight text-slate-500">{formatCurrency(item.unitPrice)} each</p>
+                      <div className="flex shrink-0 items-start gap-1.5">
+                        <div className="text-right">
+                          <p className="text-[0.78rem] font-bold leading-tight text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                          <p className="text-[0.64rem] leading-tight text-slate-500">{formatCurrency(item.unitPrice)} each</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="mt-0.5 h-6 w-6 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          onClick={() => setTicket((current) => current.filter((line) => line.id !== item.id))}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
-                    </div>
-                    <div className="mt-0.5 flex justify-end">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
-                        onClick={() => setTicket((current) => current.filter((line) => line.id !== item.id))}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
                     </div>
                   </div>
                 ))
