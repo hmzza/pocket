@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminCustomer, AdminOrder, AdminProduct, Category, DashboardData } from "@/lib/types";
+import type { AdminCustomer, AdminOrder, AdminProduct, AdminRangePreset, Category, DashboardData } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -175,39 +175,104 @@ export async function updateAdminOrderStatus(orderId: string, status: string) {
   return data.order;
 }
 
-export async function fetchAdminDashboard(): Promise<DashboardData> {
-  const [dashboard, sales] = await Promise.all([
-    adminFetch<any>("/api/admin/dashboard"),
-    adminFetch<any>("/api/admin/analytics/sales")
-  ]);
+export async function fetchAdminDashboard(params?: {
+  preset?: AdminRangePreset;
+  start?: string;
+  end?: string;
+}): Promise<DashboardData> {
+  const searchParams = new URLSearchParams();
+  if (params?.preset) searchParams.set("preset", params.preset);
+  if (params?.start) searchParams.set("start", params.start);
+  if (params?.end) searchParams.set("end", params.end);
+
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const dashboard = await adminFetch<any>(`/api/admin/dashboard${suffix}`);
 
   return {
-    kpis: {
-      todayOrders: dashboard.kpis.todayOrders,
-      revenue: Number(dashboard.kpis.revenue),
-      totalCustomers: dashboard.kpis.totalCustomers,
-      averageOrderValue: Number(dashboard.kpis.averageOrderValue)
+    range: {
+      preset: dashboard.range.preset,
+      start: dashboard.range.start,
+      end: dashboard.range.end,
+      label: dashboard.range.label
     },
+    summary: {
+      revenue: Number(dashboard.summary.revenue),
+      previousRevenue: Number(dashboard.summary.previousRevenue),
+      orders: dashboard.summary.orders,
+      previousOrders: dashboard.summary.previousOrders,
+      averageOrderValue: Number(dashboard.summary.averageOrderValue),
+      previousAverageOrderValue: Number(dashboard.summary.previousAverageOrderValue),
+      activeCustomers: dashboard.summary.activeCustomers,
+      repeatCustomers: dashboard.summary.repeatCustomers,
+      totalCustomers: dashboard.summary.totalCustomers,
+      fulfilledRate: Number(dashboard.summary.fulfilledRate),
+      cancellationRate: Number(dashboard.summary.cancellationRate),
+      revenueDelta: Number(dashboard.summary.revenueDelta),
+      ordersDelta: Number(dashboard.summary.ordersDelta),
+      averageOrderValueDelta: Number(dashboard.summary.averageOrderValueDelta)
+    },
+    series: dashboard.series.map((entry: any) => ({
+      label: entry.label,
+      revenue: Number(entry.revenue),
+      orders: entry.orders
+    })),
     topProducts: dashboard.topProducts.map((entry: any) => ({
       productName: entry.productName,
-      quantity: entry._sum.quantity
+      quantity: entry.quantity,
+      revenue: Number(entry.revenue)
     })),
     recentOrders: dashboard.recentOrders.map((order: any) => ({
       id: order.id,
       orderNumber: order.orderNumber,
-      customerName: order.customer?.name ?? order.customerName ?? "Walk-in Customer",
+      customerName: order.customerName,
       status: order.status,
-      totalAmount: Number(order.totalAmount)
+      totalAmount: Number(order.totalAmount),
+      placedAt: order.placedAt,
+      branch: order.branch,
+      channel: order.channel
     })),
     lowStock: dashboard.lowStock.map((entry: any) => ({
-      ingredient: entry.ingredient?.name ?? "Unknown ingredient",
-      branch: entry.branch?.name ?? "Unknown branch",
+      ingredient: entry.ingredient,
+      branch: entry.branch,
       quantityOnHand: Number(entry.quantityOnHand)
     })),
-    sales: sales.sales.map((entry: any) => ({
-      label: new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(new Date(entry.date)),
-      revenue: Number(entry.revenue)
-    }))
+    breakdowns: {
+      statuses: dashboard.breakdowns.statuses.map((entry: any) => ({
+        label: entry.label,
+        count: entry.count,
+        revenue: Number(entry.revenue)
+      })),
+      channels: dashboard.breakdowns.channels.map((entry: any) => ({
+        label: entry.label,
+        count: entry.count,
+        revenue: Number(entry.revenue)
+      })),
+      serviceTypes: dashboard.breakdowns.serviceTypes.map((entry: any) => ({
+        label: entry.label,
+        count: entry.count,
+        revenue: Number(entry.revenue)
+      })),
+      payments: dashboard.breakdowns.payments.map((entry: any) => ({
+        label: entry.label,
+        count: entry.count,
+        revenue: Number(entry.revenue)
+      })),
+      branches: dashboard.breakdowns.branches.map((entry: any) => ({
+        label: entry.label,
+        count: entry.count,
+        revenue: Number(entry.revenue)
+      })),
+      weekdays: dashboard.breakdowns.weekdays.map((entry: any) => ({
+        label: entry.label,
+        count: entry.count,
+        revenue: Number(entry.revenue)
+      })),
+      hours: dashboard.breakdowns.hours.map((entry: any) => ({
+        label: entry.label,
+        count: entry.count,
+        revenue: Number(entry.revenue)
+      }))
+    }
   };
 }
 

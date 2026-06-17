@@ -534,37 +534,100 @@ export const trackedOrders: TrackedOrder[] = [
 ];
 
 export const dashboardData: DashboardData = {
-  kpis: {
-    todayOrders: 124,
-    revenue: 148700,
-    totalCustomers: 684,
-    averageOrderValue: 1199
+  range: {
+    preset: "7d",
+    start: "2026-06-01T00:00:00.000Z",
+    end: "2026-06-07T23:59:59.000Z",
+    label: "Last 7 days"
   },
+  summary: {
+    revenue: 148700,
+    previousRevenue: 131400,
+    orders: 124,
+    previousOrders: 111,
+    averageOrderValue: 1199,
+    previousAverageOrderValue: 1184,
+    activeCustomers: 89,
+    repeatCustomers: 24,
+    totalCustomers: 684,
+    fulfilledRate: 74.2,
+    cancellationRate: 4.8,
+    revenueDelta: 13.2,
+    ordersDelta: 11.7,
+    averageOrderValueDelta: 1.3
+  },
+  series: [
+    { label: "Mon", revenue: 92000, orders: 75 },
+    { label: "Tue", revenue: 106500, orders: 84 },
+    { label: "Wed", revenue: 124400, orders: 97 },
+    { label: "Thu", revenue: 148700, orders: 124 },
+    { label: "Fri", revenue: 163000, orders: 131 },
+    { label: "Sat", revenue: 176500, orders: 142 },
+    { label: "Sun", revenue: 139800, orders: 108 }
+  ],
   topProducts: [
-    { productName: "Classic Pocket", quantity: 172 },
-    { productName: "Pocket Mai Rocket", quantity: 124 },
-    { productName: "Loaded Fries", quantity: 98 },
-    { productName: "Kiwi Passion", quantity: 91 }
+    { productName: "Classic Pocket", quantity: 172, revenue: 77400 },
+    { productName: "Pocket Mai Rocket", quantity: 124, revenue: 93000 },
+    { productName: "Loaded Fries", quantity: 98, revenue: 39102 },
+    { productName: "Kiwi Passion", quantity: 91, revenue: 36400 }
   ],
   recentOrders: [
-    { id: "o1", orderNumber: "PKT-2026-000131", customerName: "Ali Raza", status: "PREPARING", totalAmount: 1490 },
-    { id: "o2", orderNumber: "PKT-2026-000130", customerName: "Noor Hassan", status: "CONFIRMED", totalAmount: 930 },
-    { id: "o3", orderNumber: "PKT-2026-000129", customerName: "Ayesha Khan", status: "OUT_FOR_DELIVERY", totalAmount: 883 },
-    { id: "o4", orderNumber: "PKT-2026-000128", customerName: "M. Salman", status: "DELIVERED", totalAmount: 690 }
+    { id: "o1", orderNumber: "PKT-2026-000131", customerName: "Ali Raza", status: "PREPARING", totalAmount: 1490, placedAt: "2026-06-07T16:58:00.000Z", branch: branch.name, channel: "ONLINE" },
+    { id: "o2", orderNumber: "PKT-2026-000130", customerName: "Noor Hassan", status: "CONFIRMED", totalAmount: 930, placedAt: "2026-06-07T15:35:00.000Z", branch: branch.name, channel: "POS" },
+    { id: "o3", orderNumber: "PKT-2026-000129", customerName: "Ayesha Khan", status: "OUT_FOR_DELIVERY", totalAmount: 883, placedAt: "2026-06-07T14:12:00.000Z", branch: branch.name, channel: "ONLINE" },
+    { id: "o4", orderNumber: "PKT-2026-000128", customerName: "M. Salman", status: "DELIVERED", totalAmount: 690, placedAt: "2026-06-07T13:02:00.000Z", branch: branch.name, channel: "POS" }
   ],
   lowStock: [
     { ingredient: "Beef slices", branch: "Pocket G-11 Markaz", quantityOnHand: 6 },
     { ingredient: "Garlic sauce", branch: "Pocket G-11 Markaz", quantityOnHand: 5 }
   ],
-  sales: [
-    { label: "Mon", revenue: 92000 },
-    { label: "Tue", revenue: 106500 },
-    { label: "Wed", revenue: 124400 },
-    { label: "Thu", revenue: 148700 },
-    { label: "Fri", revenue: 163000 },
-    { label: "Sat", revenue: 176500 },
-    { label: "Sun", revenue: 139800 }
-  ]
+  breakdowns: {
+    statuses: [
+      { label: "Delivered", count: 62, revenue: 77200 },
+      { label: "Preparing", count: 26, revenue: 28100 },
+      { label: "Confirmed", count: 19, revenue: 21200 },
+      { label: "Out For Delivery", count: 11, revenue: 16100 },
+      { label: "Cancelled", count: 6, revenue: 6100 }
+    ],
+    channels: [
+      { label: "POS", count: 72, revenue: 86400 },
+      { label: "ONLINE", count: 52, revenue: 62300 }
+    ],
+    serviceTypes: [
+      { label: "TAKEAWAY", count: 68, revenue: 80100 },
+      { label: "DELIVERY", count: 42, revenue: 54800 },
+      { label: "DINE IN", count: 14, revenue: 13800 }
+    ],
+    payments: [
+      { label: "CASH", count: 61, revenue: 74300 },
+      { label: "CASH ON DELIVERY", count: 38, revenue: 46900 },
+      { label: "CARD", count: 15, revenue: 18200 },
+      { label: "EASYPAISA", count: 10, revenue: 9300 }
+    ],
+    branches: [
+      { label: branch.name, count: 124, revenue: 148700 }
+    ],
+    weekdays: [
+      { label: "Mon", count: 75, revenue: 92000 },
+      { label: "Tue", count: 84, revenue: 106500 },
+      { label: "Wed", count: 97, revenue: 124400 },
+      { label: "Thu", count: 124, revenue: 148700 },
+      { label: "Fri", count: 131, revenue: 163000 },
+      { label: "Sat", count: 142, revenue: 176500 },
+      { label: "Sun", count: 108, revenue: 139800 }
+    ],
+    hours: [
+      { label: "12:00", count: 8, revenue: 9200 },
+      { label: "13:00", count: 10, revenue: 11800 },
+      { label: "14:00", count: 14, revenue: 17200 },
+      { label: "15:00", count: 16, revenue: 18400 },
+      { label: "16:00", count: 18, revenue: 21600 },
+      { label: "17:00", count: 21, revenue: 24800 },
+      { label: "18:00", count: 24, revenue: 28900 },
+      { label: "19:00", count: 22, revenue: 26100 },
+      { label: "20:00", count: 19, revenue: 22100 }
+    ]
+  }
 };
 
 export const mockCustomers = [

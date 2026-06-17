@@ -104,27 +104,57 @@ export type TrackedOrder = {
   }>;
 };
 
+export type AdminRangePreset = "today" | "7d" | "30d" | "month" | "year" | "custom";
+
 export type DashboardData = {
-  kpis: {
-    todayOrders: number;
-    revenue: number;
-    totalCustomers: number;
-    averageOrderValue: number;
+  range: {
+    preset: AdminRangePreset;
+    start: string;
+    end: string;
+    label: string;
   };
-  topProducts: Array<{ productName: string; quantity: number }>;
+  summary: {
+    revenue: number;
+    previousRevenue: number;
+    orders: number;
+    previousOrders: number;
+    averageOrderValue: number;
+    previousAverageOrderValue: number;
+    activeCustomers: number;
+    repeatCustomers: number;
+    totalCustomers: number;
+    fulfilledRate: number;
+    cancellationRate: number;
+    revenueDelta: number;
+    ordersDelta: number;
+    averageOrderValueDelta: number;
+  };
+  series: Array<{ label: string; revenue: number; orders: number }>;
+  topProducts: Array<{ productName: string; quantity: number; revenue: number }>;
   recentOrders: Array<{
     id: string;
     orderNumber: string;
     customerName: string;
     status: string;
     totalAmount: number;
+    placedAt: string;
+    branch: string;
+    channel: string;
   }>;
   lowStock: Array<{
     ingredient: string;
     branch: string;
     quantityOnHand: number;
   }>;
-  sales: Array<{ label: string; revenue: number }>;
+  breakdowns: {
+    statuses: Array<{ label: string; count: number; revenue: number }>;
+    channels: Array<{ label: string; count: number; revenue: number }>;
+    serviceTypes: Array<{ label: string; count: number; revenue: number }>;
+    payments: Array<{ label: string; count: number; revenue: number }>;
+    branches: Array<{ label: string; count: number; revenue: number }>;
+    weekdays: Array<{ label: string; count: number; revenue: number }>;
+    hours: Array<{ label: string; count: number; revenue: number }>;
+  };
 };
 
 export type AdminCustomer = {

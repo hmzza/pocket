@@ -9,68 +9,405 @@ const router = Router();
 
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
 
-router.get("/dashboard", async (_req, res) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const [todayOrders, revenueAgg, totalCustomers, topProducts, recentOrders, lowStock, ordersByStatus] = await Promise.all([
-    prisma.order.count({ where: { placedAt: { gte: today } } }),
-    prisma.order.aggregate({
-      _sum: { totalAmount: true },
-      _avg: { totalAmount: true }
-    }),
-    prisma.user.count({ where: { role: { is: { code: RoleCode.CUSTOMER } } } }),
-    prisma.orderItem.groupBy({
-      by: ["productName"],
-      _sum: { quantity: true },
-      orderBy: { _sum: { quantity: "desc" } },
-      take: 5
-    }),
-    prisma.order.findMany({
-      include: { customer: true, branch: true },
-      orderBy: { placedAt: "desc" },
-      take: 5
-    }),
-    prisma.branchInventory.findMany({
-      where: { lowStockAlert: true },
-      include: { branch: true, ingredient: true },
-      take: 5
-    }),
-    prisma.order.groupBy({
-      by: ["status"],
-      _count: { _all: true }
-    })
-  ]);
-
-  return res.json({
-    kpis: {
-      todayOrders,
-      revenue: Number(revenueAgg._sum.totalAmount ?? 0),
-      totalCustomers,
-      averageOrderValue: Number(revenueAgg._avg.totalAmount ?? 0)
-    },
-    topProducts,
-    recentOrders,
-    lowStock,
-    ordersByStatus
+const dashboardQuerySchema = z
+  .object({
+    preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("7d"),
+    start: z.string().datetime().optional(),
+    end: z.string().datetime().optional()
+  })
+  .superRefine((value, context) => {
+    if (value.preset === "custom" && (!value.start || !value.end)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom range requires start and end dates.",
+        path: ["start"]
+      });
+    }
   });
+
+function startOfDay(date: Date) {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function addDays(date: Date, days: number) {
+  const value = new Date(date);
+  value.setDate(value.getDate() + days);
+  return value;
+}
+
+function addMonths(date: Date, months: number) {
+  const value = new Date(date);
+  value.setMonth(value.getMonth() + months);
+  return value;
+}
+
+function addYears(date: Date, years: number) {
+  const value = new Date(date);
+  value.setFullYear(value.getFullYear() + years);
+  return value;
+}
+
+function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
+  const now = new Date();
+
+  if (query.preset === "custom" && query.start && query.end) {
+    const start = new Date(query.start);
+    const end = new Date(query.end);
+    return {
+      preset: query.preset,
+      start,
+      end,
+      label: `${start.toLocaleDateString("en-PK")} to ${end.toLocaleDateString("en-PK")}`
+    };
+  }
+
+  switch (query.preset) {
+    case "today": {
+      const start = startOfDay(now);
+      return {
+        preset: query.preset,
+        start,
+        end: now,
+        label: "Today"
+      };
+    }
+    case "30d": {
+      return {
+        preset: query.preset,
+        start: startOfDay(addDays(now, -29)),
+        end: now,
+        label: "Last 30 days"
+      };
+    }
+    case "month": {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return {
+        preset: query.preset,
+        start,
+        end: now,
+        label: "This month"
+      };
+    }
+    case "year": {
+      const start = new Date(now.getFullYear(), 0, 1);
+      return {
+        preset: query.preset,
+        start,
+        end: now,
+        label: "This year"
+      };
+    }
+    case "7d":
+    default:
+      return {
+        preset: "7d" as const,
+        start: startOfDay(addDays(now, -6)),
+        end: now,
+        label: "Last 7 days"
+      };
+  }
+}
+
+function getPreviousRange(start: Date, end: Date) {
+  const durationMs = end.getTime() - start.getTime();
+  const previousEnd = new Date(start.getTime());
+  const previousStart = new Date(start.getTime() - durationMs);
+  return { previousStart, previousEnd };
+}
+
+function percentageDelta(current: number, previous: number) {
+  if (!previous) {
+    return current ? 100 : 0;
+  }
+
+  return Number((((current - previous) / previous) * 100).toFixed(1));
+}
+
+function buildSalesSeries(orders: Array<{ placedAt: Date; totalAmount: Prisma.Decimal | number }>, start: Date, end: Date) {
+  const durationDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+  const buckets = new Map<string, { label: string; revenue: number; orders: number; sortKey: number }>();
+
+  function ensureBucket(key: string, label: string, sortKey: number) {
+    if (!buckets.has(key)) {
+      buckets.set(key, { label, revenue: 0, orders: 0, sortKey });
+    }
+
+    return buckets.get(key)!;
+  }
+
+  if (durationDays <= 2) {
+    for (let hour = 0; hour < 24; hour += 1) {
+      ensureBucket(String(hour), `${hour.toString().padStart(2, "0")}:00`, hour);
+    }
+
+    for (const order of orders) {
+      const bucket = ensureBucket(String(order.placedAt.getHours()), `${order.placedAt.getHours().toString().padStart(2, "0")}:00`, order.placedAt.getHours());
+      bucket.revenue += Number(order.totalAmount);
+      bucket.orders += 1;
+    }
+  } else if (durationDays <= 45) {
+    for (let cursor = startOfDay(start); cursor <= end; cursor = addDays(cursor, 1)) {
+      const key = cursor.toISOString().slice(0, 10);
+      ensureBucket(key, new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(cursor), cursor.getTime());
+    }
+
+    for (const order of orders) {
+      const key = order.placedAt.toISOString().slice(0, 10);
+      const sortKey = startOfDay(order.placedAt).getTime();
+      const bucket = ensureBucket(key, new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(order.placedAt), sortKey);
+      bucket.revenue += Number(order.totalAmount);
+      bucket.orders += 1;
+    }
+  } else if (durationDays <= 180) {
+    for (let cursor = startOfDay(start); cursor <= end; cursor = addDays(cursor, 7)) {
+      const key = cursor.toISOString().slice(0, 10);
+      ensureBucket(key, `Week of ${new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(cursor)}`, cursor.getTime());
+    }
+
+    for (const order of orders) {
+      const diffDays = Math.floor((startOfDay(order.placedAt).getTime() - startOfDay(start).getTime()) / (1000 * 60 * 60 * 24));
+      const bucketStart = addDays(startOfDay(start), Math.floor(diffDays / 7) * 7);
+      const key = bucketStart.toISOString().slice(0, 10);
+      const bucket = ensureBucket(key, `Week of ${new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(bucketStart)}`, bucketStart.getTime());
+      bucket.revenue += Number(order.totalAmount);
+      bucket.orders += 1;
+    }
+  } else {
+    for (let cursor = new Date(start.getFullYear(), start.getMonth(), 1); cursor <= end; cursor = addMonths(cursor, 1)) {
+      const key = `${cursor.getFullYear()}-${cursor.getMonth()}`;
+      ensureBucket(key, new Intl.DateTimeFormat("en-PK", { month: "short", year: "numeric" }).format(cursor), cursor.getTime());
+    }
+
+    for (const order of orders) {
+      const key = `${order.placedAt.getFullYear()}-${order.placedAt.getMonth()}`;
+      const sortKey = new Date(order.placedAt.getFullYear(), order.placedAt.getMonth(), 1).getTime();
+      const bucket = ensureBucket(key, new Intl.DateTimeFormat("en-PK", { month: "short", year: "numeric" }).format(order.placedAt), sortKey);
+      bucket.revenue += Number(order.totalAmount);
+      bucket.orders += 1;
+    }
+  }
+
+  return Array.from(buckets.values())
+    .sort((left, right) => left.sortKey - right.sortKey)
+    .map(({ label, revenue, orders }) => ({ label, revenue: Number(revenue.toFixed(2)), orders }));
+}
+
+router.get("/dashboard", async (req, res, next) => {
+  try {
+    const query = dashboardQuerySchema.parse(req.query);
+    const range = buildDashboardRange(query);
+    const { previousStart, previousEnd } = getPreviousRange(range.start, range.end);
+
+    const [periodOrders, previousOrders, totalCustomers, lowStock] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          placedAt: {
+            gte: range.start,
+            lte: range.end
+          }
+        },
+        include: {
+          customer: true,
+          branch: true,
+          items: true
+        },
+        orderBy: { placedAt: "asc" }
+      }),
+      prisma.order.findMany({
+        where: {
+          placedAt: {
+            gte: previousStart,
+            lt: previousEnd
+          }
+        },
+        select: {
+          totalAmount: true,
+          customerId: true
+        }
+      }),
+      prisma.user.count({ where: { role: { is: { code: RoleCode.CUSTOMER } } } }),
+      prisma.branchInventory.findMany({
+        where: { lowStockAlert: true },
+        include: { branch: true, ingredient: true },
+        take: 8
+      })
+    ]);
+
+    const revenue = periodOrders.reduce((sum, order) => sum + Number(order.totalAmount), 0);
+    const previousRevenue = previousOrders.reduce((sum, order) => sum + Number(order.totalAmount), 0);
+    const orderCount = periodOrders.length;
+    const previousOrderCount = previousOrders.length;
+    const averageOrderValue = orderCount ? revenue / orderCount : 0;
+    const previousAverageOrderValue = previousOrderCount ? previousRevenue / previousOrderCount : 0;
+
+    const activeCustomerIds = new Map<string, number>();
+    for (const order of periodOrders) {
+      const key = order.customerId ?? `guest:${(order.customerName ?? "walk-in").toLowerCase()}:${order.customerPhone ?? ""}`;
+      activeCustomerIds.set(key, (activeCustomerIds.get(key) ?? 0) + 1);
+    }
+
+    const repeatCustomers = Array.from(activeCustomerIds.values()).filter((count) => count > 1).length;
+    const deliveredOrders = periodOrders.filter((order) => order.status === OrderStatus.DELIVERED).length;
+    const cancelledOrders = periodOrders.filter((order) => order.status === OrderStatus.CANCELLED).length;
+
+    const breakdownMaps = {
+      statuses: new Map<string, { label: string; count: number; revenue: number }>(),
+      channels: new Map<string, { label: string; count: number; revenue: number }>(),
+      serviceTypes: new Map<string, { label: string; count: number; revenue: number }>(),
+      payments: new Map<string, { label: string; count: number; revenue: number }>(),
+      branches: new Map<string, { label: string; count: number; revenue: number }>(),
+      weekdays: new Map<string, { label: string; count: number; revenue: number; sort: number }>(),
+      hours: new Map<string, { label: string; count: number; revenue: number; sort: number }>(),
+      products: new Map<string, { productName: string; quantity: number; revenue: number }>()
+    };
+
+    const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    for (const order of periodOrders) {
+      const orderRevenue = Number(order.totalAmount);
+      const statusKey = order.status;
+      const channelKey = order.channel;
+      const serviceKey = order.serviceType;
+      const paymentKey = order.paymentMethod;
+      const branchKey = order.branch?.name ?? "Unknown branch";
+      const weekdayKey = String(order.placedAt.getDay());
+      const hourKey = String(order.placedAt.getHours());
+
+      for (const [map, key, label] of [
+        [breakdownMaps.statuses, statusKey, statusKey.replaceAll("_", " ")],
+        [breakdownMaps.channels, channelKey, channelKey],
+        [breakdownMaps.serviceTypes, serviceKey, serviceKey.replaceAll("_", " ")],
+        [breakdownMaps.payments, paymentKey, paymentKey.replaceAll("_", " ")],
+        [breakdownMaps.branches, branchKey, branchKey]
+      ] as const) {
+        const existing = map.get(key) ?? { label, count: 0, revenue: 0 };
+        existing.count += 1;
+        existing.revenue += orderRevenue;
+        map.set(key, existing);
+      }
+
+      const weekdayEntry = breakdownMaps.weekdays.get(weekdayKey) ?? {
+        label: weekdayLabels[order.placedAt.getDay()] ?? "Unknown",
+        count: 0,
+        revenue: 0,
+        sort: order.placedAt.getDay()
+      };
+      weekdayEntry.count += 1;
+      weekdayEntry.revenue += orderRevenue;
+      breakdownMaps.weekdays.set(weekdayKey, weekdayEntry);
+
+      const hourEntry = breakdownMaps.hours.get(hourKey) ?? {
+        label: `${order.placedAt.getHours().toString().padStart(2, "0")}:00`,
+        count: 0,
+        revenue: 0,
+        sort: order.placedAt.getHours()
+      };
+      hourEntry.count += 1;
+      hourEntry.revenue += orderRevenue;
+      breakdownMaps.hours.set(hourKey, hourEntry);
+
+      for (const item of order.items) {
+        const existing = breakdownMaps.products.get(item.productName) ?? {
+          productName: item.productName,
+          quantity: 0,
+          revenue: 0
+        };
+        existing.quantity += item.quantity;
+        existing.revenue += Number(item.unitPrice) * item.quantity;
+        breakdownMaps.products.set(item.productName, existing);
+      }
+    }
+
+    return res.json({
+      range: {
+        preset: range.preset,
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        label: range.label
+      },
+      summary: {
+        revenue: Number(revenue.toFixed(2)),
+        previousRevenue: Number(previousRevenue.toFixed(2)),
+        orders: orderCount,
+        previousOrders: previousOrderCount,
+        averageOrderValue: Number(averageOrderValue.toFixed(2)),
+        previousAverageOrderValue: Number(previousAverageOrderValue.toFixed(2)),
+        activeCustomers: activeCustomerIds.size,
+        repeatCustomers,
+        totalCustomers,
+        fulfilledRate: orderCount ? Number(((deliveredOrders / orderCount) * 100).toFixed(1)) : 0,
+        cancellationRate: orderCount ? Number(((cancelledOrders / orderCount) * 100).toFixed(1)) : 0,
+        revenueDelta: percentageDelta(revenue, previousRevenue),
+        ordersDelta: percentageDelta(orderCount, previousOrderCount),
+        averageOrderValueDelta: percentageDelta(averageOrderValue, previousAverageOrderValue)
+      },
+      series: buildSalesSeries(periodOrders, range.start, range.end),
+      topProducts: Array.from(breakdownMaps.products.values())
+        .sort((left, right) => right.quantity - left.quantity)
+        .slice(0, 8),
+      recentOrders: [...periodOrders]
+        .sort((left, right) => right.placedAt.getTime() - left.placedAt.getTime())
+        .slice(0, 8)
+        .map((order) => ({
+          id: order.id,
+          orderNumber: order.orderNumber,
+          customerName: order.customer?.name ?? order.customerName ?? "Walk-in Customer",
+          status: order.status,
+          totalAmount: Number(order.totalAmount),
+          placedAt: order.placedAt,
+          branch: order.branch?.name ?? "Unknown branch",
+          channel: order.channel
+        })),
+      lowStock: lowStock.map((entry) => ({
+        ingredient: entry.ingredient?.name ?? "Unknown ingredient",
+        branch: entry.branch?.name ?? "Unknown branch",
+        quantityOnHand: Number(entry.quantityOnHand)
+      })),
+      breakdowns: {
+        statuses: Array.from(breakdownMaps.statuses.values()).sort((left, right) => right.count - left.count),
+        channels: Array.from(breakdownMaps.channels.values()).sort((left, right) => right.revenue - left.revenue),
+        serviceTypes: Array.from(breakdownMaps.serviceTypes.values()).sort((left, right) => right.revenue - left.revenue),
+        payments: Array.from(breakdownMaps.payments.values()).sort((left, right) => right.revenue - left.revenue),
+        branches: Array.from(breakdownMaps.branches.values()).sort((left, right) => right.revenue - left.revenue),
+        weekdays: Array.from(breakdownMaps.weekdays.values())
+          .sort((left, right) => left.sort - right.sort)
+          .map(({ sort: _sort, ...entry }) => entry),
+        hours: Array.from(breakdownMaps.hours.values())
+          .sort((left, right) => left.sort - right.sort)
+          .map(({ sort: _sort, ...entry }) => entry)
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
-router.get("/analytics/sales", async (_req, res) => {
-  const orders = await prisma.order.findMany({
-    select: {
-      placedAt: true,
-      totalAmount: true
-    },
-    orderBy: { placedAt: "asc" }
-  });
+router.get("/analytics/sales", async (req, res, next) => {
+  try {
+    const query = dashboardQuerySchema.parse(req.query);
+    const range = buildDashboardRange(query);
+    const orders = await prisma.order.findMany({
+      where: {
+        placedAt: {
+          gte: range.start,
+          lte: range.end
+        }
+      },
+      select: {
+        placedAt: true,
+        totalAmount: true
+      },
+      orderBy: { placedAt: "asc" }
+    });
 
-  return res.json({
-    sales: orders.map((order) => ({
-      date: order.placedAt,
-      revenue: Number(order.totalAmount)
-    }))
-  });
+    return res.json({
+      sales: buildSalesSeries(orders, range.start, range.end)
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.get("/products", async (_req, res) => {

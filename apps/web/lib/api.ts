@@ -92,42 +92,46 @@ export async function getProductBySlug(slug: string) {
 }
 
 export async function getDashboardData(): Promise<DashboardData> {
-  const [dashboard, sales] = await Promise.all([
-    fetchJson<any>("/api/admin/dashboard"),
-    fetchJson<any>("/api/admin/analytics/sales")
-  ]);
+  const dashboard = await fetchJson<any>("/api/admin/dashboard");
 
-  if (!dashboard || !sales) {
+  if (!dashboard) {
     return dashboardData;
   }
 
   return {
-    kpis: {
-      todayOrders: dashboard.kpis.todayOrders,
-      revenue: dashboard.kpis.revenue,
-      totalCustomers: dashboard.kpis.totalCustomers,
-      averageOrderValue: dashboard.kpis.averageOrderValue
+    range: {
+      preset: dashboard.range.preset,
+      start: dashboard.range.start,
+      end: dashboard.range.end,
+      label: dashboard.range.label
     },
+    summary: dashboard.summary,
+    series: dashboard.series.map((entry: any) => ({
+      label: entry.label,
+      revenue: Number(entry.revenue),
+      orders: entry.orders
+    })),
     topProducts: dashboard.topProducts.map((entry: any) => ({
       productName: entry.productName,
-      quantity: entry._sum.quantity
+      quantity: entry.quantity,
+      revenue: Number(entry.revenue)
     })),
     recentOrders: dashboard.recentOrders.map((order: any) => ({
       id: order.id,
       orderNumber: order.orderNumber,
-      customerName: order.customer.name,
+      customerName: order.customerName,
       status: order.status,
-      totalAmount: Number(order.totalAmount)
+      totalAmount: Number(order.totalAmount),
+      placedAt: order.placedAt,
+      branch: order.branch,
+      channel: order.channel
     })),
     lowStock: dashboard.lowStock.map((entry: any) => ({
-      ingredient: entry.ingredient.name,
-      branch: entry.branch.name,
+      ingredient: entry.ingredient,
+      branch: entry.branch,
       quantityOnHand: Number(entry.quantityOnHand)
     })),
-    sales: sales.sales.map((entry: any) => ({
-      label: new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(new Date(entry.date)),
-      revenue: Number(entry.revenue)
-    }))
+    breakdowns: dashboard.breakdowns
   };
 }
 
@@ -165,15 +169,19 @@ export async function getAdminOrders() {
     data?.orders?.map((order: any) => ({
       id: order.id,
       orderNumber: order.orderNumber,
-      customerName: order.customer.name,
+      customerName: order.customer?.name ?? order.customerName ?? "Walk-in Customer",
       status: order.status,
-      branch: order.branch.name,
+      branch: order.branch?.name ?? branch.name,
       totalAmount: Number(order.totalAmount),
       itemCount: order.items.length
     })) ??
     dashboardData.recentOrders.map((order) => ({
-      ...order,
-      branch: branch.name,
+      id: order.id,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      status: order.status,
+      branch: order.branch,
+      totalAmount: order.totalAmount,
       itemCount: 2
     }))
   );
