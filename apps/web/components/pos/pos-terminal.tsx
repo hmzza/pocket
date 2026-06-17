@@ -530,7 +530,7 @@ export function PosTerminal() {
 
       {productDialog ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4">
-          <Card className="w-full max-w-2xl rounded-3xl border-white/10 bg-slate-900 p-6 text-white shadow-none">
+          <Card className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border-white/10 bg-slate-900 p-6 text-white shadow-none">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300">{productDialog.categoryName}</p>
@@ -539,7 +539,7 @@ export function PosTerminal() {
               </div>
               <Button variant="ghost" className="text-white hover:bg-white/10" onClick={() => setProductDialog(null)}>Close</Button>
             </div>
-            <div className="mt-6 space-y-5">
+            <div className="mt-6 flex-1 space-y-5 overflow-y-auto pr-1">
               {productDialog.addOnGroups.map((group) => (
                 <div key={group.id}>
                   <div className="mb-3">
@@ -582,7 +582,9 @@ export function PosTerminal() {
                 <Input type="number" value={productQuantity} onChange={(event) => setProductQuantity(Math.max(1, Number(event.target.value || 1)))} />
                 <Textarea value={productNote} onChange={(event) => setProductNote(event.target.value)} placeholder="Item note" className="min-h-24" />
               </div>
-              <Button className="w-full" onClick={confirmConfiguredProduct}>Add to Ticket</Button>
+              <div className="sticky bottom-0 bg-slate-900 pt-2">
+                <Button className="w-full" onClick={confirmConfiguredProduct}>Add to Ticket</Button>
+              </div>
             </div>
           </Card>
         </div>
