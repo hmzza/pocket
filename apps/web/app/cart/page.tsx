@@ -108,23 +108,26 @@ export default function CartPage() {
           ) : null}
           {cartProducts.length ? (
             cartProducts.map((product) => (
-              <Card key={product.id} className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
+              <Card key={product.cartItemId} className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-lg font-black text-pocket-navy">{product.name}</p>
                   <p className="text-sm text-pocket-navy/65">{product.description}</p>
+                  {product.selectedAddOns.length ? (
+                    <p className="mt-2 text-sm text-pocket-navy/60">{product.selectedAddOns.map((option) => option.name).join(", ")}</p>
+                  ) : null}
                   <p className="mt-3 text-base font-bold text-pocket-orange">{formatCurrency(product.price)}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="inline-flex items-center gap-2 rounded-md border border-pocket-navy/10 px-2 py-2">
-                    <button type="button" onClick={() => updateQuantity(product.id, product.quantity - 1)} className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-pocket-cream">
+                    <button type="button" onClick={() => updateQuantity(product.cartItemId, product.quantity - 1)} className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-pocket-cream">
                       <Minus className="h-4 w-4" />
                     </button>
                     <span className="w-8 text-center text-sm font-bold">{product.quantity}</span>
-                    <button type="button" onClick={() => updateQuantity(product.id, product.quantity + 1)} className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-pocket-cream">
+                    <button type="button" onClick={() => updateQuantity(product.cartItemId, product.quantity + 1)} className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-pocket-cream">
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
-                  <button type="button" onClick={() => updateQuantity(product.id, 0)} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-pocket-navy/10 hover:bg-pocket-cream">
+                  <button type="button" onClick={() => updateQuantity(product.cartItemId, 0)} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-pocket-navy/10 hover:bg-pocket-cream">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>

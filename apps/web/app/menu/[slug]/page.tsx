@@ -51,7 +51,7 @@ export default async function ProductPage({ params }: { params: { slug: string }
             </div>
             <div className="flex gap-3">
               <FavoriteButton productId={product.id} />
-              <AddToCartButton productId={product.id} />
+              <AddToCartButton product={product} />
             </div>
           </div>
 

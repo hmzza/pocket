@@ -42,7 +42,7 @@ export function ProductCard({ product }: { product: Product }) {
           <div>
             <p className="text-2xl font-black text-pocket-navy">{formatCurrency(product.price)}</p>
           </div>
-          <AddToCartButton productId={product.id} />
+          <AddToCartButton product={product} />
         </div>
       </div>
     </Card>

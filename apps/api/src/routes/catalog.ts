@@ -284,7 +284,8 @@ router.post("/checkout", async (req, res, next) => {
           .array(
             z.object({
               productId: z.string().cuid(),
-              quantity: z.number().int().min(1).max(20)
+              quantity: z.number().int().min(1).max(20),
+              selectedAddOnIds: z.array(z.string().cuid()).default([])
             })
           )
           .min(1)
@@ -298,6 +299,15 @@ router.post("/checkout", async (req, res, next) => {
         isActive: true
       },
       include: {
+        addOnGroups: {
+          orderBy: { sortOrder: "asc" },
+          include: {
+            options: {
+              where: { isActive: true },
+              orderBy: { sortOrder: "asc" }
+            }
+          }
+        },
         branchPricing: {
           where: { branchId: branch.id }
         }
@@ -309,11 +319,42 @@ router.post("/checkout", async (req, res, next) => {
     }
 
     const productMap = new Map(products.map((product) => [product.id, product]));
-    const subtotal = payload.items.reduce((sum, item) => {
+    const normalizedItems = payload.items.map((item) => {
       const product = productMap.get(item.productId);
-      const price = Number(product?.branchPricing[0]?.price ?? product?.basePrice ?? 0);
-      return sum + price * item.quantity;
-    }, 0);
+      if (!product) {
+        throw new Error("One or more items are unavailable.");
+      }
+
+      const selectedAddOnIds = [...new Set(item.selectedAddOnIds)];
+      const addOns = product.addOnGroups.flatMap((group) => {
+        const selectedOptions = group.options.filter((option) => selectedAddOnIds.includes(option.id));
+        if (selectedOptions.length < group.minSelect || selectedOptions.length > group.maxSelect) {
+          throw new Error(`${product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
+        }
+
+        return selectedOptions.map((option) => ({
+          optionId: option.id,
+          optionName: option.name,
+          priceDelta: Number(option.priceDelta)
+        }));
+      });
+
+      if (addOns.length !== selectedAddOnIds.length) {
+        throw new Error(`${product.name}: invalid add-on selection.`);
+      }
+
+      const basePrice = Number(product.branchPricing[0]?.price ?? product.basePrice);
+      const unitPrice = basePrice + addOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
+
+      return {
+        ...item,
+        product,
+        addOns,
+        unitPrice
+      };
+    });
+
+    const subtotal = normalizedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 
     let couponId: string | undefined;
     let discountAmount = 0;
@@ -408,15 +449,21 @@ router.post("/checkout", async (req, res, next) => {
           expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
           deliveryInstructions: payload.deliveryInstructions,
           items: {
-            create: payload.items.map((item) => {
-              const product = productMap.get(item.productId)!;
-              const unitPrice = Number(product.branchPricing[0]?.price ?? product.basePrice);
-
+            create: normalizedItems.map((item) => {
               return {
-                productId: product.id,
-                productName: product.name,
+                productId: item.product.id,
+                productName: item.product.name,
                 quantity: item.quantity,
-                unitPrice
+                unitPrice: item.unitPrice,
+                addOns: item.addOns.length
+                  ? {
+                      create: item.addOns.map((addOn) => ({
+                        optionId: addOn.optionId,
+                        optionName: addOn.optionName,
+                        priceDelta: addOn.priceDelta
+                      }))
+                    }
+                  : undefined
               };
             })
           }

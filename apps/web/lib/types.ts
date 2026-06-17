@@ -52,6 +52,14 @@ export type Product = {
   reviews: ProductReview[];
 };
 
+export type CartProduct = Product & {
+  cartItemId: string;
+  quantity: number;
+  selectedAddOnIds: string[];
+  selectedAddOns: AddOnOption[];
+  price: number;
+};
+
 export type HomeContent = {
   hero: {
     eyebrow: string;

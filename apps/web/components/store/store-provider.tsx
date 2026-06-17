@@ -3,24 +3,32 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { API_URL } from "@/lib/catalog";
 import { products as legacyProducts } from "@/lib/mock-data";
-import type { Product } from "@/lib/types";
+import type { AddOnOption, CartProduct, Product } from "@/lib/types";
 
 type CartEntry = {
+  id: string;
   productId: string;
   quantity: number;
+  selectedAddOnIds: string[];
+};
+
+type AddToCartInput = {
+  productId: string;
+  quantity?: number;
+  selectedAddOnIds?: string[];
 };
 
 type StoreContextValue = {
   cart: CartEntry[];
   favorites: string[];
   recentlyViewed: string[];
-  addToCart: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
+  addToCart: (input: AddToCartInput) => void;
+  updateQuantity: (cartItemId: string, quantity: number) => void;
   clearCart: () => void;
   toggleFavorite: (productId: string) => void;
   markViewed: (productId: string) => void;
   cartCount: number;
-  getCartProducts: (catalogue: Product[]) => Array<Product & { quantity: number }>;
+  getCartProducts: (catalogue: Product[]) => CartProduct[];
 };
 
 const StoreContext = createContext<StoreContextValue | null>(null);
@@ -30,9 +38,55 @@ const FAVORITES_KEY = "pocket-favorites";
 const RECENT_KEY = "pocket-recent";
 const legacyIdToSlug = new Map(legacyProducts.map((product) => [product.id, product.slug]));
 
+function createCartEntryId() {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `cart-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizeAddOnIds(selectedAddOnIds?: string[]) {
+  return [...new Set((selectedAddOnIds ?? []).filter(Boolean))].sort();
+}
+
+function buildEntrySignature(productId: string, selectedAddOnIds: string[]) {
+  return `${productId}:${selectedAddOnIds.join(",")}`;
+}
+
+function normalizeCartEntries(entries: unknown): CartEntry[] {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const nextEntry = entry as Partial<CartEntry>;
+      if (typeof nextEntry.productId !== "string") {
+        return null;
+      }
+
+      const quantity =
+        typeof nextEntry.quantity === "number" && Number.isFinite(nextEntry.quantity)
+          ? Math.min(20, Math.max(1, Math.trunc(nextEntry.quantity)))
+          : 1;
+
+      return {
+        id: typeof nextEntry.id === "string" ? nextEntry.id : createCartEntryId(),
+        productId: nextEntry.productId,
+        quantity,
+        selectedAddOnIds: normalizeAddOnIds(nextEntry.selectedAddOnIds)
+      };
+    })
+    .filter(Boolean) as CartEntry[];
+}
+
 function mergeCartEntries(entries: CartEntry[]) {
   return entries.reduce<CartEntry[]>((merged, entry) => {
-    const existing = merged.find((item) => item.productId === entry.productId);
+    const signature = buildEntrySignature(entry.productId, entry.selectedAddOnIds);
+    const existing = merged.find((item) => buildEntrySignature(item.productId, item.selectedAddOnIds) === signature);
     if (existing) {
       existing.quantity = Math.min(20, existing.quantity + entry.quantity);
       return merged;
@@ -52,7 +106,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const nextCart = localStorage.getItem(CART_KEY);
     const nextFavorites = localStorage.getItem(FAVORITES_KEY);
     const nextRecent = localStorage.getItem(RECENT_KEY);
-    if (nextCart) setCart(JSON.parse(nextCart));
+    if (nextCart) setCart(normalizeCartEntries(JSON.parse(nextCart)));
     if (nextFavorites) setFavorites(JSON.parse(nextFavorites));
     if (nextRecent) setRecentlyViewed(JSON.parse(nextRecent));
   }, []);
@@ -82,8 +136,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             const legacySlug = legacyIdToSlug.get(entry.productId);
             const liveId = legacySlug ? slugToLiveId.get(legacySlug) : undefined;
             return {
+              id: entry.id,
               productId: liveId ?? entry.productId,
-              quantity: entry.quantity
+              quantity: entry.quantity,
+              selectedAddOnIds: entry.selectedAddOnIds
             };
           })
         );
@@ -132,21 +188,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       cart,
       favorites,
       recentlyViewed,
-      addToCart: (productId) => {
+      addToCart: ({ productId, quantity = 1, selectedAddOnIds = [] }) => {
+        const normalizedAddOnIds = normalizeAddOnIds(selectedAddOnIds);
+        const signature = buildEntrySignature(productId, normalizedAddOnIds);
+
         setCart((current) => {
-          const existing = current.find((entry) => entry.productId === productId);
+          const existing = current.find(
+            (entry) => buildEntrySignature(entry.productId, entry.selectedAddOnIds) === signature
+          );
           if (existing) {
             return current.map((entry) =>
-              entry.productId === productId ? { ...entry, quantity: Math.min(20, entry.quantity + 1) } : entry
+              entry.id === existing.id ? { ...entry, quantity: Math.min(20, entry.quantity + quantity) } : entry
             );
           }
 
-          return [...current, { productId, quantity: 1 }];
+          return [
+            ...current,
+            {
+              id: createCartEntryId(),
+              productId,
+              quantity: Math.min(20, Math.max(1, quantity)),
+              selectedAddOnIds: normalizedAddOnIds
+            }
+          ];
         });
       },
-      updateQuantity: (productId, quantity) => {
+      updateQuantity: (cartItemId, quantity) => {
         setCart((current) =>
-          quantity <= 0 ? current.filter((entry) => entry.productId !== productId) : current.map((entry) => (entry.productId === productId ? { ...entry, quantity } : entry))
+          quantity <= 0
+            ? current.filter((entry) => entry.id !== cartItemId)
+            : current.map((entry) => (entry.id === cartItemId ? { ...entry, quantity } : entry))
         );
       },
       clearCart: () => {
@@ -165,9 +236,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         cart
           .map((entry) => {
             const product = catalogue.find((item) => item.id === entry.productId);
-            return product ? { ...product, quantity: entry.quantity } : null;
+            if (!product) {
+              return null;
+            }
+
+            const selectedAddOns = entry.selectedAddOnIds.reduce<AddOnOption[]>((selected, optionId) => {
+              const option = product.addOnGroups.flatMap((group) => group.options).find((item) => item.id === optionId);
+              if (option) {
+                selected.push(option);
+              }
+              return selected;
+            }, []);
+
+            return {
+              ...product,
+              cartItemId: entry.id,
+              quantity: entry.quantity,
+              selectedAddOnIds: entry.selectedAddOnIds,
+              selectedAddOns,
+              price: product.price + selectedAddOns.reduce((sum, option) => sum + option.priceDelta, 0)
+            };
           })
-          .filter(Boolean) as Array<Product & { quantity: number }>
+          .filter(Boolean) as CartProduct[]
     }),
     [cart, favorites, recentlyViewed]
   );

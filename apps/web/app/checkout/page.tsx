@@ -117,7 +117,8 @@ export default function CheckoutPage() {
           },
           items: cartProducts.map((item) => ({
             productId: item.id,
-            quantity: item.quantity
+            quantity: item.quantity,
+            selectedAddOnIds: item.selectedAddOnIds
           }))
         })
       });
@@ -223,9 +224,12 @@ export default function CheckoutPage() {
           <p className="text-xl font-black text-pocket-navy">Summary</p>
           <div className="mt-4 space-y-3 text-sm">
             {cartProducts.map((item) => (
-              <div key={item.id} className="flex items-start justify-between gap-4">
+              <div key={item.cartItemId} className="flex items-start justify-between gap-4">
                 <div>
                   <p className="font-semibold text-pocket-navy">{item.name}</p>
+                  {item.selectedAddOns.length ? (
+                    <p className="text-pocket-navy/60">{item.selectedAddOns.map((option) => option.name).join(", ")}</p>
+                  ) : null}
                   <p className="text-pocket-navy/60">Qty {item.quantity}</p>
                 </div>
                 <p className="font-bold text-pocket-orange">{formatCurrency(item.price * item.quantity)}</p>

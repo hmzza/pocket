@@ -9,7 +9,7 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "3");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "4");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
@@ -244,7 +244,8 @@ async function main() {
       name: "Shawarma",
       description: "Pocket signature wraps",
       sortOrder: 1,
-      imageUrl: "/images/shawarma-pocket.svg"
+      imageUrl: "/images/shawarma-pocket.svg",
+      isActive: true
     },
     {
       legacySlug: "fries",
@@ -252,14 +253,24 @@ async function main() {
       name: "Fries",
       description: "Crispy sides and spice hits",
       sortOrder: 2,
-      imageUrl: "/images/loaded-fries.svg"
+      imageUrl: "/images/loaded-fries.svg",
+      isActive: true
+    },
+    {
+      slug: "make-it-a-meal",
+      name: "Make It A Meal",
+      description: "Pocket wraps bundled with fries and your drink pick",
+      sortOrder: 3,
+      imageUrl: "/images/combo-meal.svg",
+      isActive: true
     },
     {
       slug: "add-ons",
       name: "Add-ons",
       description: "Custom extras",
-      sortOrder: 3,
-      imageUrl: "/images/brand-grid.svg"
+      sortOrder: 99,
+      imageUrl: "/images/brand-grid.svg",
+      isActive: false
     },
     {
       legacySlug: "drinks",
@@ -267,7 +278,8 @@ async function main() {
       name: "Chillers",
       description: "Fruit chillers",
       sortOrder: 4,
-      imageUrl: "/images/pocket-drink.svg"
+      imageUrl: "/images/pocket-drink.svg",
+      isActive: true
     },
     {
       legacySlug: "combos",
@@ -275,14 +287,16 @@ async function main() {
       name: "Ice Cream Shakes",
       description: "Creamy shakes",
       sortOrder: 5,
-      imageUrl: "/images/pocket-combo.svg"
+      imageUrl: "/images/pocket-combo.svg",
+      isActive: true
     },
     {
       slug: "soft-drinks",
       name: "Soft Drinks",
       description: "Classic soft drinks",
       sortOrder: 6,
-      imageUrl: "/images/pocket-drink.svg"
+      imageUrl: "/images/pocket-drink.svg",
+      isActive: true
     }
   ];
 
@@ -300,7 +314,8 @@ async function main() {
             name: seed.name,
             description: seed.description,
             sortOrder: seed.sortOrder,
-            imageUrl: seed.imageUrl
+            imageUrl: seed.imageUrl,
+            isActive: seed.isActive
           }
         })
       : await prisma.category.create({
@@ -309,7 +324,8 @@ async function main() {
             name: seed.name,
             description: seed.description,
             sortOrder: seed.sortOrder,
-            imageUrl: seed.imageUrl
+            imageUrl: seed.imageUrl,
+            isActive: seed.isActive
           }
         });
 
@@ -317,6 +333,20 @@ async function main() {
   }
 
   const categoryMap = Object.fromEntries(categories.map((category) => [category.slug, category]));
+
+  const mealSelectionOptions = [
+    { code: "pepsi", name: "Fries + Pepsi", priceDelta: 250 },
+    { code: "7up", name: "Fries + 7UP", priceDelta: 250 },
+    { code: "fanta", name: "Fries + Fanta", priceDelta: 250 },
+    { code: "chocolate", name: "Fries + Chocolate Shake", priceDelta: 450 },
+    { code: "vanilla", name: "Fries + Vanilla Shake", priceDelta: 450 },
+    { code: "mango", name: "Fries + Mango Shake", priceDelta: 450 },
+    { code: "oreo", name: "Fries + Oreo Shake", priceDelta: 450 },
+    { code: "strawberry", name: "Fries + Strawberry Shake", priceDelta: 450 },
+    { code: "kiwi", name: "Fries + Kiwi Passion", priceDelta: 550 },
+    { code: "cherry", name: "Fries + Strawberry Cherry", priceDelta: 550 },
+    { code: "watermelon", name: "Fries + Watermelon Guava", priceDelta: 550 }
+  ];
 
   const productSeeds = [
     {
@@ -368,7 +398,6 @@ async function main() {
       images: [{ url: "/images/pocket-special.svg", alt: "Pocket Mai Rocket", sortOrder: 1 }]
     },
     {
-      legacySlug: "loaded-fries",
       slug: "thela-fries",
       sku: "PKT-FRY-001",
       name: "Thela Fries",
@@ -384,22 +413,6 @@ async function main() {
       images: [{ url: "/images/loaded-fries.svg", alt: "Thela Fries", sortOrder: 1 }]
     },
     {
-      legacySlug: "masala-fries",
-      slug: "garlic-mayo-fries",
-      sku: "PKT-FRY-002",
-      name: "Garlic Mayo Fries",
-      description: "Crispy french fries with spicy masala and garlic mayo dip.",
-      categorySlug: "fries",
-      ingredients: ["French fries", "Spicy masala", "Garlic mayo dip"],
-      basePrice: 220,
-      calories: 420,
-      featured: false,
-      bestSeller: false,
-      sortOrder: 2,
-      nutritionInfo: nutrition(420, 5, 48, 20),
-      images: [{ url: "/images/masala-fries.svg", alt: "Garlic Mayo Fries", sortOrder: 1 }]
-    },
-    {
       slug: "loaded-fries",
       sku: "PKT-FRY-003",
       name: "Loaded Fries",
@@ -410,69 +423,54 @@ async function main() {
       calories: 640,
       featured: true,
       bestSeller: true,
-      sortOrder: 3,
+      sortOrder: 2,
       nutritionInfo: nutrition(640, 17, 50, 30),
       images: [{ url: "/images/loaded-fries.svg", alt: "Loaded Fries", sortOrder: 1 }]
     },
     {
-      slug: "olives",
-      sku: "PKT-ADD-001",
-      name: "Olives",
-      description: "Add-on item.",
-      categorySlug: "add-ons",
-      ingredients: ["Olives"],
-      basePrice: 40,
-      calories: 40,
-      featured: false,
+      slug: "classic-pocket-make-it-a-meal",
+      sku: "PKT-ML-001",
+      name: "Classic Pocket - Make It A Meal",
+      description: "Classic Pocket bundled with fries and your drink pick.",
+      categorySlug: "make-it-a-meal",
+      ingredients: ["Chicken", "Classic shawarma sauce", "Iceberg", "Carrot", "Cucumber", "Cheese", "Fries", "Drink"],
+      basePrice: 450,
+      calories: 560,
+      featured: true,
       bestSeller: false,
       sortOrder: 1,
-      nutritionInfo: nutrition(40, 0, 2, 4),
-      images: [{ url: "/images/brand-grid.svg", alt: "Olives", sortOrder: 1 }]
+      nutritionInfo: nutrition(560, 29, 41, 24),
+      images: [{ url: "/images/combo-meal.svg", alt: "Classic Pocket meal", sortOrder: 1 }]
     },
     {
-      slug: "mushrooms",
-      sku: "PKT-ADD-002",
-      name: "Mushrooms",
-      description: "Add-on item.",
-      categorySlug: "add-ons",
-      ingredients: ["Mushrooms"],
-      basePrice: 40,
-      calories: 35,
-      featured: false,
+      slug: "spicy-pocket-make-it-a-meal",
+      sku: "PKT-ML-002",
+      name: "Spicy Pocket - Make It A Meal",
+      description: "Spicy Pocket bundled with fries and your drink pick.",
+      categorySlug: "make-it-a-meal",
+      ingredients: ["Chicken", "Spicy jalapeno sauce", "Iceberg", "Carrot", "Cucumber", "Cheese", "Fries", "Drink"],
+      basePrice: 550,
+      calories: 590,
+      featured: true,
       bestSeller: false,
       sortOrder: 2,
-      nutritionInfo: nutrition(35, 1, 4, 0),
-      images: [{ url: "/images/brand-grid.svg", alt: "Mushrooms", sortOrder: 1 }]
+      nutritionInfo: nutrition(590, 30, 42, 27),
+      images: [{ url: "/images/combo-meal.svg", alt: "Spicy Pocket meal", sortOrder: 1 }]
     },
     {
-      slug: "chicken-add-on",
-      sku: "PKT-ADD-003",
-      name: "Chicken",
-      description: "Add-on item.",
-      categorySlug: "add-ons",
-      ingredients: ["Chicken"],
-      basePrice: 90,
-      calories: 120,
-      featured: false,
+      slug: "pocket-mai-rocket-make-it-a-meal",
+      sku: "PKT-ML-003",
+      name: "Pocket Mai Rocket - Make It A Meal",
+      description: "Pocket Mai Rocket bundled with fries and your drink pick.",
+      categorySlug: "make-it-a-meal",
+      ingredients: ["Chicken", "Black olives", "Jalapeno", "Corn", "Mushrooms", "Cheese", "Fries", "Drink"],
+      basePrice: 750,
+      calories: 760,
+      featured: true,
       bestSeller: false,
       sortOrder: 3,
-      nutritionInfo: nutrition(120, 14, 0, 5),
-      images: [{ url: "/images/brand-grid.svg", alt: "Chicken add-on", sortOrder: 1 }]
-    },
-    {
-      slug: "cheese",
-      sku: "PKT-ADD-004",
-      name: "Cheese",
-      description: "Add-on item.",
-      categorySlug: "add-ons",
-      ingredients: ["Cheese"],
-      basePrice: 40,
-      calories: 80,
-      featured: false,
-      bestSeller: false,
-      sortOrder: 4,
-      nutritionInfo: nutrition(80, 4, 1, 6),
-      images: [{ url: "/images/brand-grid.svg", alt: "Cheese", sortOrder: 1 }]
+      nutritionInfo: nutrition(760, 36, 45, 34),
+      images: [{ url: "/images/combo-meal.svg", alt: "Pocket Mai Rocket meal", sortOrder: 1 }]
     },
     {
       legacySlug: "coke",
@@ -482,7 +480,7 @@ async function main() {
       description: "Fruit chiller.",
       categorySlug: "chillers",
       ingredients: ["Kiwi", "Passion fruit"],
-      basePrice: 410,
+      basePrice: 400,
       calories: 220,
       featured: false,
       bestSeller: true,
@@ -498,7 +496,7 @@ async function main() {
       description: "Fruit chiller.",
       categorySlug: "chillers",
       ingredients: ["Strawberry", "Cherry"],
-      basePrice: 410,
+      basePrice: 400,
       calories: 230,
       featured: false,
       bestSeller: false,
@@ -514,7 +512,7 @@ async function main() {
       description: "Fruit chiller.",
       categorySlug: "chillers",
       ingredients: ["Watermelon", "Guava"],
-      basePrice: 410,
+      basePrice: 400,
       calories: 240,
       featured: false,
       bestSeller: false,
@@ -604,7 +602,7 @@ async function main() {
       description: "Soft drink.",
       categorySlug: "soft-drinks",
       ingredients: ["Carbonated beverage"],
-      basePrice: 80,
+      basePrice: 100,
       calories: 140,
       featured: false,
       bestSeller: true,
@@ -619,7 +617,7 @@ async function main() {
       description: "Soft drink.",
       categorySlug: "soft-drinks",
       ingredients: ["Carbonated beverage"],
-      basePrice: 80,
+      basePrice: 100,
       calories: 135,
       featured: false,
       bestSeller: false,
@@ -634,7 +632,7 @@ async function main() {
       description: "Soft drink.",
       categorySlug: "soft-drinks",
       ingredients: ["Carbonated beverage"],
-      basePrice: 80,
+      basePrice: 100,
       calories: 145,
       featured: false,
       bestSeller: false,
@@ -645,6 +643,17 @@ async function main() {
   ];
 
   const products = [];
+  const retiredProductSlugs = [
+    "garlic-mayo-fries",
+    "masala-fries",
+    "olives",
+    "mushrooms",
+    "chicken-add-on",
+    "cheese",
+    "shawarma-drink-combo",
+    "shawarma-fries-drink-combo"
+  ];
+
   for (const seed of productSeeds) {
     const existingProduct =
       (await prisma.product.findUnique({ where: { slug: seed.slug } })) ??
@@ -700,27 +709,125 @@ async function main() {
       create: { branchId: branch.id, productId: product.id, price: seed.basePrice, isAvailable: true, stockStatus: "IN_STOCK" }
     });
 
-    await prisma.addOnGroup.deleteMany({ where: { productId: product.id } });
-    if (seed.slug === "pocket-mai-rocket") {
-      await prisma.addOnGroup.create({
-        data: {
-          productId: product.id,
-          name: "Choose Sauce",
-          minSelect: 1,
-          maxSelect: 1,
-          isRequired: true,
-          sortOrder: 1,
-          options: {
-            create: [
-              { name: "Classic shawarma sauce", priceDelta: 0, sortOrder: 1 },
-              { name: "Spicy jalapeno sauce", priceDelta: 0, sortOrder: 2 }
-            ]
-          }
+    const existingGroups = await prisma.addOnGroup.findMany({
+      where: { productId: product.id },
+      include: { options: true }
+    });
+
+    async function syncAddOnGroup(config: {
+      name: string;
+      minSelect: number;
+      maxSelect: number;
+      isRequired: boolean;
+      sortOrder: number;
+      options: Array<{ name: string; priceDelta: number; sortOrder: number }>;
+    }) {
+      const existingGroup = existingGroups.find((group) => group.name === config.name);
+      const group = existingGroup
+        ? await prisma.addOnGroup.update({
+            where: { id: existingGroup.id },
+            data: {
+              minSelect: config.minSelect,
+              maxSelect: config.maxSelect,
+              isRequired: config.isRequired,
+              sortOrder: config.sortOrder
+            }
+          })
+        : await prisma.addOnGroup.create({
+            data: {
+              productId: product.id,
+              name: config.name,
+              minSelect: config.minSelect,
+              maxSelect: config.maxSelect,
+              isRequired: config.isRequired,
+              sortOrder: config.sortOrder
+            }
+          });
+
+      const existingOptions = existingGroup?.options ?? [];
+      for (const option of config.options) {
+        const existingOption = existingOptions.find((entry) => entry.name === option.name);
+        if (existingOption) {
+          await prisma.addOnOption.update({
+            where: { id: existingOption.id },
+            data: {
+              priceDelta: option.priceDelta,
+              sortOrder: option.sortOrder,
+              isActive: true
+            }
+          });
+        } else {
+          await prisma.addOnOption.create({
+            data: {
+              groupId: group.id,
+              name: option.name,
+              priceDelta: option.priceDelta,
+              sortOrder: option.sortOrder,
+              isActive: true
+            }
+          });
         }
+      }
+    }
+
+    if (seed.slug === "pocket-mai-rocket" || seed.slug === "pocket-mai-rocket-make-it-a-meal") {
+      await syncAddOnGroup({
+        name: "Choose Sauce",
+        minSelect: 1,
+        maxSelect: 1,
+        isRequired: true,
+        sortOrder: 1,
+        options: [
+          { name: "Classic shawarma sauce", priceDelta: 0, sortOrder: 1 },
+          { name: "Spicy jalapeno sauce", priceDelta: 0, sortOrder: 2 }
+        ]
+      });
+    }
+
+    if (seed.slug === "thela-fries" || seed.slug === "loaded-fries") {
+      await syncAddOnGroup({
+        name: "Extras",
+        minSelect: 0,
+        maxSelect: 1,
+        isRequired: false,
+        sortOrder: 1,
+        options: [{ name: "Garlic Mayo Sauce", priceDelta: 50, sortOrder: 1 }]
+      });
+    }
+
+    if (seed.slug.endsWith("make-it-a-meal")) {
+      await syncAddOnGroup({
+        name: "Choose your meal pairing",
+        minSelect: 1,
+        maxSelect: 1,
+        isRequired: true,
+        sortOrder: seed.slug === "pocket-mai-rocket-make-it-a-meal" ? 2 : 1,
+        options: mealSelectionOptions.map((option, index) => ({
+          name: option.name,
+          priceDelta: option.priceDelta,
+          sortOrder: index + 1
+        }))
       });
     }
 
     products.push(product);
+  }
+
+  await prisma.product.updateMany({
+    where: { slug: { in: retiredProductSlugs } },
+    data: { isActive: false }
+  });
+
+  const retiredProducts = await prisma.product.findMany({
+    where: { slug: { in: retiredProductSlugs } },
+    select: { id: true }
+  });
+
+  if (retiredProducts.length) {
+    await prisma.branchProduct.updateMany({
+      where: { branchId: branch.id, productId: { in: retiredProducts.map((product) => product.id) } },
+      data: { isAvailable: false }
+    });
   }
 
   const supplier = await prisma.supplier.upsert({

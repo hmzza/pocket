@@ -50,11 +50,11 @@ function ReceiptSlip({
   return (
     <section className="break-inside-avoid rounded-lg border border-dashed border-black/30 bg-white px-3 py-4 shadow-sm print:break-inside-avoid print:rounded-none print:border-0 print:shadow-none">
       <div className="text-center">
-        <img src="/icon.png" alt="Pocket logo" className="mx-auto h-9 w-9" />
+        <img src="/icon.png" alt="Pocket logo" className="mx-auto h-12 w-12 print:h-14 print:w-14" />
         <p className="mt-2 text-[26px] font-black tracking-[0.18em]">POCKET</p>
-        <p className="mt-1 text-[10px] font-semibold tracking-[0.3em] text-black/70 print:text-black">{order.branch.name}</p>
-        <p className="mt-2 text-[10px] font-medium print:font-semibold">{order.branch.addressLine1}</p>
-        <p className="text-[10px] font-medium print:font-semibold">{order.branch.phone}</p>
+        <p className="mt-1 text-[11px] font-bold tracking-[0.22em] text-black print:text-[11.5px]">{order.branch.name}</p>
+        <p className="mt-2 text-[10.5px] font-bold text-black print:text-[11px]">{order.branch.addressLine1}</p>
+        <p className="text-[10.5px] font-bold text-black print:text-[11px]">{order.branch.phone}</p>
         <p className="mt-2 text-[10px] font-black uppercase tracking-[0.2em]">{copyLabel}</p>
         <p className="mt-1 text-[12px] font-bold tracking-[0.2em]">Purchase Slip</p>
       </div>
@@ -146,9 +146,9 @@ function ReceiptSlip({
       <div className="my-3 border-t border-dashed border-black/30" />
 
       <div className="text-center text-[10px] print:text-[10.5px]">
-        <p className="font-medium print:font-semibold">Thank you for your visit</p>
+        <p className="font-bold text-black">Thank you for your visit</p>
         <p className="mt-1 text-[12px] font-bold tracking-[0.18em]">Pocket</p>
-        <p className="mt-1 font-medium text-black/70 print:font-semibold print:text-black">For complaints &amp; queries: {order.branch.phone}</p>
+        <p className="mt-1 font-bold text-black">For complaints &amp; queries: {order.branch.phone}</p>
       </div>
     </section>
   );
