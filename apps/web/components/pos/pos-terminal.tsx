@@ -179,6 +179,7 @@ export function PosTerminal() {
     }
 
     setTicket((current) => [
+      ...current,
       {
         id: crypto.randomUUID(),
         type: "product",
@@ -189,8 +190,7 @@ export function PosTerminal() {
         unitPrice: product.price,
         selections: [],
         addOns: []
-      },
-      ...current
+      }
     ]);
   }
 
@@ -207,6 +207,7 @@ export function PosTerminal() {
 
     const pricing = calculateLinePrice(productDialog, productSelections);
     setTicket((current) => [
+      ...current,
       {
         id: crypto.randomUUID(),
         type: "product",
@@ -217,8 +218,7 @@ export function PosTerminal() {
         unitPrice: pricing.unitPrice,
         selections: productSelections,
         addOns: pricing.addOns,
-      },
-      ...current
+      }
     ]);
     setProductDialog(null);
     setError("");
@@ -232,6 +232,7 @@ export function PosTerminal() {
     }
 
     setTicket((current) => [
+      ...current,
       {
         id: crypto.randomUUID(),
         type: "manual",
@@ -242,8 +243,7 @@ export function PosTerminal() {
         customDescription: manualDescription.trim(),
         selections: [],
         addOns: []
-      },
-      ...current
+      }
     ]);
     setManualDialogOpen(false);
     setManualName("");
