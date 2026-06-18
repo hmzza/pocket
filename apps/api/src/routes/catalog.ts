@@ -2,8 +2,8 @@ import { Router } from "express";
 import { DiscountType, OrderChannel, PaymentMethod, PaymentStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { prisma } from "../lib/prisma.js";
-import { generateOrderNumber } from "../lib/order-number.js";
+import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
+import { withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 
@@ -432,81 +432,82 @@ router.post("/checkout", async (req, res, next) => {
       }
     });
 
-    const orderNumber = await generateOrderNumber();
-    const order = await prisma.$transaction(async (transaction) => {
-      const createdOrder = await transaction.order.create({
-        data: {
-          orderNumber,
-          customerId,
-          branchId: branch.id,
-          addressId: address.id,
-          couponId,
-          channel: OrderChannel.ONLINE,
-          serviceType: ServiceType.DELIVERY,
-          customerName: payload.name,
-          customerPhone: payload.phone,
-          paymentMethod: payload.paymentMethod,
-          paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
-          subtotal,
-          taxRate: 12,
-          taxAmount,
-          deliveryFee,
-          discountAmount,
-          totalAmount,
-          expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
-          deliveryInstructions: payload.deliveryInstructions,
-          items: {
-            create: normalizedItems.map((item) => {
-              return {
-                productId: item.product.id,
-                productName: item.product.name,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                addOns: item.addOns.length
-                  ? {
-                      create: item.addOns.map((addOn) => ({
-                        optionId: addOn.optionId,
-                        optionName: addOn.optionName,
-                        priceDelta: addOn.priceDelta
-                      }))
-                    }
-                  : undefined
-              };
-            })
-          }
-        },
-        include: {
-          items: {
-            include: {
-              addOns: true
+    const { orderNumber, result: order } = await withGeneratedOrderNumber((orderNumber) =>
+      prisma.$transaction(async (transaction) => {
+        const createdOrder = await transaction.order.create({
+          data: {
+            orderNumber,
+            customerId,
+            branchId: branch.id,
+            addressId: address.id,
+            couponId,
+            channel: OrderChannel.ONLINE,
+            serviceType: ServiceType.DELIVERY,
+            customerName: payload.name,
+            customerPhone: payload.phone,
+            paymentMethod: payload.paymentMethod,
+            paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
+            subtotal,
+            taxRate: 12,
+            taxAmount,
+            deliveryFee,
+            discountAmount,
+            totalAmount,
+            expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
+            deliveryInstructions: payload.deliveryInstructions,
+            items: {
+              create: normalizedItems.map((item) => {
+                return {
+                  productId: item.product.id,
+                  productName: item.product.name,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  addOns: item.addOns.length
+                    ? {
+                        create: item.addOns.map((addOn) => ({
+                          optionId: addOn.optionId,
+                          optionName: addOn.optionName,
+                          priceDelta: addOn.priceDelta
+                        }))
+                      }
+                    : undefined
+                };
+              })
             }
           },
-          branch: true,
-          address: true,
-          customer: true
-        }
-      });
+          include: {
+            items: {
+              include: {
+                addOns: true
+              }
+            },
+            branch: true,
+            address: true,
+            customer: true
+          }
+        });
 
-      await applyOrderInventory({
-        transaction,
-        branchId: branch.id,
-        orderId: createdOrder.id,
-        actorId: customerId,
-        items: createdOrder.items,
-        mode: "consume"
-      });
+        await applyOrderInventory({
+          transaction,
+          branchId: branch.id,
+          orderId: createdOrder.id,
+          actorId: customerId,
+          items: createdOrder.items,
+          mode: "consume"
+        });
 
-      await transaction.notification.create({
-        data: {
-          type: "ORDER",
-          title: "New order placed",
-          message: `${orderNumber} requires confirmation.`,
-          metadata: { orderNumber, branch: branch.slug }
-        }
-      });
+        await transaction.notification.create({
+          data: {
+            type: "ORDER",
+            title: "New order placed",
+            message: `${orderNumber} requires confirmation.`,
+            metadata: { orderNumber, branch: branch.slug }
+          }
+        });
 
-      return createdOrder;
-    });
+        return createdOrder;
+      }, INVENTORY_TRANSACTION_OPTIONS)
+    );
 
     await writeAuditLog({
       actorId: customerId,

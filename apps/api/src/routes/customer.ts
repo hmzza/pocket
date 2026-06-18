@@ -2,8 +2,8 @@ import { Router } from "express";
 import { DiscountType, PaymentMethod, PaymentStatus } from "@prisma/client";
 import { z } from "zod";
 import { authenticate } from "../middleware/auth.js";
-import { prisma } from "../lib/prisma.js";
-import { generateOrderNumber } from "../lib/order-number.js";
+import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
+import { withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 
@@ -306,84 +306,85 @@ router.post("/checkout", async (req, res, next) => {
       addressId = address.id;
     }
 
-    const orderNumber = await generateOrderNumber();
-    const order = await prisma.$transaction(async (transaction) => {
-      const createdOrder = await transaction.order.create({
-        data: {
-          orderNumber,
-          customerId: req.user!.id,
-          branchId: branch.id,
-          addressId,
-          couponId,
-          customerName: req.user!.name,
-          paymentMethod: payload.paymentMethod,
-          paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
-          subtotal,
-          taxRate: 12,
-          taxAmount,
-          deliveryFee,
-          discountAmount,
-          totalAmount,
-          expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
-          deliveryInstructions: payload.deliveryInstructions,
-          items: {
-            create: cart.items.map((item) => ({
-              productId: item.productId,
-              productName: item.product.name,
-              quantity: item.quantity,
-              unitPrice: Number(item.product.basePrice),
-              note: item.note,
-              addOns: {
-                create: item.selectedAddOnIds
-                  .map((optionId) => addOnMap.get(optionId))
-                  .filter(Boolean)
-                  .map((option) => ({
-                    optionId: option!.id,
-                    optionName: option!.name,
-                    priceDelta: Number(option!.priceDelta)
-                  }))
+    const { orderNumber, result: order } = await withGeneratedOrderNumber((orderNumber) =>
+      prisma.$transaction(async (transaction) => {
+        const createdOrder = await transaction.order.create({
+          data: {
+            orderNumber,
+            customerId: req.user!.id,
+            branchId: branch.id,
+            addressId,
+            couponId,
+            customerName: req.user!.name,
+            paymentMethod: payload.paymentMethod,
+            paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
+            subtotal,
+            taxRate: 12,
+            taxAmount,
+            deliveryFee,
+            discountAmount,
+            totalAmount,
+            expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
+            deliveryInstructions: payload.deliveryInstructions,
+            items: {
+              create: cart.items.map((item) => ({
+                productId: item.productId,
+                productName: item.product.name,
+                quantity: item.quantity,
+                unitPrice: Number(item.product.basePrice),
+                note: item.note,
+                addOns: {
+                  create: item.selectedAddOnIds
+                    .map((optionId) => addOnMap.get(optionId))
+                    .filter(Boolean)
+                    .map((option) => ({
+                      optionId: option!.id,
+                      optionName: option!.name,
+                      priceDelta: Number(option!.priceDelta)
+                    }))
+                }
+              }))
+            }
+          },
+          include: {
+            items: {
+              include: {
+                addOns: true
               }
-            }))
-          }
-        },
-        include: {
-          items: {
-            include: {
-              addOns: true
             }
           }
-        }
-      });
-
-      await applyOrderInventory({
-        transaction,
-        branchId: branch.id,
-        orderId: createdOrder.id,
-        actorId: req.user!.id,
-        items: createdOrder.items,
-        mode: "consume"
-      });
-
-      await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });
-
-      if (couponId) {
-        await transaction.coupon.update({
-          where: { id: couponId },
-          data: { usedCount: { increment: 1 } }
         });
-      }
 
-      await transaction.notification.create({
-        data: {
-          type: "ORDER",
-          title: "New order placed",
-          message: `${orderNumber} requires confirmation.`,
-          metadata: { orderNumber, branch: branch.slug }
+        await applyOrderInventory({
+          transaction,
+          branchId: branch.id,
+          orderId: createdOrder.id,
+          actorId: req.user!.id,
+          items: createdOrder.items,
+          mode: "consume"
+        });
+
+        await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });
+
+        if (couponId) {
+          await transaction.coupon.update({
+            where: { id: couponId },
+            data: { usedCount: { increment: 1 } }
+          });
         }
-      });
 
-      return createdOrder;
-    });
+        await transaction.notification.create({
+          data: {
+            type: "ORDER",
+            title: "New order placed",
+            message: `${orderNumber} requires confirmation.`,
+            metadata: { orderNumber, branch: branch.slug }
+          }
+        });
+
+        return createdOrder;
+      }, INVENTORY_TRANSACTION_OPTIONS)
+    );
 
     await writeAuditLog({
       actorId: req.user!.id,

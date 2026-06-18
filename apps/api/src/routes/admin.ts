@@ -3,7 +3,7 @@ import { InventoryTransactionType, OrderStatus, Prisma, RoleCode } from "@prisma
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { authenticate, authorize } from "../middleware/auth.js";
-import { prisma } from "../lib/prisma.js";
+import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
 
@@ -1154,7 +1154,7 @@ router.patch("/orders/:id/status", async (req, res, next) => {
         where: { id: req.params.id },
         data: { status: payload.status }
       });
-    });
+    }, INVENTORY_TRANSACTION_OPTIONS);
 
     await prisma.notification.create({
       data: {

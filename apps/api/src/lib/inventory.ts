@@ -157,17 +157,55 @@ export async function applyOrderInventory({
   const transactionType = mode === "consume" ? InventoryTransactionType.CONSUMPTION : InventoryTransactionType.RETURN;
   const note = mode === "consume" ? "Order inventory deduction" : "Order cancellation return";
 
-  for (const [ingredientId, quantity] of totals) {
-    await recordInventoryChange({
-      transaction,
-      branchId,
-      ingredientId,
-      quantityDelta: roundQuantity(quantity * quantityDirection),
+  if (!totals.size) {
+    return;
+  }
+
+  const inventoryByIngredientId = new Map(branchInventories.map((entry) => [entry.ingredientId, entry]));
+  const changes = Array.from(totals.entries()).map(([ingredientId, quantity]) => {
+    const inventory = inventoryByIngredientId.get(ingredientId);
+    if (!inventory) {
+      throw new Error("Inventory item is missing for the selected branch.");
+    }
+
+    const quantityDelta = roundQuantity(quantity * quantityDirection);
+    const balanceAfter = roundQuantity(Number(inventory.quantityOnHand) + quantityDelta);
+
+    return {
+      branchInventoryId: inventory.id,
+      quantityDelta,
+      balanceAfter,
+      lowStockAlert: balanceAfter <= Number(inventory.ingredient.reorderLevel)
+    };
+  });
+
+  const updatedCount = await transaction.$executeRaw`
+    UPDATE "BranchInventory" AS inventory
+    SET
+      "quantityOnHand" = updates."quantityOnHand"::numeric,
+      "lowStockAlert" = updates."lowStockAlert"::boolean
+    FROM (
+      VALUES ${Prisma.join(
+        changes.map((change) => Prisma.sql`(${change.branchInventoryId}, ${change.balanceAfter}, ${change.lowStockAlert})`)
+      )}
+    ) AS updates("id", "quantityOnHand", "lowStockAlert")
+    WHERE inventory."id" = updates."id"
+  `;
+
+  if (updatedCount !== changes.length) {
+    throw new Error("Inventory update failed for one or more order ingredients.");
+  }
+
+  await transaction.inventoryTransaction.createMany({
+    data: changes.map((change) => ({
+      branchInventoryId: change.branchInventoryId,
+      actorId: actorId ?? null,
       type: transactionType,
-      actorId,
+      quantity: change.quantityDelta,
+      balanceAfter: change.balanceAfter,
       note,
       referenceType: "ORDER",
       referenceId: orderId
-    });
-  }
+    }))
+  });
 }
