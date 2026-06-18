@@ -6,8 +6,8 @@ export function Footer() {
       <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 md:grid-cols-3 md:px-6">
         <div className="space-y-3">
           <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-md bg-white">
-              <Image src="/icon.png" alt="Pocket logo" width={48} height={48} className="h-full w-full object-contain" />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-white p-1 shadow-sm">
+              <Image src="/icon.png" alt="Pocket logo" width={56} height={56} sizes="56px" className="h-full w-full object-contain" />
             </div>
             <p className="text-2xl font-black tracking-wide">POCKET</p>
           </div>
@@ -32,4 +32,3 @@ export function Footer() {
     </footer>
   );
 }
-

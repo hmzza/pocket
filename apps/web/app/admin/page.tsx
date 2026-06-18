@@ -199,7 +199,7 @@ export default function AdminPage() {
               />
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
               <SalesChart
                 sales={dashboard.series}
                 title="Revenue trend"
@@ -247,7 +247,7 @@ export default function AdminPage() {
               />
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
               <Card className="p-5">
                 <div className="flex items-center justify-between">
                   <div>
@@ -300,7 +300,7 @@ export default function AdminPage() {
               </Card>
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
               <Card className="p-5">
                 <p className="text-lg font-black text-pocket-navy">Recent orders</p>
                 <p className="text-sm text-pocket-navy/60">Latest order movement inside the selected window.</p>

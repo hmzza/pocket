@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Order" ALTER COLUMN "taxRate" DROP DEFAULT;

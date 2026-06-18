@@ -1,6 +1,15 @@
 "use client";
 
-import type { AdminCustomer, AdminOrder, AdminProduct, AdminRangePreset, Category, DashboardData } from "@/lib/types";
+import type {
+  AdminCustomer,
+  AdminExpenseData,
+  AdminInventoryData,
+  AdminOrder,
+  AdminProduct,
+  AdminRangePreset,
+  Category,
+  DashboardData
+} from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -295,4 +304,217 @@ export async function updateAdminSetting(key: string, value: unknown) {
     body: JSON.stringify({ value })
   });
   return data.setting;
+}
+
+export async function fetchAdminInventory(branchId?: string): Promise<AdminInventoryData> {
+  const searchParams = new URLSearchParams();
+  if (branchId) searchParams.set("branchId", branchId);
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const data = await adminFetch<any>(`/api/admin/inventory${suffix}`);
+
+  return {
+    branches: data.branches.map((branch: any) => ({
+      id: branch.id,
+      slug: branch.slug,
+      name: branch.name,
+      city: branch.city,
+      addressLine1: branch.addressLine1,
+      phone: branch.phone,
+      deliveryFee: Number(branch.deliveryFee)
+    })),
+    summary: {
+      totalItems: data.summary.totalItems,
+      lowStockItems: data.summary.lowStockItems,
+      totalStockValue: Number(data.summary.totalStockValue),
+      totalUnits: Number(data.summary.totalUnits)
+    },
+    items: data.items.map((item: any) => ({
+      id: item.id,
+      branchId: item.branchId,
+      branchName: item.branchName,
+      ingredientId: item.ingredientId,
+      name: item.name,
+      sku: item.sku,
+      unit: item.unit,
+      reorderLevel: Number(item.reorderLevel),
+      costPerUnit: Number(item.costPerUnit),
+      quantityOnHand: Number(item.quantityOnHand),
+      stockValue: Number(item.stockValue),
+      lowStockAlert: Boolean(item.lowStockAlert),
+      updatedAt: item.updatedAt
+    })),
+    recentTransactions: data.recentTransactions.map((entry: any) => ({
+      id: entry.id,
+      branchId: entry.branchId,
+      branchName: entry.branchName,
+      ingredientId: entry.ingredientId,
+      ingredientName: entry.ingredientName,
+      type: entry.type,
+      quantity: Number(entry.quantity),
+      balanceAfter: Number(entry.balanceAfter),
+      note: entry.note ?? undefined,
+      referenceType: entry.referenceType ?? undefined,
+      referenceId: entry.referenceId ?? undefined,
+      actorName: entry.actorName ?? undefined,
+      createdAt: entry.createdAt
+    }))
+  };
+}
+
+export async function createAdminInventoryItem(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ ingredient: any }>("/api/admin/inventory/items", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.ingredient;
+}
+
+export async function updateAdminInventoryItem(ingredientId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ ingredient: any }>(`/api/admin/inventory/items/${ingredientId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.ingredient;
+}
+
+export async function createAdminInventoryTransaction(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ inventory: any }>("/api/admin/inventory/transactions", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.inventory;
+}
+
+export async function fetchAdminExpenses(params?: {
+  preset?: AdminRangePreset;
+  branchId?: string;
+  category?: string;
+  search?: string;
+  monthKey?: string;
+  start?: string;
+  end?: string;
+}): Promise<AdminExpenseData> {
+  const searchParams = new URLSearchParams();
+  if (params?.preset) searchParams.set("preset", params.preset);
+  if (params?.branchId) searchParams.set("branchId", params.branchId);
+  if (params?.category) searchParams.set("category", params.category);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.monthKey) searchParams.set("monthKey", params.monthKey);
+  if (params?.start) searchParams.set("start", params.start);
+  if (params?.end) searchParams.set("end", params.end);
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const data = await adminFetch<any>(`/api/admin/expenses${suffix}`);
+
+  return {
+    range: {
+      preset: data.range.preset,
+      start: data.range.start,
+      end: data.range.end,
+      label: data.range.label
+    },
+    branches: data.branches.map((branch: any) => ({
+      id: branch.id,
+      slug: branch.slug,
+      name: branch.name,
+      city: branch.city,
+      addressLine1: branch.addressLine1,
+      phone: branch.phone,
+      deliveryFee: Number(branch.deliveryFee)
+    })),
+    summary: {
+      totalAmount: Number(data.summary.totalAmount),
+      totalCount: data.summary.totalCount,
+      averageAmount: Number(data.summary.averageAmount)
+    },
+    series: data.series.map((entry: any) => ({
+      label: entry.label,
+      revenue: Number(entry.revenue),
+      orders: entry.orders
+    })),
+    categories: data.categories.map((entry: any) => ({
+      label: entry.label,
+      amount: Number(entry.amount),
+      count: entry.count
+    })),
+    expenses: data.expenses.map((expense: any) => ({
+      id: expense.id,
+      branchId: expense.branchId,
+      branchName: expense.branchName,
+      title: expense.title,
+      category: expense.category,
+      amount: Number(expense.amount),
+      expenseDate: expense.expenseDate,
+      vendor: expense.vendor ?? undefined,
+      billReference: expense.billReference ?? undefined,
+      notes: expense.notes ?? undefined,
+      createdByName: expense.createdByName ?? undefined,
+      createdAt: expense.createdAt
+    }))
+  };
+}
+
+export async function createAdminExpense(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ expense: any }>("/api/admin/expenses", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.expense;
+}
+
+export async function updateAdminExpense(expenseId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ expense: any }>(`/api/admin/expenses/${expenseId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.expense;
+}
+
+export async function downloadAdminExpenseExport(params?: {
+  preset?: AdminRangePreset;
+  branchId?: string;
+  category?: string;
+  search?: string;
+  monthKey?: string;
+  start?: string;
+  end?: string;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.preset) searchParams.set("preset", params.preset);
+  if (params?.branchId) searchParams.set("branchId", params.branchId);
+  if (params?.category) searchParams.set("category", params.category);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.monthKey) searchParams.set("monthKey", params.monthKey);
+  if (params?.start) searchParams.set("start", params.start);
+  if (params?.end) searchParams.set("end", params.end);
+
+  const token = getToken();
+  const response = await fetch(`${API_URL}/api/admin/expenses/export?${searchParams.toString()}`, {
+    headers: token
+      ? {
+          Authorization: `Bearer ${token}`
+        }
+      : undefined
+  });
+
+  if (!response.ok) {
+    let message = "Export failed.";
+    try {
+      const payload = await response.json();
+      message = payload.message ?? message;
+    } catch {}
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename=\"?([^"]+)\"?/i);
+  const fileName = match?.[1] ?? "pocket-expenses.xlsx";
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
 }

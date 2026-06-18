@@ -1,33 +1,42 @@
 import { Router } from "express";
-import { OrderStatus, Prisma, RoleCode } from "@prisma/client";
+import { InventoryTransactionType, OrderStatus, Prisma, RoleCode } from "@prisma/client";
 import { z } from "zod";
+import * as XLSX from "xlsx";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
 
 const router = Router();
 
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
 
-const dashboardQuerySchema = z
-  .object({
-    preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("7d"),
-    start: z.string().datetime().optional(),
-    end: z.string().datetime().optional()
-  })
-  .superRefine((value, context) => {
-    if (value.preset === "custom" && (!value.start || !value.end)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Custom range requires start and end dates.",
-        path: ["start"]
-      });
-    }
-  });
+const dashboardQueryBaseSchema = z.object({
+  preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("7d"),
+  start: z.string().datetime().optional(),
+  end: z.string().datetime().optional(),
+  monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional()
+});
+
+const dashboardQuerySchema = dashboardQueryBaseSchema.superRefine((value, context) => {
+  if (value.preset === "custom" && (!value.start || !value.end)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Custom range requires start and end dates.",
+      path: ["start"]
+    });
+  }
+});
 
 function startOfDay(date: Date) {
   const value = new Date(date);
   value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function endOfDay(date: Date) {
+  const value = new Date(date);
+  value.setHours(23, 59, 59, 999);
   return value;
 }
 
@@ -82,12 +91,16 @@ function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
       };
     }
     case "month": {
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthDate = query.monthKey ? new Date(`${query.monthKey}-01T00:00:00`) : now;
+      const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+      const end = query.monthKey ? endOfDay(addDays(addMonths(start, 1), -1)) : now;
       return {
         preset: query.preset,
         start,
-        end: now,
-        label: "This month"
+        end,
+        label: query.monthKey
+          ? new Intl.DateTimeFormat("en-PK", { month: "long", year: "numeric" }).format(start)
+          : "This month"
       };
     }
     case "year": {
@@ -123,6 +136,24 @@ function percentageDelta(current: number, previous: number) {
   }
 
   return Number((((current - previous) / previous) * 100).toFixed(1));
+}
+
+function normalizeSku(value: string) {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function buildIngredientSku(name: string) {
+  const base = normalizeSku(name).slice(0, 18) || "ITEM";
+  return `ING-${base}-${Date.now().toString(36).toUpperCase()}`;
+}
+
+function parseDecimal(value: Prisma.Decimal | number | string | null | undefined) {
+  if (value == null) return 0;
+  return Number(value);
 }
 
 function buildSalesSeries(orders: Array<{ placedAt: Date; totalAmount: Prisma.Decimal | number }>, start: Date, end: Date) {
@@ -630,6 +661,411 @@ router.delete("/categories/:id", async (req, res) => {
   return res.status(204).send();
 });
 
+const inventoryQuerySchema = z.object({
+  branchId: z.string().cuid().optional(),
+  search: z.string().trim().optional(),
+  lowStock: z
+    .union([z.literal("true"), z.literal("false"), z.boolean()])
+    .optional()
+    .transform((value) => value === true || value === "true")
+});
+
+const inventoryItemSchema = z.object({
+  branchId: z.string().cuid(),
+  name: z.string().min(2).max(80),
+  sku: z.string().min(3).max(40).optional(),
+  unit: z.string().min(1).max(20),
+  reorderLevel: z.number().nonnegative(),
+  costPerUnit: z.number().nonnegative().default(0),
+  openingStock: z.number().nonnegative().default(0)
+});
+
+const inventoryItemUpdateSchema = z.object({
+  name: z.string().min(2).max(80).optional(),
+  sku: z.string().min(3).max(40).optional(),
+  unit: z.string().min(1).max(20).optional(),
+  reorderLevel: z.number().nonnegative().optional(),
+  costPerUnit: z.number().nonnegative().optional()
+});
+
+const inventoryMovementSchema = z
+  .object({
+    branchId: z.string().cuid(),
+    ingredientId: z.string().cuid(),
+    action: z.enum(["PURCHASE", "ADJUSTMENT", "WASTAGE", "RETURN", "CLOSING"]),
+    quantity: z.number().optional(),
+    countedQuantity: z.number().nonnegative().optional(),
+    note: z.string().max(240).optional()
+  })
+  .superRefine((value, context) => {
+    if (value.action === "CLOSING") {
+      if (typeof value.countedQuantity !== "number") {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["countedQuantity"],
+          message: "Daily closing requires the counted stock."
+        });
+      }
+      return;
+    }
+
+    if (typeof value.quantity !== "number" || value.quantity === 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["quantity"],
+        message: "Enter a quantity for this stock movement."
+      });
+    }
+
+    if (value.action !== "ADJUSTMENT" && typeof value.quantity === "number" && value.quantity < 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["quantity"],
+        message: "Use a positive quantity for this stock movement."
+      });
+    }
+  });
+
+router.get("/inventory", async (req, res, next) => {
+  try {
+    const query = inventoryQuerySchema.parse(req.query);
+
+    const itemWhere = {
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(query.lowStock ? { lowStockAlert: true } : {}),
+      ...(query.search
+        ? {
+            OR: [
+              { ingredient: { name: { contains: query.search, mode: "insensitive" as const } } },
+              { ingredient: { sku: { contains: query.search, mode: "insensitive" as const } } }
+            ]
+          }
+        : {})
+    };
+
+    const summaryWhere = query.branchId ? { branchId: query.branchId } : {};
+
+    const [branches, items, summaryBase, recentTransactions] = await Promise.all([
+      prisma.branch.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          city: true,
+          addressLine1: true,
+          phone: true,
+          deliveryFee: true
+        },
+        orderBy: { name: "asc" }
+      }),
+      prisma.branchInventory.findMany({
+        where: itemWhere,
+        include: {
+          branch: true,
+          ingredient: true
+        },
+        orderBy: [{ lowStockAlert: "desc" }, { ingredient: { name: "asc" } }]
+      }),
+      prisma.branchInventory.findMany({
+        where: summaryWhere,
+        include: { ingredient: true }
+      }),
+      prisma.inventoryTransaction.findMany({
+        where: query.branchId ? { branchInventory: { branchId: query.branchId } } : undefined,
+        include: {
+          actor: true,
+          branchInventory: {
+            include: {
+              branch: true,
+              ingredient: true
+            }
+          }
+        },
+        orderBy: { createdAt: "desc" },
+        take: 18
+      })
+    ]);
+
+    const totalStockValue = summaryBase.reduce(
+      (sum, item) => sum + parseDecimal(item.quantityOnHand) * parseDecimal(item.ingredient.costPerUnit),
+      0
+    );
+    const totalUnits = summaryBase.reduce((sum, item) => sum + parseDecimal(item.quantityOnHand), 0);
+
+    return res.json({
+      branches: branches.map((branch) => ({
+        ...branch,
+        deliveryFee: parseDecimal(branch.deliveryFee)
+      })),
+      summary: {
+        totalItems: summaryBase.length,
+        lowStockItems: summaryBase.filter((item) => item.lowStockAlert).length,
+        totalStockValue: Number(totalStockValue.toFixed(2)),
+        totalUnits: Number(totalUnits.toFixed(2))
+      },
+      items: items.map((item) => ({
+        id: item.id,
+        branchId: item.branchId,
+        branchName: item.branch.name,
+        ingredientId: item.ingredientId,
+        name: item.ingredient.name,
+        sku: item.ingredient.sku,
+        unit: item.ingredient.unit,
+        reorderLevel: parseDecimal(item.ingredient.reorderLevel),
+        costPerUnit: parseDecimal(item.ingredient.costPerUnit),
+        quantityOnHand: parseDecimal(item.quantityOnHand),
+        stockValue: Number((parseDecimal(item.quantityOnHand) * parseDecimal(item.ingredient.costPerUnit)).toFixed(2)),
+        lowStockAlert: item.lowStockAlert,
+        updatedAt: item.ingredient.updatedAt.toISOString()
+      })),
+      recentTransactions: recentTransactions.map((entry) => ({
+        id: entry.id,
+        branchId: entry.branchInventory.branchId,
+        branchName: entry.branchInventory.branch.name,
+        ingredientId: entry.branchInventory.ingredientId,
+        ingredientName: entry.branchInventory.ingredient.name,
+        type: entry.type,
+        quantity: parseDecimal(entry.quantity),
+        balanceAfter: parseDecimal(entry.balanceAfter),
+        note: entry.note,
+        referenceType: entry.referenceType,
+        referenceId: entry.referenceId,
+        actorName: entry.actor?.name ?? null,
+        createdAt: entry.createdAt.toISOString()
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/inventory/items", async (req, res, next) => {
+  try {
+    const payload = inventoryItemSchema.parse(req.body);
+    const ingredient = await prisma.$transaction(async (transaction) => {
+      const normalizedSku = normalizeSku(payload.sku ?? buildIngredientSku(payload.name));
+      const trimmedName = payload.name.trim();
+      const existingIngredient = await transaction.ingredient.findFirst({
+        where: {
+          OR: [{ sku: normalizedSku }, { name: { equals: trimmedName, mode: "insensitive" } }]
+        }
+      });
+
+      const createdIngredient = existingIngredient
+        ? await transaction.ingredient.update({
+            where: { id: existingIngredient.id },
+            data: {
+              name: trimmedName,
+              sku: existingIngredient.sku,
+              unit: payload.unit.trim(),
+              reorderLevel: payload.reorderLevel,
+              costPerUnit: payload.costPerUnit
+            }
+          })
+        : await transaction.ingredient.create({
+            data: {
+              name: trimmedName,
+              sku: normalizedSku,
+              unit: payload.unit.trim(),
+              reorderLevel: payload.reorderLevel,
+              costPerUnit: payload.costPerUnit
+            }
+          });
+
+      const existingInventory = await transaction.branchInventory.findUnique({
+        where: {
+          branchId_ingredientId: {
+            branchId: payload.branchId,
+            ingredientId: createdIngredient.id
+          }
+        }
+      });
+
+      const inventory =
+        existingInventory ??
+        (await transaction.branchInventory.create({
+          data: {
+            branchId: payload.branchId,
+            ingredientId: createdIngredient.id,
+            quantityOnHand: payload.openingStock,
+            lowStockAlert: payload.openingStock <= payload.reorderLevel
+          }
+        }));
+
+      if (existingInventory) {
+        await transaction.branchInventory.update({
+          where: { id: existingInventory.id },
+          data: {
+            lowStockAlert: parseDecimal(existingInventory.quantityOnHand) <= payload.reorderLevel
+          }
+        });
+      }
+
+      if (!existingInventory && payload.openingStock > 0) {
+        await transaction.inventoryTransaction.create({
+          data: {
+            branchInventoryId: inventory.id,
+            actorId: req.user!.id,
+            type: InventoryTransactionType.PURCHASE,
+            quantity: payload.openingStock,
+            balanceAfter: payload.openingStock,
+            note: "Opening stock",
+            referenceType: "OPENING"
+          }
+        });
+      }
+
+      return createdIngredient;
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.item_create",
+      entityType: "ingredient",
+      entityId: ingredient.id,
+      payload
+    });
+
+    return res.status(201).json({ ingredient });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/inventory/items/:id", async (req, res, next) => {
+  try {
+    const payload = inventoryItemUpdateSchema.parse(req.body);
+    const ingredient = await prisma.ingredient.update({
+      where: { id: req.params.id },
+      data: {
+        ...(payload.name ? { name: payload.name.trim() } : {}),
+        ...(payload.sku ? { sku: normalizeSku(payload.sku) } : {}),
+        ...(payload.unit ? { unit: payload.unit.trim() } : {}),
+        ...(typeof payload.reorderLevel === "number" ? { reorderLevel: payload.reorderLevel } : {}),
+        ...(typeof payload.costPerUnit === "number" ? { costPerUnit: payload.costPerUnit } : {})
+      }
+    });
+
+    if (typeof payload.reorderLevel === "number") {
+      const reorderLevel = payload.reorderLevel;
+      const branchInventories = await prisma.branchInventory.findMany({
+        where: { ingredientId: ingredient.id },
+        include: { ingredient: true }
+      });
+
+      await Promise.all(
+        branchInventories.map((entry) =>
+          prisma.branchInventory.update({
+            where: { id: entry.id },
+            data: {
+              lowStockAlert: parseDecimal(entry.quantityOnHand) <= reorderLevel
+            }
+          })
+        )
+      );
+    }
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.item_update",
+      entityType: "ingredient",
+      entityId: ingredient.id,
+      payload
+    });
+
+    return res.json({ ingredient });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/inventory/transactions", async (req, res, next) => {
+  try {
+    const payload = inventoryMovementSchema.parse(req.body);
+    const inventory = await prisma.branchInventory.findUnique({
+      where: {
+        branchId_ingredientId: {
+          branchId: payload.branchId,
+          ingredientId: payload.ingredientId
+        }
+      },
+      include: {
+        branch: true,
+        ingredient: true
+      }
+    });
+
+    if (!inventory) {
+      return res.status(404).json({ message: "Inventory item not found for the selected branch." });
+    }
+
+    let quantityDelta = 0;
+    let type: InventoryTransactionType = InventoryTransactionType.ADJUSTMENT;
+    let note = payload.note?.trim() || undefined;
+
+    if (payload.action === "CLOSING") {
+      quantityDelta = Number(((payload.countedQuantity ?? 0) - parseDecimal(inventory.quantityOnHand)).toFixed(3));
+      type = InventoryTransactionType.ADJUSTMENT;
+      note = note ? `Daily closing: ${note}` : "Daily closing count";
+    } else if (payload.action === "PURCHASE") {
+      quantityDelta = Math.abs(payload.quantity ?? 0);
+      type = InventoryTransactionType.PURCHASE;
+    } else if (payload.action === "WASTAGE") {
+      quantityDelta = -Math.abs(payload.quantity ?? 0);
+      type = InventoryTransactionType.WASTAGE;
+    } else if (payload.action === "RETURN") {
+      quantityDelta = Math.abs(payload.quantity ?? 0);
+      type = InventoryTransactionType.RETURN;
+    } else {
+      quantityDelta = Number((payload.quantity ?? 0).toFixed(3));
+      type = InventoryTransactionType.ADJUSTMENT;
+    }
+
+    const updatedInventory = await prisma.$transaction(async (transaction) =>
+      recordInventoryChange({
+        transaction,
+        branchId: payload.branchId,
+        ingredientId: payload.ingredientId,
+        quantityDelta,
+        type,
+        actorId: req.user!.id,
+        note,
+        referenceType: payload.action === "CLOSING" ? "DAILY_CLOSING" : "MANUAL"
+      })
+    );
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.transaction_create",
+      entityType: "branch_inventory",
+      entityId: updatedInventory.id,
+      payload: {
+        ...payload,
+        quantityDelta,
+        transactionType: type
+      }
+    });
+
+    return res.status(201).json({
+      inventory: {
+        id: updatedInventory.id,
+        branchId: updatedInventory.branchId,
+        ingredientId: updatedInventory.ingredientId,
+        name: updatedInventory.ingredient.name,
+        sku: updatedInventory.ingredient.sku,
+        unit: updatedInventory.ingredient.unit,
+        reorderLevel: parseDecimal(updatedInventory.ingredient.reorderLevel),
+        costPerUnit: parseDecimal(updatedInventory.ingredient.costPerUnit),
+        quantityOnHand: parseDecimal(updatedInventory.quantityOnHand),
+        lowStockAlert: updatedInventory.lowStockAlert
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/orders", async (req, res, next) => {
   try {
     const query = z
@@ -674,9 +1110,50 @@ router.get("/orders", async (req, res, next) => {
 router.patch("/orders/:id/status", async (req, res, next) => {
   try {
     const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);
-    const order = await prisma.order.update({
-      where: { id: req.params.id },
-      data: { status: payload.status }
+    const order = await prisma.$transaction(async (transaction) => {
+      const currentOrder = await transaction.order.findUnique({
+        where: { id: req.params.id },
+        include: {
+          items: {
+            include: {
+              addOns: true
+            }
+          }
+        }
+      });
+
+      if (!currentOrder) {
+        throw new Error("Order not found.");
+      }
+
+      if (currentOrder.status !== payload.status) {
+        if (currentOrder.status !== OrderStatus.CANCELLED && payload.status === OrderStatus.CANCELLED) {
+          await applyOrderInventory({
+            transaction,
+            branchId: currentOrder.branchId,
+            orderId: currentOrder.id,
+            actorId: req.user!.id,
+            items: currentOrder.items,
+            mode: "return"
+          });
+        }
+
+        if (currentOrder.status === OrderStatus.CANCELLED && payload.status !== OrderStatus.CANCELLED) {
+          await applyOrderInventory({
+            transaction,
+            branchId: currentOrder.branchId,
+            orderId: currentOrder.id,
+            actorId: req.user!.id,
+            items: currentOrder.items,
+            mode: "consume"
+          });
+        }
+      }
+
+      return transaction.order.update({
+        where: { id: req.params.id },
+        data: { status: payload.status }
+      });
     });
 
     await prisma.notification.create({
@@ -723,6 +1200,279 @@ router.get("/customers", async (_req, res) => {
       totalOrders: customer.orders.length
     }))
   });
+});
+
+const expenseQuerySchema = dashboardQueryBaseSchema
+  .extend({
+    branchId: z.string().cuid().optional(),
+    category: z.string().trim().optional(),
+    search: z.string().trim().optional()
+  })
+  .superRefine((value, context) => {
+    if (value.preset === "custom" && (!value.start || !value.end)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom range requires start and end dates.",
+        path: ["start"]
+      });
+    }
+  });
+
+const expenseSchema = z.object({
+  branchId: z.string().cuid(),
+  title: z.string().min(2).max(120),
+  category: z.string().min(2).max(60),
+  amount: z.number().positive(),
+  expenseDate: z.string().datetime(),
+  vendor: z.string().max(100).optional().or(z.literal("")),
+  billReference: z.string().max(100).optional().or(z.literal("")),
+  notes: z.string().max(500).optional().or(z.literal(""))
+});
+
+function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: ReturnType<typeof buildDashboardRange>): Prisma.ExpenseWhereInput {
+  return {
+    expenseDate: {
+      gte: range.start,
+      lte: range.end
+    },
+    ...(query.branchId ? { branchId: query.branchId } : {}),
+    ...(query.category ? { category: { equals: query.category, mode: "insensitive" as const } } : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { title: { contains: query.search, mode: "insensitive" as const } },
+            { vendor: { contains: query.search, mode: "insensitive" as const } },
+            { billReference: { contains: query.search, mode: "insensitive" as const } },
+            { notes: { contains: query.search, mode: "insensitive" as const } }
+          ]
+        }
+      : {})
+  };
+}
+
+router.get("/expenses", async (req, res, next) => {
+  try {
+    const query = expenseQuerySchema.parse(req.query);
+    const range = buildDashboardRange(query);
+    const where = buildExpenseWhere(query, range);
+
+    const [branches, expenses] = await Promise.all([
+      prisma.branch.findMany({
+        where: { isActive: true },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          city: true,
+          addressLine1: true,
+          phone: true,
+          deliveryFee: true
+        },
+        orderBy: { name: "asc" }
+      }),
+      prisma.expense.findMany({
+        where,
+        include: {
+          branch: true,
+          createdBy: true
+        },
+        orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }]
+      })
+    ]);
+
+    const totalAmount = expenses.reduce((sum, item) => sum + parseDecimal(item.amount), 0);
+    const categoryTotals = new Map<string, { label: string; amount: number; count: number }>();
+
+    for (const expense of expenses) {
+      const categoryKey = expense.category;
+      const existing = categoryTotals.get(categoryKey) ?? { label: categoryKey, amount: 0, count: 0 };
+      existing.amount += parseDecimal(expense.amount);
+      existing.count += 1;
+      categoryTotals.set(categoryKey, existing);
+    }
+
+    const series = buildSalesSeries(
+      expenses.map((expense) => ({
+        placedAt: expense.expenseDate,
+        totalAmount: expense.amount
+      })),
+      range.start,
+      range.end
+    );
+
+    return res.json({
+      range: {
+        preset: range.preset,
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        label: range.label
+      },
+      branches: branches.map((branch) => ({
+        ...branch,
+        deliveryFee: parseDecimal(branch.deliveryFee)
+      })),
+      summary: {
+        totalAmount: Number(totalAmount.toFixed(2)),
+        totalCount: expenses.length,
+        averageAmount: expenses.length ? Number((totalAmount / expenses.length).toFixed(2)) : 0
+      },
+      series,
+      categories: Array.from(categoryTotals.values())
+        .sort((left, right) => right.amount - left.amount)
+        .map((entry) => ({
+          label: entry.label,
+          amount: Number(entry.amount.toFixed(2)),
+          count: entry.count
+        })),
+      expenses: expenses.map((expense) => ({
+        id: expense.id,
+        branchId: expense.branchId,
+        branchName: expense.branch.name,
+        title: expense.title,
+        category: expense.category,
+        amount: parseDecimal(expense.amount),
+        expenseDate: expense.expenseDate.toISOString(),
+        vendor: expense.vendor,
+        billReference: expense.billReference,
+        notes: expense.notes,
+        createdByName: expense.createdBy?.name ?? null,
+        createdAt: expense.createdAt.toISOString()
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/expenses/export", async (req, res, next) => {
+  try {
+    const query = expenseQuerySchema.parse(req.query);
+    const range = buildDashboardRange(query);
+    const expenses = await prisma.expense.findMany({
+      where: buildExpenseWhere(query, range),
+      include: {
+        branch: true,
+        createdBy: true
+      },
+      orderBy: [{ expenseDate: "asc" }, { createdAt: "asc" }]
+    });
+
+    const totalAmount = expenses.reduce((sum, expense) => sum + parseDecimal(expense.amount), 0);
+    const summaryRows = [
+      ["Period", range.label],
+      ["Start", range.start.toISOString()],
+      ["End", range.end.toISOString()],
+      ["Branch", query.branchId ? expenses[0]?.branch.name ?? "Selected branch" : "All branches"],
+      ["Category filter", query.category ?? "All categories"],
+      ["Search filter", query.search ?? "None"],
+      ["Entries", expenses.length],
+      ["Total amount", Number(totalAmount.toFixed(2))]
+    ];
+
+    const detailRows = expenses.map((expense) => ({
+      Date: new Intl.DateTimeFormat("en-PK", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(expense.expenseDate),
+      Branch: expense.branch.name,
+      Title: expense.title,
+      Category: expense.category,
+      Amount: parseDecimal(expense.amount),
+      Vendor: expense.vendor ?? "",
+      BillReference: expense.billReference ?? "",
+      Notes: expense.notes ?? "",
+      CreatedBy: expense.createdBy?.name ?? "",
+      LoggedAt: expense.createdAt.toISOString()
+    }));
+
+    const workbook = XLSX.utils.book_new();
+    const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows);
+    const detailSheet = XLSX.utils.json_to_sheet(detailRows);
+    XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+    XLSX.utils.book_append_sheet(workbook, detailSheet, "Expenses");
+
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+    const fileMonth = query.monthKey ?? range.start.toISOString().slice(0, 7);
+    const safeBranch = query.branchId ? (expenses[0]?.branch.slug ?? "branch") : "all-branches";
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=\"pocket-expenses-${fileMonth}-${safeBranch}.xlsx\"`);
+    return res.send(buffer);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/expenses", async (req, res, next) => {
+  try {
+    const payload = expenseSchema.parse(req.body);
+    const expense = await prisma.expense.create({
+      data: {
+        branchId: payload.branchId,
+        createdById: req.user!.id,
+        title: payload.title.trim(),
+        category: payload.category.trim(),
+        amount: payload.amount,
+        expenseDate: new Date(payload.expenseDate),
+        vendor: payload.vendor?.trim() || undefined,
+        billReference: payload.billReference?.trim() || undefined,
+        notes: payload.notes?.trim() || undefined
+      },
+      include: {
+        branch: true,
+        createdBy: true
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "expense.create",
+      entityType: "expense",
+      entityId: expense.id,
+      payload
+    });
+
+    return res.status(201).json({ expense });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/expenses/:id", async (req, res, next) => {
+  try {
+    const payload = expenseSchema.partial().parse(req.body);
+    const expense = await prisma.expense.update({
+      where: { id: req.params.id },
+      data: {
+        ...(payload.branchId ? { branchId: payload.branchId } : {}),
+        ...(payload.title ? { title: payload.title.trim() } : {}),
+        ...(payload.category ? { category: payload.category.trim() } : {}),
+        ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
+        ...(payload.expenseDate ? { expenseDate: new Date(payload.expenseDate) } : {}),
+        ...(payload.vendor !== undefined ? { vendor: payload.vendor?.trim() || null } : {}),
+        ...(payload.billReference !== undefined ? { billReference: payload.billReference?.trim() || null } : {}),
+        ...(payload.notes !== undefined ? { notes: payload.notes?.trim() || null } : {}),
+        createdById: req.user!.id
+      },
+      include: {
+        branch: true,
+        createdBy: true
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "expense.update",
+      entityType: "expense",
+      entityId: expense.id,
+      payload
+    });
+
+    return res.json({ expense });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 const couponSchema = z.object({

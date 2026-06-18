@@ -20,6 +20,7 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -31,4 +32,3 @@
     "@types/morgan": "^1.9.9"
   }
 }
-

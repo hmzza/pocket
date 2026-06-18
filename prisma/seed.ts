@@ -1,5 +1,6 @@
 import { PrismaClient, DiscountType, PaymentMethod, PaymentStatus, RoleCode } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { INVENTORY_ITEMS, PRODUCT_RECIPE_BY_SLUG } from "../apps/api/src/lib/inventory-config.js";
 
 const prisma = new PrismaClient();
 
@@ -9,7 +10,7 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "5");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "6");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
@@ -892,47 +893,100 @@ async function main() {
     create: { id: "default-supplier", name: "Capital Fresh Foods", phone: "+92-51-1111111" }
   });
 
-  const ingredients = await Promise.all([
-    prisma.ingredient.upsert({
-      where: { sku: "ING-CHK-001" },
-      update: { name: "Chicken strips", unit: "kg", reorderLevel: 10, costPerUnit: 890, supplierId: supplier.id },
-      create: { sku: "ING-CHK-001", name: "Chicken strips", unit: "kg", reorderLevel: 10, costPerUnit: 890, supplierId: supplier.id }
-    }),
-    prisma.ingredient.upsert({
-      where: { sku: "ING-BEF-001" },
-      update: { name: "Beef slices", unit: "kg", reorderLevel: 8, costPerUnit: 1150, supplierId: supplier.id },
-      create: { sku: "ING-BEF-001", name: "Beef slices", unit: "kg", reorderLevel: 8, costPerUnit: 1150, supplierId: supplier.id }
-    }),
-    prisma.ingredient.upsert({
-      where: { sku: "ING-SAU-001" },
-      update: { name: "Garlic sauce", unit: "ltr", reorderLevel: 6, costPerUnit: 420, supplierId: supplier.id },
-      create: { sku: "ING-SAU-001", name: "Garlic sauce", unit: "ltr", reorderLevel: 6, costPerUnit: 420, supplierId: supplier.id }
-    }),
-    prisma.ingredient.upsert({
-      where: { sku: "ING-FRY-001" },
-      update: { name: "Fries", unit: "kg", reorderLevel: 12, costPerUnit: 280, supplierId: supplier.id },
-      create: { sku: "ING-FRY-001", name: "Fries", unit: "kg", reorderLevel: 12, costPerUnit: 280, supplierId: supplier.id }
-    })
-  ]);
+  const ingredients = await Promise.all(
+    INVENTORY_ITEMS.map((item) =>
+      prisma.ingredient.upsert({
+        where: { sku: item.sku },
+        update: {
+          name: item.name,
+          unit: item.unit,
+          reorderLevel: item.reorderLevel,
+          costPerUnit: item.costPerUnit,
+          supplierId: supplier.id
+        },
+        create: {
+          sku: item.sku,
+          name: item.name,
+          unit: item.unit,
+          reorderLevel: item.reorderLevel,
+          costPerUnit: item.costPerUnit,
+          supplierId: supplier.id
+        }
+      })
+    )
+  );
 
-  for (const ingredient of ingredients) {
+  const ingredientBySku = new Map(ingredients.map((ingredient) => [ingredient.sku, ingredient]));
+
+  for (const item of INVENTORY_ITEMS) {
+    const ingredient = ingredientBySku.get(item.sku);
+    if (!ingredient) continue;
+
     const inventory = await prisma.branchInventory.upsert({
       where: { branchId_ingredientId: { branchId: branch.id, ingredientId: ingredient.id } },
-      update: { quantityOnHand: ingredient.sku === "ING-BEF-001" ? 6 : 14, lowStockAlert: ingredient.sku === "ING-BEF-001" },
+      update: {
+        quantityOnHand: item.openingStock,
+        lowStockAlert: item.openingStock <= item.reorderLevel
+      },
       create: {
         branchId: branch.id,
         ingredientId: ingredient.id,
-        quantityOnHand: ingredient.sku === "ING-BEF-001" ? 6 : 14,
-        lowStockAlert: ingredient.sku === "ING-BEF-001"
+        quantityOnHand: item.openingStock,
+        lowStockAlert: item.openingStock <= item.reorderLevel
+      }
+    });
+
+    await prisma.inventoryTransaction.deleteMany({
+      where: {
+        branchInventoryId: inventory.id,
+        referenceType: "SEED"
       }
     });
 
     await prisma.inventoryTransaction.create({
       data: {
         branchInventoryId: inventory.id,
+        actorId: admin.id,
         type: "PURCHASE",
-        quantity: inventory.quantityOnHand,
-        note: "Opening stock seed"
+        quantity: item.openingStock,
+        balanceAfter: item.openingStock,
+        note: "Opening stock seed",
+        referenceType: "SEED"
+      }
+    });
+  }
+
+  for (const product of products) {
+    const recipe = PRODUCT_RECIPE_BY_SLUG[product.slug] ?? [];
+    const recipeIngredientIds = new Set<string>();
+
+    for (const component of recipe) {
+      const ingredient = ingredientBySku.get(component.ingredientSku);
+      if (!ingredient) continue;
+
+      recipeIngredientIds.add(ingredient.id);
+      await prisma.productIngredient.upsert({
+        where: {
+          productId_ingredientId: {
+            productId: product.id,
+            ingredientId: ingredient.id
+          }
+        },
+        update: {
+          quantityNeeded: component.quantity
+        },
+        create: {
+          productId: product.id,
+          ingredientId: ingredient.id,
+          quantityNeeded: component.quantity
+        }
+      });
+    }
+
+    await prisma.productIngredient.deleteMany({
+      where: {
+        productId: product.id,
+        ...(recipeIngredientIds.size ? { ingredientId: { notIn: Array.from(recipeIngredientIds) } } : {})
       }
     });
   }
@@ -1071,6 +1125,61 @@ async function main() {
   }
 
   await Promise.all([
+    prisma.expense.upsert({
+      where: { id: "expense-opening-stock" },
+      update: {
+        branchId: branch.id,
+        createdById: admin.id,
+        title: "Opening stock purchase",
+        category: "Inventory",
+        amount: 18500,
+        expenseDate: new Date("2026-06-15T10:00:00Z"),
+        vendor: supplier.name,
+        billReference: "INV-1001",
+        notes: "Initial ingredient and packaging buy-in."
+      },
+      create: {
+        id: "expense-opening-stock",
+        branchId: branch.id,
+        createdById: admin.id,
+        title: "Opening stock purchase",
+        category: "Inventory",
+        amount: 18500,
+        expenseDate: new Date("2026-06-15T10:00:00Z"),
+        vendor: supplier.name,
+        billReference: "INV-1001",
+        notes: "Initial ingredient and packaging buy-in."
+      }
+    }),
+    prisma.expense.upsert({
+      where: { id: "expense-utility-bill" },
+      update: {
+        branchId: branch.id,
+        createdById: admin.id,
+        title: "Electricity bill",
+        category: "Utilities",
+        amount: 6200,
+        expenseDate: new Date("2026-06-17T18:00:00Z"),
+        vendor: "IESCO",
+        billReference: "UTIL-204",
+        notes: "June billing cycle."
+      },
+      create: {
+        id: "expense-utility-bill",
+        branchId: branch.id,
+        createdById: admin.id,
+        title: "Electricity bill",
+        category: "Utilities",
+        amount: 6200,
+        expenseDate: new Date("2026-06-17T18:00:00Z"),
+        vendor: "IESCO",
+        billReference: "UTIL-204",
+        notes: "June billing cycle."
+      }
+    })
+  ]);
+
+  await Promise.all([
     prisma.notification.create({
       data: {
         type: "ORDER",
@@ -1084,9 +1193,9 @@ async function main() {
       data: {
         type: "STOCK",
         title: "Low stock warning",
-        message: "Beef slices are below reorder level at G-11 Markaz.",
+        message: "Chicken stock needs review at G-11 Markaz.",
         userId: admin.id,
-        metadata: { ingredient: "Beef slices", branch: branch.name }
+        metadata: { ingredient: "Chicken", branch: branch.name }
       }
     })
   ]);

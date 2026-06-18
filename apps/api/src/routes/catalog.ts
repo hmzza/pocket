@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../lib/prisma.js";
 import { generateOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { applyOrderInventory } from "../lib/inventory.js";
 
 const router = Router();
 const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
@@ -484,6 +485,15 @@ router.post("/checkout", async (req, res, next) => {
           address: true,
           customer: true
         }
+      });
+
+      await applyOrderInventory({
+        transaction,
+        branchId: branch.id,
+        orderId: createdOrder.id,
+        actorId: customerId,
+        items: createdOrder.items,
+        mode: "consume"
       });
 
       await transaction.notification.create({

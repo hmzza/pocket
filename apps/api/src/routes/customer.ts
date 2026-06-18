@@ -5,6 +5,7 @@ import { authenticate } from "../middleware/auth.js";
 import { prisma } from "../lib/prisma.js";
 import { generateOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { applyOrderInventory } from "../lib/inventory.js";
 
 const router = Router();
 
@@ -352,6 +353,15 @@ router.post("/checkout", async (req, res, next) => {
             }
           }
         }
+      });
+
+      await applyOrderInventory({
+        transaction,
+        branchId: branch.id,
+        orderId: createdOrder.id,
+        actorId: req.user!.id,
+        items: createdOrder.items,
+        mode: "consume"
       });
 
       await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });

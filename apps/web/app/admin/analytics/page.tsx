@@ -113,7 +113,7 @@ export default function AdminAnalyticsPage() {
               />
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
               <SalesChart
                 sales={dashboard.series}
                 title="Revenue cadence"
@@ -164,7 +164,7 @@ export default function AdminAnalyticsPage() {
               />
             </div>
 
-            <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <AnalyticsTable
                 title="Payment Efficiency"
                 rows={dashboard.breakdowns.payments}

@@ -157,6 +157,87 @@ export type DashboardData = {
   };
 };
 
+export type AdminInventorySummary = {
+  totalItems: number;
+  lowStockItems: number;
+  totalStockValue: number;
+  totalUnits: number;
+};
+
+export type AdminInventoryItem = {
+  id: string;
+  branchId: string;
+  branchName: string;
+  ingredientId: string;
+  name: string;
+  sku: string;
+  unit: string;
+  reorderLevel: number;
+  costPerUnit: number;
+  quantityOnHand: number;
+  stockValue: number;
+  lowStockAlert: boolean;
+  updatedAt: string;
+};
+
+export type AdminInventoryTransaction = {
+  id: string;
+  branchId: string;
+  branchName: string;
+  ingredientId: string;
+  ingredientName: string;
+  type: string;
+  quantity: number;
+  balanceAfter: number;
+  note?: string | null;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  actorName?: string | null;
+  createdAt: string;
+};
+
+export type AdminInventoryData = {
+  branches: Branch[];
+  summary: AdminInventorySummary;
+  items: AdminInventoryItem[];
+  recentTransactions: AdminInventoryTransaction[];
+};
+
+export type AdminExpense = {
+  id: string;
+  branchId: string;
+  branchName: string;
+  title: string;
+  category: string;
+  amount: number;
+  expenseDate: string;
+  vendor?: string | null;
+  billReference?: string | null;
+  notes?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+};
+
+export type AdminExpenseSummary = {
+  totalAmount: number;
+  totalCount: number;
+  averageAmount: number;
+};
+
+export type AdminExpenseData = {
+  range: {
+    preset: AdminRangePreset;
+    start: string;
+    end: string;
+    label: string;
+  };
+  branches: Branch[];
+  summary: AdminExpenseSummary;
+  series: Array<{ label: string; revenue: number; orders: number }>;
+  categories: Array<{ label: string; amount: number; count: number }>;
+  expenses: AdminExpense[];
+};
+
 export type AdminCustomer = {
   id: string;
   name: string;

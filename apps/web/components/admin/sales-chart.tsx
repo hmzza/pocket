@@ -13,14 +13,15 @@ export function SalesChart({
   const peak = Math.max(...sales.map((entry) => entry.revenue), 1);
 
   return (
-    <Card className="p-5">
+    <Card className="min-w-0 p-5">
       <div className="mb-6">
         <p className="text-lg font-black text-pocket-navy">{title}</p>
         <p className="text-sm text-pocket-navy/60">{description}</p>
       </div>
-      <div className="flex items-end gap-2 overflow-x-auto pb-2">
-        {sales.map((entry) => (
-          <div key={entry.label} className="flex min-w-14 flex-1 flex-col items-center gap-2">
+      <div className="w-full min-w-0 overflow-x-auto pb-2">
+        <div className="flex min-w-max items-end gap-2">
+          {sales.map((entry) => (
+            <div key={entry.label} className="flex w-12 shrink-0 flex-col items-center gap-2">
             <div className="flex h-52 w-full items-end">
               <div
                 className="w-full rounded-md bg-pocket-orange"
@@ -34,9 +35,9 @@ export function SalesChart({
               <p className="text-sm font-bold text-pocket-navy">{formatCompactNumber(entry.revenue)}</p>
             </div>
           </div>
-        ))}
+          ))}
+        </div>
       </div>
     </Card>
   );
 }
-

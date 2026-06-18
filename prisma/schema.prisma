@@ -106,6 +106,8 @@ model User {
   notifications Notification[]
   auditLogs     AuditLog[]
   cart          ShoppingCart?
+  inventoryTransactions InventoryTransaction[] @relation("InventoryActor")
+  expenses      Expense[]     @relation("ExpenseActor")
 }
 
 model Branch {
@@ -128,6 +130,7 @@ model Branch {
   carts          ShoppingCart[]
   orders         Order[]
   inventories    BranchInventory[]
+  expenses       Expense[]
 }
 
 model BranchHours {
@@ -426,11 +429,16 @@ model BranchInventory {
 model InventoryTransaction {
   id               String                   @id @default(cuid())
   branchInventoryId String
+  actorId          String?
   type             InventoryTransactionType
   quantity         Decimal                  @db.Decimal(10, 2)
+  balanceAfter     Decimal                  @db.Decimal(10, 2)
+  referenceType    String?
+  referenceId      String?
   note             String?
   createdAt        DateTime                 @default(now())
   branchInventory  BranchInventory          @relation(fields: [branchInventoryId], references: [id], onDelete: Cascade)
+  actor            User?                    @relation("InventoryActor", fields: [actorId], references: [id], onDelete: SetNull)
 }
 
 model ProductIngredient {
@@ -441,6 +449,23 @@ model ProductIngredient {
   ingredient     Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@id([productId, ingredientId])
+}
+
+model Expense {
+  id            String   @id @default(cuid())
+  branchId      String
+  createdById   String?
+  title         String
+  category      String
+  amount        Decimal  @db.Decimal(10, 2)
+  expenseDate   DateTime
+  vendor        String?
+  billReference String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy     User?    @relation("ExpenseActor", fields: [createdById], references: [id], onDelete: SetNull)
 }
 
 model AuditLog {

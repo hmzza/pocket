@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { generateOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { applyOrderInventory } from "../lib/inventory.js";
 
 const router = Router();
 
@@ -325,58 +326,71 @@ router.post("/checkout", async (req, res, next) => {
     }
 
     const orderNumber = await generateOrderNumber();
-    const order = await prisma.order.create({
-      data: {
-        orderNumber,
-        branchId: payload.branchId,
-        customerName: payload.customerName?.trim() || null,
-        customerPhone: payload.customerPhone?.trim() || null,
-        channel: OrderChannel.POS,
-        serviceType: payload.serviceType,
-        status: "CONFIRMED",
-        paymentMethod: payload.paymentMethod as PaymentMethod,
-        paymentStatus: PaymentStatus.PAID,
-        cashierId: req.user!.id,
-        subtotal,
-        taxRate: payload.taxRate,
-        taxAmount,
-        deliveryFee: 0,
-        discountAmount: safeDiscountAmount,
-        manualDiscountType: payload.discountType === "NONE" ? null : (payload.discountType as DiscountType),
-        manualDiscountValue: payload.discountType === "NONE" ? null : payload.discountValue,
-        cashReceivedAmount: paidAmount,
-        changeDueAmount,
-        totalAmount,
-        deliveryInstructions: payload.note?.trim() || null,
-        items: {
-          create: normalizedItems.map((item) => ({
-            productId: item.productId,
-            productName: item.productName,
-            customDescription: item.customDescription,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
-            note: item.note,
-            addOns: item.addOns.length
-              ? {
-                  create: item.addOns.map((addOn) => ({
-                    optionId: addOn.optionId,
-                    optionName: addOn.optionName,
-                    priceDelta: addOn.priceDelta
-                  }))
-                }
-              : undefined
-          }))
-        }
-      },
-      include: {
-        customer: true,
-        branch: true,
-        items: {
-          include: {
-            addOns: true
+    const order = await prisma.$transaction(async (transaction) => {
+      const createdOrder = await transaction.order.create({
+        data: {
+          orderNumber,
+          branchId: payload.branchId,
+          customerName: payload.customerName?.trim() || null,
+          customerPhone: payload.customerPhone?.trim() || null,
+          channel: OrderChannel.POS,
+          serviceType: payload.serviceType,
+          status: "CONFIRMED",
+          paymentMethod: payload.paymentMethod as PaymentMethod,
+          paymentStatus: PaymentStatus.PAID,
+          cashierId: req.user!.id,
+          subtotal,
+          taxRate: payload.taxRate,
+          taxAmount,
+          deliveryFee: 0,
+          discountAmount: safeDiscountAmount,
+          manualDiscountType: payload.discountType === "NONE" ? null : (payload.discountType as DiscountType),
+          manualDiscountValue: payload.discountType === "NONE" ? null : payload.discountValue,
+          cashReceivedAmount: paidAmount,
+          changeDueAmount,
+          totalAmount,
+          deliveryInstructions: payload.note?.trim() || null,
+          items: {
+            create: normalizedItems.map((item) => ({
+              productId: item.productId,
+              productName: item.productName,
+              customDescription: item.customDescription,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              note: item.note,
+              addOns: item.addOns.length
+                ? {
+                    create: item.addOns.map((addOn) => ({
+                      optionId: addOn.optionId,
+                      optionName: addOn.optionName,
+                      priceDelta: addOn.priceDelta
+                    }))
+                  }
+                : undefined
+            }))
+          }
+        },
+        include: {
+          customer: true,
+          branch: true,
+          items: {
+            include: {
+              addOns: true
+            }
           }
         }
-      }
+      });
+
+      await applyOrderInventory({
+        transaction,
+        branchId: payload.branchId,
+        orderId: createdOrder.id,
+        actorId: req.user!.id,
+        items: createdOrder.items,
+        mode: "consume"
+      });
+
+      return createdOrder;
     });
 
     await writeAuditLog({

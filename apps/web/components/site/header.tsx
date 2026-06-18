@@ -21,13 +21,21 @@ export function Header() {
   return (
     <header className="sticky top-0 z-40 border-b border-pocket-navy/10 bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 md:px-6">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="grid h-11 w-11 place-items-center overflow-hidden rounded-md bg-white">
-            <Image src="/icon.png" alt="Pocket logo" width={44} height={44} className="h-full w-full object-contain" priority />
+        <Link href="/" className="flex min-w-0 items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-white p-1 shadow-sm md:h-14 md:w-14">
+            <Image
+              src="/icon.png"
+              alt="Pocket logo"
+              width={56}
+              height={56}
+              sizes="56px"
+              className="h-full w-full object-contain"
+              priority
+            />
           </div>
-          <div>
-            <p className="text-base font-black tracking-wide text-pocket-navy">POCKET</p>
-            <p className="text-xs uppercase tracking-[0.2em] text-pocket-orange">The Shawarma Spot</p>
+          <div className="min-w-0">
+            <p className="text-base font-black leading-none tracking-wide text-pocket-navy md:text-lg">POCKET</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-pocket-orange md:text-sm">The Shawarma Spot</p>
           </div>
         </Link>
 

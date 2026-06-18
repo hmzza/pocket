@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, Boxes, LayoutDashboard, LogOut, ShoppingCart, Users } from "lucide-react";
+import { BarChart3, Boxes, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -16,9 +16,11 @@ const links: Array<{
 }> = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/products", label: "Products", icon: Boxes },
+  { href: "/admin/inventory", label: "Inventory", icon: Package2 },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/customers", label: "Customers", icon: Users },
-  { href: "/admin/analytics", label: "Analytics", icon: BarChart3 }
+  { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/admin/expenses", label: "Expenses", icon: Receipt }
 ];
 
 export function AdminShell({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
@@ -108,7 +110,7 @@ export function AdminShell({ title, description, children }: { title: string; de
           </Button>
         </div>
       </aside>
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Admin</p>
           <h1 className="text-3xl font-black text-pocket-navy">{title}</h1>
