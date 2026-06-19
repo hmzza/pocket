@@ -24,6 +24,8 @@ type TicketLine = {
   addOns: Array<{ id: string; name: string; priceDelta: number }>;
 };
 
+type ProductSelection = { groupId: string; optionIds: string[] };
+
 const paymentOptions = [
   { value: "CASH", label: "Cash" },
   { value: "CARD", label: "Card" },
@@ -34,13 +36,50 @@ const paymentOptions = [
 const serviceTypes = ["TAKEAWAY", "DINE_IN"] as const;
 
 function buildDefaultSelections(groups: AddOnGroup[]) {
-  return groups.map((group) => ({
-    groupId: group.id,
-    optionIds: group.options.slice(0, group.minSelect).map((option) => option.id)
+  return normalizeSelections(
+    groups.map((group) => ({
+      groupId: group.id,
+      optionIds: group.options.slice(0, group.minSelect).map((option) => option.id)
+    }))
+  );
+}
+
+function normalizeSelections(selections: ProductSelection[]) {
+  const normalized = new Map<string, string[]>();
+
+  for (const selection of selections) {
+    const optionIds = [...new Set(selection.optionIds.filter(Boolean))];
+    if (!optionIds.length) {
+      continue;
+    }
+
+    normalized.set(selection.groupId, optionIds);
+  }
+
+  return Array.from(normalized.entries()).map(([groupId, optionIds]) => ({
+    groupId,
+    optionIds
   }));
 }
 
-function calculateLinePrice(product: PosCatalogProduct, selections: Array<{ groupId: string; optionIds: string[] }>) {
+function toggleSelectionOption(selections: ProductSelection[], group: AddOnGroup, optionId: string) {
+  const existing = selections.find((entry) => entry.groupId === group.id);
+  const currentIds = existing?.optionIds ?? [];
+  const optionExists = currentIds.includes(optionId);
+  const nextOptionIds = optionExists
+    ? currentIds.filter((id) => id !== optionId)
+    : [...currentIds, optionId].slice(-group.maxSelect);
+
+  return normalizeSelections([
+    ...selections.filter((entry) => entry.groupId !== group.id),
+    {
+      groupId: group.id,
+      optionIds: nextOptionIds
+    }
+  ]);
+}
+
+function calculateLinePrice(product: PosCatalogProduct, selections: ProductSelection[]) {
   const selected = selections.flatMap((selection) => {
     const group = product.addOnGroups.find((entry) => entry.id === selection.groupId);
     return (group?.options ?? []).filter((option) => selection.optionIds.includes(option.id));
@@ -78,7 +117,7 @@ export function PosTerminal() {
   const [checkoutNote, setCheckoutNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [productDialog, setProductDialog] = useState<PosCatalogProduct | null>(null);
-  const [productSelections, setProductSelections] = useState<Array<{ groupId: string; optionIds: string[] }>>([]);
+  const [productSelections, setProductSelections] = useState<ProductSelection[]>([]);
   const [productQuantity, setProductQuantity] = useState(1);
   const [productNote, setProductNote] = useState("");
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
@@ -203,15 +242,17 @@ export function PosTerminal() {
   function confirmConfiguredProduct() {
     if (!productDialog || orderCompleted) return;
 
+    const normalizedSelections = normalizeSelections(productSelections);
+
     for (const group of productDialog.addOnGroups) {
-      const selected = productSelections.find((entry) => entry.groupId === group.id)?.optionIds ?? [];
+      const selected = normalizedSelections.find((entry) => entry.groupId === group.id)?.optionIds ?? [];
       if (selected.length < group.minSelect || selected.length > group.maxSelect) {
         setError(`${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
         return;
       }
     }
 
-    const pricing = calculateLinePrice(productDialog, productSelections);
+    const pricing = calculateLinePrice(productDialog, normalizedSelections);
     setTicket((current) => [
       ...current,
       {
@@ -222,7 +263,7 @@ export function PosTerminal() {
         categoryName: productDialog.categoryName,
         quantity: productQuantity,
         unitPrice: pricing.unitPrice,
-        selections: productSelections,
+        selections: normalizedSelections,
         addOns: pricing.addOns,
       }
     ]);
@@ -293,7 +334,7 @@ export function PosTerminal() {
                 type: "product",
                 productId: item.productId,
                 quantity: item.quantity,
-                selections: item.selections
+                selections: normalizeSelections(item.selections)
               }
         )
       });
@@ -642,16 +683,7 @@ export function PosTerminal() {
                           key={option.id}
                           type="button"
                           onClick={() => {
-                            setProductSelections((current) =>
-                              current.map((entry) => {
-                                if (entry.groupId !== group.id) return entry;
-                                const exists = entry.optionIds.includes(option.id);
-                                const nextOptionIds = exists
-                                  ? entry.optionIds.filter((id) => id !== option.id)
-                                  : [...entry.optionIds, option.id].slice(-group.maxSelect);
-                                return { ...entry, optionIds: nextOptionIds };
-                              })
-                            );
+                            setProductSelections((current) => toggleSelectionOption(current, group, option.id));
                           }}
                           className={cn(
                             "rounded-2xl border px-4 py-3 text-left",

@@ -35,6 +35,11 @@ const paymentTaxDefaults: Record<PaymentMethod, number> = {
 
 const FBR_REFERENCE_NUMBER = "8816692-5";
 
+const selectionSchema = z.object({
+  groupId: z.string().cuid(),
+  optionIds: z.array(z.string().cuid()).default([])
+});
+
 const cartItemSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("product"),
@@ -42,11 +47,14 @@ const cartItemSchema = z.discriminatedUnion("type", [
     quantity: z.number().int().min(1).max(50),
     note: z.string().max(240).optional(),
     selections: z
-      .array(
-        z.object({
-          groupId: z.string().cuid(),
-          optionIds: z.array(z.string().cuid()).min(1)
-        })
+      .array(selectionSchema)
+      .transform((selections) =>
+        selections
+          .map((selection) => ({
+            groupId: selection.groupId,
+            optionIds: [...new Set(selection.optionIds)]
+          }))
+          .filter((selection) => selection.optionIds.length > 0)
       )
       .default([])
   }),
