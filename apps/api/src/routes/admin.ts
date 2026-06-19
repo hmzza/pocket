@@ -1107,6 +1107,103 @@ router.get("/orders", async (req, res, next) => {
   }
 });
 
+router.delete("/orders", async (req, res, next) => {
+  try {
+    const deletedCount = await prisma.$transaction(async (transaction) => {
+      const orders = await transaction.order.findMany({
+        include: {
+          items: {
+            include: {
+              addOns: true
+            }
+          }
+        },
+        orderBy: { placedAt: "asc" }
+      });
+
+      for (const order of orders) {
+        if (order.status !== OrderStatus.CANCELLED) {
+          await applyOrderInventory({
+            transaction,
+            branchId: order.branchId,
+            orderId: order.id,
+            actorId: req.user!.id,
+            items: order.items,
+            mode: "return"
+          });
+        }
+      }
+
+      const result = await transaction.order.deleteMany({});
+      return result.count;
+    }, INVENTORY_TRANSACTION_OPTIONS);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "order.bulk_delete",
+      entityType: "order",
+      entityId: "bulk",
+      payload: { deletedCount }
+    });
+
+    return res.json({ deletedCount });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/orders/:id", async (req, res, next) => {
+  try {
+    const order = await prisma.$transaction(async (transaction) => {
+      const currentOrder = await transaction.order.findUnique({
+        where: { id: req.params.id },
+        include: {
+          items: {
+            include: {
+              addOns: true
+            }
+          }
+        }
+      });
+
+      if (!currentOrder) {
+        throw new Error("Order not found.");
+      }
+
+      if (currentOrder.status !== OrderStatus.CANCELLED) {
+        await applyOrderInventory({
+          transaction,
+          branchId: currentOrder.branchId,
+          orderId: currentOrder.id,
+          actorId: req.user!.id,
+          items: currentOrder.items,
+          mode: "return"
+        });
+      }
+
+      await transaction.order.delete({
+        where: { id: currentOrder.id }
+      });
+
+      return currentOrder;
+    }, INVENTORY_TRANSACTION_OPTIONS);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "order.delete",
+      entityType: "order",
+      entityId: order.id,
+      payload: {
+        orderNumber: order.orderNumber
+      }
+    });
+
+    return res.json({ deleted: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.patch("/orders/:id/status", async (req, res, next) => {
   try {
     const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);

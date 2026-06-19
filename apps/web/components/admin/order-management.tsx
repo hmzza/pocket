@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, RefreshCcw } from "lucide-react";
+import { ChevronDown, RefreshCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { fetchAdminOrders, ORDER_STATUSES, updateAdminOrderStatus } from "@/lib/admin-client";
+import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders, ORDER_STATUSES, updateAdminOrderStatus } from "@/lib/admin-client";
 import type { AdminOrder } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -88,15 +88,15 @@ export function OrderManagement() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [expandedOrderId, setExpandedOrderId] = useState("");
   const [updatingOrderId, setUpdatingOrderId] = useState("");
+  const [deletingOrderId, setDeletingOrderId] = useState("");
+  const [clearingOrders, setClearingOrders] = useState(false);
 
   async function loadOrders() {
     try {
       setError("");
       const nextOrders = await fetchAdminOrders();
       setOrders(nextOrders);
-      if (!expandedOrderId && nextOrders[0]) {
-        setExpandedOrderId(nextOrders[0].id);
-      }
+      setExpandedOrderId((current) => (nextOrders.some((order) => order.id === current) ? current : nextOrders[0]?.id ?? ""));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load orders.");
     } finally {
@@ -131,6 +131,40 @@ export function OrderManagement() {
       setError(updateError instanceof Error ? updateError.message : "Failed to update order status.");
     } finally {
       setUpdatingOrderId("");
+    }
+  }
+
+  async function removeOrder(order: AdminOrder) {
+    const confirmed = window.confirm(`Delete ${order.orderNumber}? This removes the order and receipt from the system.`);
+    if (!confirmed) return;
+
+    setDeletingOrderId(order.id);
+    setError("");
+    try {
+      await deleteAdminOrder(order.id);
+      await loadOrders();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete order.");
+    } finally {
+      setDeletingOrderId("");
+    }
+  }
+
+  async function clearAllOrders() {
+    const confirmed = window.confirm(
+      "Delete ALL orders? This will clear the order history and restart numbering from the next new order."
+    );
+    if (!confirmed) return;
+
+    setClearingOrders(true);
+    setError("");
+    try {
+      await deleteAllAdminOrders();
+      await loadOrders();
+    } catch (clearError) {
+      setError(clearError instanceof Error ? clearError.message : "Failed to delete orders.");
+    } finally {
+      setClearingOrders(false);
     }
   }
 
@@ -179,6 +213,18 @@ export function OrderManagement() {
               <RefreshCcw className="h-4 w-4" />
               Refresh
             </Button>
+            {orders.length ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void clearAllOrders()}
+                disabled={clearingOrders}
+                className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-800"
+              >
+                <Trash2 className="h-4 w-4" />
+                {clearingOrders ? "Clearing..." : "Delete All Orders"}
+              </Button>
+            ) : null}
           </div>
         </div>
         <p className="mt-4 text-sm text-pocket-navy/60">Active orders stay visible until delivery is completed. Online orders include the customer address when present.</p>
@@ -242,10 +288,21 @@ export function OrderManagement() {
                   </div>
                   <span className="font-medium text-pocket-navy/70">{order.items.length}</span>
                   <span className="font-bold text-pocket-navy">{formatCurrency(order.totalAmount)}</span>
-                  <div className="flex justify-end">
+                  <div className="flex justify-end gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setExpandedOrderId(open ? "" : order.id)}>
                       <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
                       View
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void removeOrder(order)}
+                      disabled={deletingOrderId === order.id || clearingOrders}
+                      className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-800"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingOrderId === order.id ? "Deleting..." : "Delete"}
                     </Button>
                   </div>
                 </div>

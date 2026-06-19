@@ -184,6 +184,20 @@ export async function updateAdminOrderStatus(orderId: string, status: string) {
   return data.order;
 }
 
+export async function deleteAdminOrder(orderId: string) {
+  const data = await adminFetch<{ deleted: boolean }>(`/api/admin/orders/${orderId}`, {
+    method: "DELETE"
+  });
+  return data.deleted;
+}
+
+export async function deleteAllAdminOrders() {
+  const data = await adminFetch<{ deletedCount: number }>("/api/admin/orders", {
+    method: "DELETE"
+  });
+  return data.deletedCount;
+}
+
 export async function fetchAdminDashboard(params?: {
   preset?: AdminRangePreset;
   start?: string;

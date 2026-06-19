@@ -87,6 +87,7 @@ export function PosTerminal() {
   const [manualQuantity, setManualQuantity] = useState(1);
   const [manualUnitPrice, setManualUnitPrice] = useState("");
   const [manualNote, setManualNote] = useState("");
+  const [lastReceiptOrderId, setLastReceiptOrderId] = useState("");
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   async function loadCatalog(nextBranchId?: string) {
@@ -288,8 +289,7 @@ export function PosTerminal() {
         )
       });
 
-      const customerReceiptPath = `/pos/receipt/${response.order.id}?copy=customer`;
-      window.open(customerReceiptPath, "_blank", "noopener,noreferrer");
+      setLastReceiptOrderId(response.order.id);
       setTicket([]);
       setCustomerName("");
       setCustomerPhone("");
@@ -307,6 +307,46 @@ export function PosTerminal() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function printReceiptCopy(copy: "customer" | "store") {
+    if (!lastReceiptOrderId) {
+      return;
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=${copy}`;
+
+    const cleanup = () => {
+      iframe.removeEventListener("load", handleLoad);
+      iframe.removeEventListener("error", cleanup);
+      window.removeEventListener("afterprint", cleanup);
+      iframe.remove();
+    };
+
+    const handleLoad = () => {
+      const frameWindow = iframe.contentWindow;
+      if (!frameWindow) {
+        cleanup();
+        return;
+      }
+
+      frameWindow.focus();
+      frameWindow.print();
+      window.setTimeout(cleanup, 1000);
+    };
+
+    iframe.addEventListener("load", handleLoad);
+    iframe.addEventListener("error", cleanup);
+    window.addEventListener("afterprint", cleanup, { once: true });
+    document.body.appendChild(iframe);
   }
 
   if (!ready || loading) {
@@ -512,6 +552,25 @@ export function PosTerminal() {
               <Textarea value={checkoutNote} onChange={(event) => setCheckoutNote(event.target.value)} placeholder="Order note (optional)" className="min-h-14 text-sm" />
             </div>
 
+            {!ticket.length && lastReceiptOrderId ? (
+              <div className="mt-2.5 grid gap-2 md:grid-cols-2">
+                <Button
+                  className="h-9 rounded-2xl text-sm"
+                  variant="outline"
+                  onClick={() => printReceiptCopy("customer")}
+                >
+                  Print Customer Copy
+                </Button>
+                <Button
+                  className="h-9 rounded-2xl text-sm"
+                  variant="outline"
+                  onClick={() => printReceiptCopy("store")}
+                >
+                  Print Store Copy
+                </Button>
+              </div>
+            ) : null}
+
             <div className="mt-2.5 space-y-1 rounded-2xl bg-slate-950 px-3 py-2 text-[0.84rem] text-white">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
@@ -522,7 +581,7 @@ export function PosTerminal() {
 
             <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || Number(paidAmount || 0) < total} onClick={() => void submitOrder()}>
               <Receipt className="h-4 w-4" />
-              {submitting ? "Processing..." : "Finish and View Slip"}
+              {submitting ? "Processing..." : "Finish"}
             </Button>
           </Card>
         </div>
