@@ -342,30 +342,24 @@ export function PosTerminal() {
     iframe.style.height = "0";
     iframe.style.border = "0";
     iframe.setAttribute("aria-hidden", "true");
-    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=${copy}`;
+    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=${copy}&autoPrint=1`;
 
     const cleanup = () => {
-      iframe.removeEventListener("load", handleLoad);
-      iframe.removeEventListener("error", cleanup);
-      window.removeEventListener("afterprint", cleanup);
+      window.removeEventListener("message", handleMessage);
       iframe.remove();
     };
 
-    const handleLoad = () => {
-      const frameWindow = iframe.contentWindow;
-      if (!frameWindow) {
-        cleanup();
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
         return;
       }
 
-      frameWindow.focus();
-      frameWindow.print();
-      window.setTimeout(cleanup, 1000);
+      if (event.data?.type === "pos-receipt-printed" && event.data?.orderId === lastReceiptOrderId && event.data?.copy === copy) {
+        cleanup();
+      }
     };
 
-    iframe.addEventListener("load", handleLoad);
-    iframe.addEventListener("error", cleanup);
-    window.addEventListener("afterprint", cleanup, { once: true });
+    window.addEventListener("message", handleMessage);
     document.body.appendChild(iframe);
   }
 

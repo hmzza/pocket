@@ -1109,33 +1109,12 @@ router.get("/orders", async (req, res, next) => {
 
 router.delete("/orders", async (req, res, next) => {
   try {
-    const deletedCount = await prisma.$transaction(async (transaction) => {
-      const orders = await transaction.order.findMany({
-        include: {
-          items: {
-            include: {
-              addOns: true
-            }
-          }
-        },
-        orderBy: { placedAt: "asc" }
+    const deletedCount = await prisma.order.count();
+    await prisma.$transaction(async (transaction) => {
+      await transaction.order.deleteMany({});
+      await transaction.inventoryTransaction.deleteMany({
+        where: { referenceType: "ORDER" }
       });
-
-      for (const order of orders) {
-        if (order.status !== OrderStatus.CANCELLED) {
-          await applyOrderInventory({
-            transaction,
-            branchId: order.branchId,
-            orderId: order.id,
-            actorId: req.user!.id,
-            items: order.items,
-            mode: "return"
-          });
-        }
-      }
-
-      const result = await transaction.order.deleteMany({});
-      return result.count;
     }, INVENTORY_TRANSACTION_OPTIONS);
 
     await writeAuditLog({

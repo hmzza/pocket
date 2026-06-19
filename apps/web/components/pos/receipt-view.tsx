@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { fetchPosReceipt, getPosTokenKey } from "@/lib/pos-client";
@@ -159,6 +159,8 @@ export function ReceiptView({ orderId }: { orderId: string }) {
   const searchParams = useSearchParams();
   const [order, setOrder] = useState<PosReceiptOrder | null>(null);
   const [error, setError] = useState("");
+  const autoPrint = searchParams.get("autoPrint") === "1";
+  const printedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -202,6 +204,27 @@ export function ReceiptView({ orderId }: { orderId: string }) {
   const copyLabel = copy === "store" ? "Store Copy" : "Customer Copy";
   const alternateCopy = copy === "store" ? "customer" : "store";
   const alternateLabel = alternateCopy === "store" ? "Open Store Copy" : "Open Customer Copy";
+
+  useEffect(() => {
+    if (!autoPrint || !order || !receiptMeta || printedRef.current) {
+      return;
+    }
+
+    printedRef.current = true;
+    const timer = window.setTimeout(() => {
+      window.print();
+      window.parent.postMessage(
+        {
+          type: "pos-receipt-printed",
+          orderId,
+          copy
+        },
+        window.location.origin
+      );
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [autoPrint, copy, order, orderId, receiptMeta]);
 
   if (error) {
     return <div className="mx-auto max-w-sm px-4 py-10 text-sm text-red-600">{error}</div>;
