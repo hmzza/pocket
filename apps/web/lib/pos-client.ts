@@ -4,6 +4,7 @@ import type { AdminOrder, PosBranch, PosCatalogProduct, PosReceiptOrder } from "
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const POS_TOKEN_KEY = "pocket-pos-token";
+const POS_RECEIPT_CACHE_PREFIX = "pocket-pos-receipt:";
 
 function getToken() {
   return window.localStorage.getItem(POS_TOKEN_KEY);
@@ -44,6 +45,10 @@ async function posFetch<T>(path: string, init?: RequestInit) {
 
 export function getPosTokenKey() {
   return POS_TOKEN_KEY;
+}
+
+export function getPosReceiptCacheKey(orderId: string) {
+  return `${POS_RECEIPT_CACHE_PREFIX}${orderId}`;
 }
 
 export async function fetchPosSession() {

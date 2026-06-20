@@ -1551,6 +1551,40 @@ router.patch("/expenses/:id", async (req, res, next) => {
   }
 });
 
+router.delete("/expenses/:id", async (req, res, next) => {
+  try {
+    const expense = await prisma.expense.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!expense) {
+      return res.status(404).json({ message: "Expense not found." });
+    }
+
+    await prisma.expense.delete({
+      where: { id: expense.id }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "expense.delete",
+      entityType: "expense",
+      entityId: expense.id,
+      payload: {
+        branchId: expense.branchId,
+        title: expense.title,
+        category: expense.category,
+        amount: parseDecimal(expense.amount),
+        expenseDate: expense.expenseDate.toISOString()
+      }
+    });
+
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+});
+
 const couponSchema = z.object({
   code: z.string().min(3),
   title: z.string().min(3),

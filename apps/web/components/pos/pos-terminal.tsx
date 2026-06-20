@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosTokenKey } from "@/lib/pos-client";
+import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, getPosTokenKey } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -339,6 +339,7 @@ export function PosTerminal() {
         )
       });
 
+      window.sessionStorage.setItem(getPosReceiptCacheKey(response.order.id), JSON.stringify(response.order));
       setLastReceiptOrderId(response.order.id);
       setOrderCompleted(true);
     } catch (submitError) {
@@ -354,6 +355,9 @@ export function PosTerminal() {
   }
 
   function startNewOrder() {
+    if (lastReceiptOrderId) {
+      window.sessionStorage.removeItem(getPosReceiptCacheKey(lastReceiptOrderId));
+    }
     setTicket([]);
     setCustomerName("");
     setCustomerPhone("");
@@ -370,7 +374,7 @@ export function PosTerminal() {
     setError("");
   }
 
-  function printReceiptCopy(copy: "customer" | "store") {
+  function printReceipt() {
     if (!lastReceiptOrderId) {
       return;
     }
@@ -383,7 +387,7 @@ export function PosTerminal() {
     iframe.style.height = "0";
     iframe.style.border = "0";
     iframe.setAttribute("aria-hidden", "true");
-    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=${copy}&autoPrint=1`;
+    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=all&autoPrint=1`;
 
     const cleanup = () => {
       window.removeEventListener("message", handleMessage);
@@ -395,7 +399,7 @@ export function PosTerminal() {
         return;
       }
 
-      if (event.data?.type === "pos-receipt-printed" && event.data?.orderId === lastReceiptOrderId && event.data?.copy === copy) {
+      if (event.data?.type === "pos-receipt-printed" && event.data?.orderId === lastReceiptOrderId && event.data?.copy === "all") {
         cleanup();
       }
     };
@@ -521,7 +525,7 @@ export function PosTerminal() {
 
             {orderCompleted ? (
               <div className="mt-2 rounded-2xl border border-amber-300/40 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-                Order completed. Print a copy, then start a new order when ready.
+                Order completed. Print receipt, then start a new order when ready.
               </div>
             ) : null}
 
@@ -618,22 +622,9 @@ export function PosTerminal() {
             </div>
 
             {lastReceiptOrderId ? (
-              <div className="mt-2.5 grid gap-2 md:grid-cols-3">
-                <Button
-                  className="h-9 rounded-2xl text-sm"
-                  variant="outline"
-                  onClick={() => printReceiptCopy("customer")}
-                  type="button"
-                >
-                  Print Customer Copy
-                </Button>
-                <Button
-                  className="h-9 rounded-2xl text-sm"
-                  variant="outline"
-                  onClick={() => printReceiptCopy("store")}
-                  type="button"
-                >
-                  Print Store Copy
+              <div className="mt-2.5 grid gap-2 md:grid-cols-2">
+                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={printReceipt} type="button">
+                  Print Receipt
                 </Button>
                 <Button className="h-9 rounded-2xl text-sm" type="button" onClick={startNewOrder}>
                   Start New Order

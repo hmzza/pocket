@@ -483,6 +483,12 @@ export async function updateAdminExpense(expenseId: string, payload: Record<stri
   return data.expense;
 }
 
+export async function deleteAdminExpense(expenseId: string) {
+  await adminFetch(`/api/admin/expenses/${expenseId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function downloadAdminExpenseExport(params?: {
   preset?: AdminRangePreset;
   branchId?: string;

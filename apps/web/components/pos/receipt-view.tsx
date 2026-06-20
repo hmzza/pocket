@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { fetchPosReceipt, getPosTokenKey } from "@/lib/pos-client";
+import { fetchPosReceipt, getPosReceiptCacheKey, getPosTokenKey } from "@/lib/pos-client";
 import type { PosReceiptOrder } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -37,6 +36,8 @@ function plainNumber(value: number) {
 }
 
 type ReceiptCopy = "customer" | "store";
+
+type ReceiptMode = ReceiptCopy | "chef" | "all";
 
 function ReceiptSlip({
   order,
@@ -154,6 +155,69 @@ function ReceiptSlip({
   );
 }
 
+function ChefSlip({
+  order
+}: {
+  order: PosReceiptOrder;
+}) {
+  return (
+    <section className="break-inside-avoid rounded-lg border border-dashed border-black/30 bg-white px-3 py-4 shadow-sm print:break-inside-avoid print:rounded-none print:border-0 print:shadow-none">
+      <div className="text-center">
+        <img src="/icon.png" alt="Pocket logo" className="mx-auto h-14 w-14 print:h-16 print:w-16" />
+        <p className="mt-2 text-[28px] font-black tracking-[0.12em]">CHEF COPY</p>
+        <p className="mt-1 text-[13px] font-bold uppercase tracking-[0.14em]">Order to Kitchen</p>
+      </div>
+
+      <div className="my-3 border-t border-dashed border-black/30" />
+
+      <div className="space-y-2 text-[14px] print:text-[15px]">
+        <div className="flex items-start justify-between gap-3">
+          <span className="font-semibold text-black print:font-bold">Order ID:</span>
+          <span className="text-right font-semibold text-black print:font-bold">{order.id}</span>
+        </div>
+        <div className="flex items-start justify-between gap-3">
+          <span className="font-semibold text-black print:font-bold">Receipt No:</span>
+          <span className="text-right font-semibold text-black print:font-bold">{order.receiptNumber}</span>
+        </div>
+      </div>
+
+      <div className="my-3 border-t border-dashed border-black/30" />
+
+      <div className="space-y-3">
+        {order.items.map((item, index) => (
+          <div key={`chef-${item.id}`} className="text-[15px] leading-tight print:text-[16px]">
+            <div className="flex items-start justify-between gap-3">
+              <span className="font-bold">{index + 1}.</span>
+              <span className="ml-2 flex-1 text-right font-bold">{item.productName}</span>
+              <span className="min-w-[40px] text-right font-bold">x{item.quantity}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReceiptBundle({
+  order,
+  receiptMeta
+}: {
+  order: PosReceiptOrder;
+  receiptMeta: { date: string; time: string };
+}) {
+  return (
+    <div className="space-y-3 print:space-y-0">
+      <div className="print:break-after-page">
+        <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel="Customer Copy" />
+      </div>
+      <div className="print:break-after-page">
+        <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel="Store Copy" />
+      </div>
+      <ChefSlip order={order} />
+    </div>
+  );
+}
+
 export function ReceiptView({ orderId }: { orderId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -161,6 +225,7 @@ export function ReceiptView({ orderId }: { orderId: string }) {
   const [error, setError] = useState("");
   const autoPrint = searchParams.get("autoPrint") === "1";
   const printedRef = useRef(false);
+  const mode = (searchParams.get("copy") as ReceiptMode | null) ?? "customer";
 
   useEffect(() => {
     let cancelled = false;
@@ -172,10 +237,23 @@ export function ReceiptView({ orderId }: { orderId: string }) {
         return;
       }
 
+      const cachedReceipt = window.sessionStorage.getItem(getPosReceiptCacheKey(orderId));
+      let parsedReceipt: PosReceiptOrder | null = null;
+      if (cachedReceipt) {
+        try {
+          parsedReceipt = JSON.parse(cachedReceipt) as PosReceiptOrder;
+          setOrder(parsedReceipt);
+        } catch {
+          window.sessionStorage.removeItem(getPosReceiptCacheKey(orderId));
+        }
+      }
+
       try {
-        const nextOrder = await fetchPosReceipt(orderId);
-        if (!cancelled) {
-          setOrder(nextOrder);
+        if (!parsedReceipt) {
+          const nextOrder = await fetchPosReceipt(orderId);
+          if (!cancelled) {
+            setOrder(nextOrder);
+          }
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -200,10 +278,9 @@ export function ReceiptView({ orderId }: { orderId: string }) {
     };
   }, [order]);
 
-  const copy = searchParams.get("copy") === "store" ? "store" : "customer";
+  const isBundle = mode === "all";
+  const copy = mode === "store" ? "store" : "customer";
   const copyLabel = copy === "store" ? "Store Copy" : "Customer Copy";
-  const alternateCopy = copy === "store" ? "customer" : "store";
-  const alternateLabel = alternateCopy === "store" ? "Open Store Copy" : "Open Customer Copy";
 
   useEffect(() => {
     if (!autoPrint || !order || !receiptMeta || printedRef.current) {
@@ -217,14 +294,14 @@ export function ReceiptView({ orderId }: { orderId: string }) {
         {
           type: "pos-receipt-printed",
           orderId,
-          copy
+          copy: isBundle ? "all" : copy
         },
         window.location.origin
       );
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [autoPrint, copy, order, orderId, receiptMeta]);
+  }, [autoPrint, copy, isBundle, order, orderId, receiptMeta]);
 
   if (error) {
     return <div className="mx-auto max-w-sm px-4 py-10 text-sm text-red-600">{error}</div>;
@@ -237,18 +314,16 @@ export function ReceiptView({ orderId }: { orderId: string }) {
   return (
     <div className="bg-[#f4efe5] px-3 py-4 font-mono text-[11px] leading-tight text-black print:bg-white print:px-0 print:py-0 print:font-medium">
       <div className="mx-auto w-full max-w-[80mm] print:max-w-none print:w-[80mm]">
-        <div className="mb-3 flex justify-between gap-2 print:hidden">
-          <Button
-            variant="outline"
-            onClick={() => window.open(`/pos/receipt/${orderId}?copy=${alternateCopy}`, "_blank", "noopener,noreferrer")}
+        <div className="mb-3 flex justify-end gap-2 print:hidden">
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="rounded-md border border-black/20 bg-white px-3 py-2 text-xs font-semibold text-black"
           >
-            {alternateLabel}
-          </Button>
-          <Button variant="outline" onClick={() => window.print()}>
             Print
-          </Button>
+          </button>
         </div>
-        <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel={copyLabel} />
+        {isBundle ? <ReceiptBundle order={order} receiptMeta={receiptMeta} /> : <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel={copyLabel} />}
       </div>
     </div>
   );

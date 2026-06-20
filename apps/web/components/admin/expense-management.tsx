@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createAdminExpense, downloadAdminExpenseExport, fetchAdminExpenses, updateAdminExpense } from "@/lib/admin-client";
+import { createAdminExpense, deleteAdminExpense, downloadAdminExpenseExport, fetchAdminExpenses, updateAdminExpense } from "@/lib/admin-client";
 import type { AdminExpense, AdminExpenseData, AdminRangePreset } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -181,6 +181,7 @@ export function ExpenseManagement() {
   const [form, setForm] = useState<ExpenseFormState>(EMPTY_EXPENSE_FORM);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
 
   async function loadExpenses(nextPreset = preset, nextBranchId = branchId, nextCategory = categoryFilter, nextMonth = selectedMonth) {
     try {
@@ -276,6 +277,24 @@ export function ExpenseManagement() {
       setError(submitError instanceof Error ? submitError.message : "Failed to save expense.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteExpense(expense: AdminExpense) {
+    const confirmed = window.confirm(`Delete ${expense.title}? This cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingId(expense.id);
+    setError("");
+    try {
+      await deleteAdminExpense(expense.id);
+      await loadExpenses(preset, branchId, categoryFilter, selectedMonth);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete expense.");
+    } finally {
+      setDeletingId("");
     }
   }
 
@@ -506,6 +525,14 @@ export function ExpenseManagement() {
                         <Button variant="outline" onClick={() => openEdit(expense)}>
                           <Pencil className="h-4 w-4" />
                           Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                          onClick={() => void deleteExpense(expense)}
+                          disabled={deletingId === expense.id}
+                        >
+                          {deletingId === expense.id ? "Deleting..." : "Delete"}
                         </Button>
                       </div>
                     </div>
