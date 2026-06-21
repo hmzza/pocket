@@ -91,26 +91,33 @@ export async function recordInventoryChange({
   return updated;
 }
 
-export async function applyOrderInventory({
-  transaction,
-  branchId,
-  orderId,
-  actorId,
-  items,
-  mode
-}: ApplyOrderInventoryArgs) {
-  const productIds = [...new Set(items.map((item) => item.productId).filter((value): value is string => Boolean(value)))];
+export type InventoryChange = {
+  branchInventoryId: string;
+  quantityDelta: number;
+  balanceAfter: number;
+  lowStockAlert: boolean;
+};
 
+/**
+ * Reads the recipe + branch stock needed to compute an inventory adjustment.
+ * Accepts any Prisma client (the shared client OR a transaction client) so the
+ * reads can run OUTSIDE a transaction and in parallel with other queries.
+ */
+export async function readInventoryData(
+  client: Prisma.TransactionClient,
+  branchId: string,
+  productIds: string[]
+) {
   const [productIngredients, branchInventories] = await Promise.all([
     productIds.length
-      ? transaction.productIngredient.findMany({
+      ? client.productIngredient.findMany({
           where: { productId: { in: productIds } },
           include: {
             ingredient: true
           }
         })
       : Promise.resolve([]),
-    transaction.branchInventory.findMany({
+    client.branchInventory.findMany({
       where: { branchId },
       include: {
         ingredient: true
@@ -118,6 +125,26 @@ export async function applyOrderInventory({
     })
   ]);
 
+  return { productIngredients, branchInventories };
+}
+
+type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
+
+/**
+ * Pure, in-memory calculation of the per-ingredient stock changes for an order.
+ * No database access — safe to run before opening a transaction.
+ */
+export function computeInventoryChanges({
+  productIngredients,
+  branchInventories,
+  items,
+  mode
+}: {
+  productIngredients: InventoryData["productIngredients"];
+  branchInventories: InventoryData["branchInventories"];
+  items: InventoryOrderItem[];
+  mode: "consume" | "return";
+}): InventoryChange[] {
   const recipeByProduct = new Map<string, Array<{ ingredientId: string; quantityNeeded: number }>>();
   for (const recipe of productIngredients) {
     const existing = recipeByProduct.get(recipe.productId) ?? [];
@@ -153,16 +180,14 @@ export async function applyOrderInventory({
     }
   }
 
-  const quantityDirection = mode === "consume" ? -1 : 1;
-  const transactionType = mode === "consume" ? InventoryTransactionType.CONSUMPTION : InventoryTransactionType.RETURN;
-  const note = mode === "consume" ? "Order inventory deduction" : "Order cancellation return";
-
   if (!totals.size) {
-    return;
+    return [];
   }
 
+  const quantityDirection = mode === "consume" ? -1 : 1;
   const inventoryByIngredientId = new Map(branchInventories.map((entry) => [entry.ingredientId, entry]));
-  const changes = Array.from(totals.entries()).map(([ingredientId, quantity]) => {
+
+  return Array.from(totals.entries()).map(([ingredientId, quantity]) => {
     const inventory = inventoryByIngredientId.get(ingredientId);
     if (!inventory) {
       throw new Error("Inventory item is missing for the selected branch.");
@@ -178,6 +203,30 @@ export async function applyOrderInventory({
       lowStockAlert: balanceAfter <= Number(inventory.ingredient.reorderLevel)
     };
   });
+}
+
+/**
+ * Applies precomputed inventory changes inside a transaction (writes only).
+ */
+export async function applyInventoryChanges({
+  transaction,
+  changes,
+  orderId,
+  actorId,
+  mode
+}: {
+  transaction: Prisma.TransactionClient;
+  changes: InventoryChange[];
+  orderId: string;
+  actorId?: string | null;
+  mode: "consume" | "return";
+}) {
+  if (!changes.length) {
+    return;
+  }
+
+  const transactionType = mode === "consume" ? InventoryTransactionType.CONSUMPTION : InventoryTransactionType.RETURN;
+  const note = mode === "consume" ? "Order inventory deduction" : "Order cancellation return";
 
   const updatedCount = await transaction.$executeRaw`
     UPDATE "BranchInventory" AS inventory
@@ -208,4 +257,25 @@ export async function applyOrderInventory({
       referenceId: orderId
     }))
   });
+}
+
+/**
+ * Backwards-compatible helper: reads, computes, and applies an order's
+ * inventory adjustment within a single transaction. Used by non-POS callers
+ * (catalog/customer checkout, admin cancellations) where the extra in-txn
+ * reads are acceptable. The POS hot path splits these steps to keep reads
+ * out of the transaction — see routes/pos.ts.
+ */
+export async function applyOrderInventory({
+  transaction,
+  branchId,
+  orderId,
+  actorId,
+  items,
+  mode
+}: ApplyOrderInventoryArgs) {
+  const productIds = [...new Set(items.map((item) => item.productId).filter((value): value is string => Boolean(value)))];
+  const { productIngredients, branchInventories } = await readInventoryData(transaction, branchId, productIds);
+  const changes = computeInventoryChanges({ productIngredients, branchInventories, items, mode });
+  await applyInventoryChanges({ transaction, changes, orderId, actorId, mode });
 }

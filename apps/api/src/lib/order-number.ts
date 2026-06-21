@@ -35,9 +35,14 @@ function isOrderNumberConflict(error: unknown) {
   );
 }
 
-export async function withGeneratedOrderNumber<T>(factory: (orderNumber: string) => Promise<T>) {
+export async function withGeneratedOrderNumber<T>(
+  factory: (orderNumber: string) => Promise<T>,
+  initialOrderNumber?: string
+) {
   for (let attempt = 1; attempt <= ORDER_NUMBER_ATTEMPTS; attempt += 1) {
-    const orderNumber = await generateOrderNumber();
+    // Reuse a pre-generated number on the first attempt (lets callers produce
+    // it in parallel with other reads); regenerate only on a unique conflict.
+    const orderNumber = attempt === 1 && initialOrderNumber ? initialOrderNumber : await generateOrderNumber();
 
     try {
       const result = await factory(orderNumber);

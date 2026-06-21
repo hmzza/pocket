@@ -2,10 +2,10 @@ import { DiscountType, OrderChannel, PaymentMethod, PaymentStatus, RoleCode, Ser
 import { Router } from "express";
 import { z } from "zod";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
-import { withGeneratedOrderNumber } from "../lib/order-number.js";
+import { generateOrderNumber, withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { authenticate, authorize } from "../middleware/auth.js";
-import { applyOrderInventory } from "../lib/inventory.js";
+import { applyInventoryChanges, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
 
 const router = Router();
 
@@ -215,29 +215,42 @@ router.get("/orders/:orderId", async (req, res) => {
 router.post("/checkout", async (req, res, next) => {
   try {
     const payload = checkoutSchema.parse(req.body);
-    const branch = await prisma.branch.findFirst({
-      where: { id: payload.branchId, isActive: true }
-    });
+
+    const productItems = payload.items.filter((item) => item.type === "product");
+    const productIds = [...new Set(productItems.map((item) => item.productId))];
+
+    // Run every independent read in parallel instead of serially. On a remote
+    // database each query is a full network round-trip (~200ms+), so collapsing
+    // branch validation, product/pricing lookup, order-number generation, and
+    // inventory reads into one batch removes several round-trips from the
+    // critical path. relationLoadStrategy "join" folds the product relation
+    // includes into a single SQL JOIN (one round-trip instead of ~5).
+    const [branch, products, initialOrderNumber, inventoryData] = await Promise.all([
+      prisma.branch.findFirst({
+        where: { id: payload.branchId, isActive: true }
+      }),
+      prisma.product.findMany({
+        where: {
+          id: { in: productIds },
+          isActive: true
+        },
+        include: {
+          ...posProductInclude,
+          branchPricing: {
+            where: { branchId: payload.branchId }
+          }
+        },
+        relationLoadStrategy: "join"
+      }),
+      generateOrderNumber(),
+      readInventoryData(prisma, payload.branchId, productIds)
+    ]);
 
     if (!branch) {
       return res.status(404).json({ message: "Selected branch is unavailable." });
     }
 
-    const productItems = payload.items.filter((item) => item.type === "product");
-    const products = await prisma.product.findMany({
-      where: {
-        id: { in: productItems.map((item) => item.productId) },
-        isActive: true
-      },
-      include: {
-        ...posProductInclude,
-        branchPricing: {
-          where: { branchId: payload.branchId }
-        }
-      }
-    });
-
-    if (products.length !== new Set(productItems.map((item) => item.productId)).size) {
+    if (products.length !== productIds.length) {
       return res.status(400).json({ message: "One or more selected products are unavailable." });
     }
 
@@ -333,6 +346,16 @@ router.post("/checkout", async (req, res, next) => {
       return res.status(400).json({ message: "Paid amount must cover the order total." });
     }
 
+    // Compute inventory deductions in memory before opening the transaction so
+    // the transaction only performs writes (shorter lock hold, fewer in-txn
+    // round-trips). Also validates stock presence early, before any write.
+    const inventoryChanges = computeInventoryChanges({
+      productIngredients: inventoryData.productIngredients,
+      branchInventories: inventoryData.branchInventories,
+      items: normalizedItems,
+      mode: "consume"
+    });
+
     const { orderNumber, result: order } = await withGeneratedOrderNumber((orderNumber) =>
       prisma.$transaction(async (transaction) => {
         const createdOrder = await transaction.order.create({
@@ -389,20 +412,29 @@ router.post("/checkout", async (req, res, next) => {
           }
         });
 
-        await applyOrderInventory({
+        await applyInventoryChanges({
           transaction,
-          branchId: payload.branchId,
+          changes: inventoryChanges,
           orderId: createdOrder.id,
           actorId: req.user!.id,
-          items: createdOrder.items,
           mode: "consume"
         });
 
         return createdOrder;
-      }, INVENTORY_TRANSACTION_OPTIONS)
+      }, INVENTORY_TRANSACTION_OPTIONS),
+      initialOrderNumber
     );
 
-    await writeAuditLog({
+    res.status(201).json({
+      order: formatOrderForReceipt(order),
+      defaults: {
+        taxRate: paymentTaxDefaults[payload.paymentMethod as PaymentMethod]
+      }
+    });
+
+    // The audit log is not needed for the response — write it after responding
+    // so it never blocks the cashier. Failures are logged, not surfaced.
+    void writeAuditLog({
       actorId: req.user!.id,
       action: "pos.checkout",
       entityType: "order",
@@ -414,14 +446,11 @@ router.post("/checkout", async (req, res, next) => {
         paymentMethod: payload.paymentMethod,
         defaultTaxRate: paymentTaxDefaults[payload.paymentMethod as PaymentMethod]
       }
+    }).catch((auditError) => {
+      console.error("Failed to write POS checkout audit log", auditError);
     });
 
-    return res.status(201).json({
-      order: formatOrderForReceipt(order),
-      defaults: {
-        taxRate: paymentTaxDefaults[payload.paymentMethod as PaymentMethod]
-      }
-    });
+    return;
   } catch (error) {
     return next(error);
   }
