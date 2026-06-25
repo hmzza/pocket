@@ -23,6 +23,14 @@ cd "$REPO_DIR"
 PREV_SHA="$(git rev-parse HEAD)"
 echo "==> Deploying $APP ($WORKSPACE) to $SHA   (previous: $PREV_SHA)"
 
+# Defense-in-depth: refuse to deploy if the required env file is missing/invalid,
+# so a bad env can never take a healthy app down. (The workflow writes these.)
+if [ "$APP" = "pocket-api" ]; then
+  { [ -s .env ] && grep -q '^DATABASE_URL=' .env; } || { echo "FATAL: /home/ubuntu/pocket/.env missing or has no DATABASE_URL — aborting, app left running"; exit 1; }
+else
+  { [ -s apps/web/.env.production ] && grep -q 'NEXT_PUBLIC_API_URL=' apps/web/.env.production; } || { echo "FATAL: apps/web/.env.production missing or has no NEXT_PUBLIC_API_URL — aborting"; exit 1; }
+fi
+
 reload_app() {
   if [ -f ecosystem.config.js ]; then
     pm2 startOrReload ecosystem.config.js --only "$APP" --update-env
