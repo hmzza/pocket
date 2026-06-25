@@ -23,6 +23,16 @@ cd "$REPO_DIR"
 PREV_SHA="$(git rev-parse HEAD)"
 echo "==> Deploying $APP ($WORKSPACE) to $SHA   (previous: $PREV_SHA)"
 
+reload_app() {
+  if [ -f ecosystem.config.js ]; then
+    pm2 startOrReload ecosystem.config.js --only "$APP" --update-env
+  else
+    # Rolled back to a commit predating ecosystem.config.js — reload by name.
+    pm2 reload "$APP" --update-env 2>/dev/null || pm2 restart "$APP" --update-env
+  fi
+  pm2 save
+}
+
 build_and_reload() {
   npm ci --no-audit --no-fund
   if [ "$APP" = "pocket-api" ]; then
@@ -30,8 +40,7 @@ build_and_reload() {
     npx prisma migrate deploy
   fi
   npm run build --workspace "$WORKSPACE"
-  pm2 startOrReload ecosystem.config.js --only "$APP" --update-env
-  pm2 save
+  reload_app
 }
 
 health_check() {
