@@ -105,6 +105,16 @@ function parseMoney(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function formatWhatsAppPhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("00")) return digits.slice(2);
+  if (digits.startsWith("92")) return digits;
+  if (digits.startsWith("0")) return `92${digits.slice(1)}`;
+  if (digits.length === 10 && digits.startsWith("3")) return `92${digits}`;
+  return digits;
+}
+
 function buildTicketSignature(input: {
   type: "product" | "manual";
   productId?: string;
@@ -163,6 +173,7 @@ export function PosTerminal() {
   const [manualUnitPrice, setManualUnitPrice] = useState("");
   const [lastReceiptOrderId, setLastReceiptOrderId] = useState("");
   const [lastReceiptUrl, setLastReceiptUrl] = useState("");
+  const [lastReceiptPhone, setLastReceiptPhone] = useState("");
   const [matchedCustomer, setMatchedCustomer] = useState<PosCustomerLookup | null>(null);
   const [orderCompleted, setOrderCompleted] = useState(false);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
@@ -393,6 +404,7 @@ export function PosTerminal() {
       window.sessionStorage.setItem(getPosReceiptCacheKey(response.order.id), JSON.stringify(response.order));
       setLastReceiptOrderId(response.order.id);
       setLastReceiptUrl(response.order.digitalReceiptUrl ?? "");
+      setLastReceiptPhone(response.order.customerPhone ?? customerPhone.trim());
       setOrderCompleted(true);
     } catch (submitError) {
       if (submitError instanceof Error) {
@@ -419,6 +431,7 @@ export function PosTerminal() {
     setDiscountValue("");
     setLastReceiptOrderId("");
     setLastReceiptUrl("");
+    setLastReceiptPhone("");
     setMatchedCustomer(null);
     setOrderCompleted(false);
     setSearch("");
@@ -461,12 +474,17 @@ export function PosTerminal() {
   }
 
   function sendReceipt() {
-    if (!lastReceiptUrl || !customerPhone.trim()) {
+    if (!lastReceiptUrl) {
+      setError("Receipt link is not available for this order.");
+      return;
+    }
+
+    const phone = formatWhatsAppPhone(lastReceiptPhone || customerPhone);
+    if (!phone) {
       setError("Customer phone is required to send the receipt.");
       return;
     }
 
-    const phone = customerPhone.replace(/\D/g, "");
     const message = `Pocket receipt for ${formatCurrency(payableTotal)}: ${lastReceiptUrl}`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
   }
