@@ -2,9 +2,10 @@ import { branch, categories, dashboardData, homeContent, mockCustomers, products
 import { API_URL, normalizeProducts } from "./catalog";
 import type { DashboardData, Product, TrackedOrder } from "./types";
 
-async function fetchJson<T>(path: string): Promise<T | null> {
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T | null> {
   try {
     const response = await fetch(`${API_URL}${path}`, {
+      ...init,
       next: { revalidate: 60 }
     });
 
@@ -135,8 +136,14 @@ export async function getDashboardData(): Promise<DashboardData> {
   };
 }
 
-export async function getTrackedOrder(orderNumber: string): Promise<TrackedOrder | null> {
-  const data = await fetchJson<any>(`/api/track/${orderNumber}`);
+export async function getTrackedOrder(orderNumber: string, phone: string): Promise<TrackedOrder | null> {
+  const data = await fetchJson<any>("/api/track", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ orderNumber, phone })
+  });
   if (!data) {
     return trackedOrders.find((entry) => entry.orderNumber === orderNumber) ?? null;
   }

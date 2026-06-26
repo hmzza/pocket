@@ -15,6 +15,10 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
     });
   }
 
+  if (error instanceof Error && "statusCode" in error && typeof error.statusCode === "number") {
+    return res.status(error.statusCode).json({ message: error.message });
+  }
+
   console.error(error);
   return res.status(500).json({ message: "Internal server error." });
 }

@@ -6,7 +6,7 @@ import { CheckCircle2, ChevronLeft, RefreshCcw, Search, Truck } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { fetchPosOrders, fetchPosSession, getPosTokenKey, updatePosOrderStatus } from "@/lib/pos-client";
+import { fetchPosOrders, fetchPosSession, updatePosOrderStatus } from "@/lib/pos-client";
 import type { AdminOrder } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -127,16 +127,9 @@ export function PosOrderQueue() {
     let cancelled = false;
 
     async function initialize() {
-      const token = window.localStorage.getItem(getPosTokenKey());
-      if (!token) {
-        router.replace("/pos/login");
-        return;
-      }
-
       try {
         const session = await fetchPosSession();
         if (!["ADMIN", "SUPER_ADMIN", "POS_STAFF"].includes(session.user.role)) {
-          window.localStorage.removeItem(getPosTokenKey());
           router.replace("/pos/login");
           return;
         }
@@ -148,7 +141,6 @@ export function PosOrderQueue() {
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load orders.");
-          window.localStorage.removeItem(getPosTokenKey());
           router.replace("/pos/login");
         }
       }

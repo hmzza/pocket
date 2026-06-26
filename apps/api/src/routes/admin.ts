@@ -156,6 +156,44 @@ function parseDecimal(value: Prisma.Decimal | number | string | null | undefined
   return Number(value);
 }
 
+function serializeOrderForOperations(order: any) {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    channel: order.channel,
+    serviceType: order.serviceType,
+    customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
+    customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
+    status: order.status,
+    branch: order.branch,
+    totalAmount: order.totalAmount,
+    subtotal: order.subtotal,
+    discountAmount: order.discountAmount,
+    taxRate: order.taxRate,
+    taxAmount: order.taxAmount,
+    cashReceivedAmount: order.cashReceivedAmount,
+    changeDueAmount: order.changeDueAmount,
+    manualDiscountType: order.manualDiscountType,
+    manualDiscountValue: order.manualDiscountValue,
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    placedAt: order.placedAt,
+    deliveryInstructions: order.deliveryInstructions,
+    address: order.address
+      ? {
+          addressLine1: order.address.addressLine1,
+          city: order.address.city,
+          instructions: order.address.instructions
+        }
+      : null,
+    items: order.items
+  };
+}
+
+function isTerminalStatus(status: OrderStatus) {
+  return status === OrderStatus.DELIVERED || status === OrderStatus.CANCELLED;
+}
+
 function buildSalesSeries(orders: Array<{ placedAt: Date; totalAmount: Prisma.Decimal | number }>, start: Date, end: Date) {
   const durationDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
   const buckets = new Map<string, { label: string; revenue: number; orders: number; sortKey: number }>();
@@ -240,7 +278,12 @@ router.get("/dashboard", async (req, res, next) => {
           }
         },
         include: {
-          customer: true,
+          customer: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
           branch: true,
           items: true
         },
@@ -1089,7 +1132,14 @@ router.get("/orders", async (req, res, next) => {
           : {})
       },
       include: {
-        customer: true,
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
         branch: true,
         address: true,
         items: {
@@ -1101,13 +1151,13 @@ router.get("/orders", async (req, res, next) => {
       orderBy: { placedAt: "desc" }
     });
 
-    return res.json({ orders });
+    return res.json({ orders: orders.map(serializeOrderForOperations) });
   } catch (error) {
     return next(error);
   }
 });
 
-router.delete("/orders", async (req, res, next) => {
+router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
   try {
     const deletedCount = await prisma.order.count();
     await prisma.$transaction(async (transaction) => {
@@ -1199,7 +1249,11 @@ router.patch("/orders/:id/status", async (req, res, next) => {
       });
 
       if (!currentOrder) {
-        throw new Error("Order not found.");
+        throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+      }
+
+      if (isTerminalStatus(currentOrder.status) && currentOrder.status !== payload.status) {
+        throw Object.assign(new Error("Terminal order statuses cannot be changed."), { statusCode: 409 });
       }
 
       if (currentOrder.status !== payload.status) {
@@ -1259,18 +1313,40 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 router.get("/customers", async (_req, res) => {
   const customers = await prisma.user.findMany({
     where: { role: { is: { code: RoleCode.CUSTOMER } } },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      createdAt: true,
       orders: {
         orderBy: { placedAt: "desc" }
       },
-      addresses: true
+      addresses: {
+        select: {
+          id: true,
+          label: true,
+          addressLine1: true,
+          addressLine2: true,
+          city: true,
+          instructions: true,
+          isDefault: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      }
     },
     orderBy: { createdAt: "desc" }
   });
 
   return res.json({
     customers: customers.map((customer) => ({
-      ...customer,
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      createdAt: customer.createdAt,
+      addresses: customer.addresses,
       totalSpend: customer.orders.reduce((total, order) => total + Number(order.totalAmount), 0),
       lastOrderDate: customer.orders[0]?.placedAt ?? null,
       totalOrders: customer.orders.length

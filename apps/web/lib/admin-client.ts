@@ -23,25 +23,17 @@ export const ORDER_STATUSES = [
   "CANCELLED"
 ] as const;
 
-function getToken() {
-  return window.localStorage.getItem("pocket-admin-token");
-}
-
 async function adminFetch<T>(path: string, init?: RequestInit) {
-  const token = getToken();
   const headers = new Headers(init?.headers);
 
   if (!headers.has("Content-Type") && init?.body) {
     headers.set("Content-Type", "application/json");
   }
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers
+    headers,
+    credentials: "include"
   });
 
   if (!response.ok) {
@@ -174,6 +166,12 @@ export async function fetchAdminOrders() {
 
 export async function fetchAdminSession() {
   return adminFetch<{ user: { id: string; role: string; name: string; email: string } }>("/api/auth/me");
+}
+
+export async function logoutAdminSession() {
+  await adminFetch<null>("/api/auth/logout", {
+    method: "POST"
+  });
 }
 
 export async function updateAdminOrderStatus(orderId: string, status: string) {
@@ -507,13 +505,8 @@ export async function downloadAdminExpenseExport(params?: {
   if (params?.start) searchParams.set("start", params.start);
   if (params?.end) searchParams.set("end", params.end);
 
-  const token = getToken();
   const response = await fetch(`${API_URL}/api/admin/expenses/export?${searchParams.toString()}`, {
-    headers: token
-      ? {
-          Authorization: `Bearer ${token}`
-        }
-      : undefined
+    credentials: "include"
   });
 
   if (!response.ok) {

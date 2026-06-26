@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BarChart3, Boxes, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchAdminSession } from "@/lib/admin-client";
+import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
 
 const links: Array<{
@@ -32,16 +32,9 @@ export function AdminShell({ title, description, children }: { title: string; de
     let cancelled = false;
 
     async function validateSession() {
-      const token = window.localStorage.getItem("pocket-admin-token");
-      if (!token) {
-        router.replace("/admin/login");
-        return;
-      }
-
       try {
         const session = await fetchAdminSession();
         if (!cancelled && !["ADMIN", "SUPER_ADMIN"].includes(session.user.role)) {
-          window.localStorage.removeItem("pocket-admin-token");
           router.replace("/admin/login");
           return;
         }
@@ -51,7 +44,6 @@ export function AdminShell({ title, description, children }: { title: string; de
         }
       } catch {
         if (!cancelled) {
-          window.localStorage.removeItem("pocket-admin-token");
           router.replace("/admin/login");
         }
       }
@@ -100,8 +92,8 @@ export function AdminShell({ title, description, children }: { title: string; de
           <Button
             variant="outline"
             className="w-full justify-start"
-            onClick={() => {
-              window.localStorage.removeItem("pocket-admin-token");
+            onClick={async () => {
+              await logoutAdminSession().catch(() => null);
               router.replace("/admin/login");
             }}
           >
