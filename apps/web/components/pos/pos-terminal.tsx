@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession } from "@/lib/pos-client";
-import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup } from "@/lib/types";
+import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
 
 type TicketLine = {
@@ -115,6 +115,71 @@ function formatWhatsAppPhone(value: string) {
   return digits;
 }
 
+function formatPaymentMethod(value: string) {
+  const map: Record<string, string> = {
+    CASH: "Cash",
+    CASH_ON_DELIVERY: "Cash on Delivery",
+    CARD: "Card",
+    ONLINE: "Online",
+    JAZZCASH: "JazzCash",
+    EASYPAISA: "Easypaisa"
+  };
+
+  return map[value] ?? value.replaceAll("_", " ");
+}
+
+function formatReceiptDateTime(value: string) {
+  const date = new Date(value);
+  return {
+    date: new Intl.DateTimeFormat("en-PK", { day: "2-digit", month: "short", year: "numeric" }).format(date),
+    time: new Intl.DateTimeFormat("en-PK", { hour: "2-digit", minute: "2-digit" }).format(date)
+  };
+}
+
+function buildWhatsAppReceiptMessage(order: PosReceiptOrder) {
+  const receiptMeta = formatReceiptDateTime(order.placedAt ?? order.createdAt);
+  const lines = [
+    "POCKET",
+    order.branch.name,
+    order.branch.addressLine1,
+    `Phone: ${order.branch.phone}`,
+    "",
+    "Purchase Receipt",
+    `Receipt No: ${order.receiptNumber}`,
+    `Order ID: ${order.id}`,
+    `Date: ${receiptMeta.date}`,
+    `Time: ${receiptMeta.time}`,
+    `Customer: ${order.customerName || "Walk-in"}`,
+    `Order Type: ${order.orderType.replaceAll("_", " ")}`,
+    `Payment: ${formatPaymentMethod(order.paymentMethod)}`,
+    "",
+    "Items"
+  ];
+
+  order.items.forEach((item, index) => {
+    lines.push(`${index + 1}. ${item.productName}`);
+    if (item.customDescription) {
+      lines.push(`   ${item.customDescription}`);
+    }
+    if (item.addOns.length) {
+      lines.push(`   Selections: ${item.addOns.map((addOn) => addOn.optionName).join(", ")}`);
+    }
+    lines.push(`   ${formatCurrency(item.unitPrice)} x ${item.quantity} = ${formatCurrency(item.unitPrice * item.quantity)}`);
+  });
+
+  lines.push(
+    "",
+    `Gross Total: ${formatCurrency(order.grossTotal)}`,
+    `Discount: ${formatCurrency(order.discountAmount)}`,
+    `Total: ${formatCurrency(order.netTotal)}`,
+    "",
+    "Thank you for your visit.",
+    `For complaints & queries: ${order.branch.phone}`
+  );
+
+  return lines.join("\n");
+}
+
 function buildTicketSignature(input: {
   type: "product" | "manual";
   productId?: string;
@@ -172,7 +237,7 @@ export function PosTerminal() {
   const [manualQuantity, setManualQuantity] = useState("1");
   const [manualUnitPrice, setManualUnitPrice] = useState("");
   const [lastReceiptOrderId, setLastReceiptOrderId] = useState("");
-  const [lastReceiptUrl, setLastReceiptUrl] = useState("");
+  const [lastReceiptOrder, setLastReceiptOrder] = useState<PosReceiptOrder | null>(null);
   const [lastReceiptPhone, setLastReceiptPhone] = useState("");
   const [matchedCustomer, setMatchedCustomer] = useState<PosCustomerLookup | null>(null);
   const [orderCompleted, setOrderCompleted] = useState(false);
@@ -404,7 +469,7 @@ export function PosTerminal() {
 
       window.sessionStorage.setItem(getPosReceiptCacheKey(response.order.id), JSON.stringify(response.order));
       setLastReceiptOrderId(response.order.id);
-      setLastReceiptUrl(response.order.digitalReceiptUrl ?? "");
+      setLastReceiptOrder(response.order);
       setLastReceiptPhone(response.order.customerPhone ?? submittedCustomerPhone);
       setOrderCompleted(true);
     } catch (submitError) {
@@ -431,7 +496,7 @@ export function PosTerminal() {
     setDiscountType("NONE");
     setDiscountValue("");
     setLastReceiptOrderId("");
-    setLastReceiptUrl("");
+    setLastReceiptOrder(null);
     setLastReceiptPhone("");
     setMatchedCustomer(null);
     setOrderCompleted(false);
@@ -475,8 +540,8 @@ export function PosTerminal() {
   }
 
   function sendReceipt() {
-    if (!lastReceiptUrl) {
-      setError("Receipt link is not available for this order.");
+    if (!lastReceiptOrder) {
+      setError("Receipt is not available for this order.");
       return;
     }
 
@@ -486,7 +551,7 @@ export function PosTerminal() {
       return;
     }
 
-    const message = `Pocket receipt for ${formatCurrency(payableTotal)}: ${lastReceiptUrl}`;
+    const message = buildWhatsAppReceiptMessage(lastReceiptOrder);
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
   }
 
