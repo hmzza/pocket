@@ -237,9 +237,7 @@ router.post("/checkout", async (req, res, next) => {
     // Run every independent read in parallel instead of serially. On a remote
     // database each query is a full network round-trip (~200ms+), so collapsing
     // branch validation, product/pricing lookup, order-number generation, and
-    // inventory reads into one batch removes several round-trips from the
-    // critical path. relationLoadStrategy "join" folds the product relation
-    // includes into a single SQL JOIN (one round-trip instead of ~5).
+    // inventory reads into one batch removes several round-trips from checkout.
     const [branch, products, initialOrderNumber, inventoryData] = await Promise.all([
       prisma.branch.findFirst({
         where: { id: payload.branchId, isActive: true }
@@ -254,8 +252,7 @@ router.post("/checkout", async (req, res, next) => {
           branchPricing: {
             where: { branchId: payload.branchId }
           }
-        },
-        relationLoadStrategy: "join"
+        }
       }),
       generateOrderNumber(),
       readInventoryData(prisma, payload.branchId, productIds)
@@ -444,10 +441,7 @@ router.post("/checkout", async (req, res, next) => {
     );
 
     res.status(201).json({
-      order: formatOrderForReceipt(order),
-      defaults: {
-        taxRate: paymentTaxDefaults[payload.paymentMethod as PaymentMethod]
-      }
+      order: formatOrderForReceipt(order)
     });
 
     // The audit log is not needed for the response — write it after responding
