@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { fetchPosReceipt, getPosReceiptCacheKey } from "@/lib/pos-client";
+import { useSearchParams } from "next/navigation";
+import { fetchPosReceipt, fetchPublicReceipt, getPosReceiptCacheKey } from "@/lib/pos-client";
 import type { PosReceiptOrder } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -29,10 +29,6 @@ function formatDateTime(value: string) {
 
 function money(value: number) {
   return formatCurrency(Number(value.toFixed(2)));
-}
-
-function plainNumber(value: number) {
-  return Math.round(value).toLocaleString("en-PK");
 }
 
 type ReceiptCopy = "customer" | "store";
@@ -134,10 +130,6 @@ function ReceiptSlip({
           <span className="font-medium print:font-semibold">Discount:</span>
           <span className="font-semibold">{money(order.discountAmount)}</span>
         </div>
-        <div className="flex justify-between gap-3">
-          <span className="font-medium print:font-semibold">Service Fee:</span>
-          <span className="font-semibold">{money(order.serviceFee)}</span>
-        </div>
         <div className="flex justify-between gap-3 border-t border-dashed border-black/20 pt-1">
           <span className="font-bold">Total:</span>
           <span className="font-bold">{money(order.netTotal)}</span>
@@ -185,12 +177,28 @@ function ChefSlip({
 
       <div className="space-y-3">
         {order.items.map((item, index) => (
-          <div key={`chef-${item.id}`} className="text-[15px] leading-tight print:text-[16px]">
+          <div key={`chef-${item.id}`} className="border-b border-dashed border-black/20 pb-3 text-[15px] leading-tight print:text-[16px]">
             <div className="flex items-start justify-between gap-3">
               <span className="font-bold">{index + 1}.</span>
-              <span className="ml-2 flex-1 text-right font-bold">{item.productName}</span>
+              <span className="ml-2 flex-1 font-bold">{item.productName}</span>
               <span className="min-w-[40px] text-right font-bold">x{item.quantity}</span>
             </div>
+            {item.customDescription ? (
+              <p className="mt-1 pl-7 text-[13px] font-semibold print:text-[14px]">{item.customDescription}</p>
+            ) : null}
+            {item.addOns.length ? (
+              <div className="mt-2 pl-7">
+                <p className="text-[11px] font-black uppercase tracking-[0.18em]">Selections</p>
+                <ul className="mt-1 space-y-1">
+                  {item.addOns.map((addOn) => (
+                    <li key={addOn.id} className="text-[14px] font-semibold print:text-[15px]">
+                      {addOn.optionName}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {item.note ? <p className="mt-2 pl-7 text-[13px] font-semibold">Note: {item.note}</p> : null}
           </div>
         ))}
       </div>
@@ -218,8 +226,7 @@ function ReceiptBundle({
   );
 }
 
-export function ReceiptView({ orderId }: { orderId: string }) {
-  const router = useRouter();
+export function ReceiptView({ orderId, publicToken }: { orderId: string; publicToken?: string }) {
   const searchParams = useSearchParams();
   const [order, setOrder] = useState<PosReceiptOrder | null>(null);
   const [error, setError] = useState("");
@@ -231,6 +238,20 @@ export function ReceiptView({ orderId }: { orderId: string }) {
     let cancelled = false;
 
     async function loadReceipt() {
+      if (publicToken) {
+        try {
+          const nextOrder = await fetchPublicReceipt(orderId, publicToken);
+          if (!cancelled) {
+            setOrder(nextOrder);
+          }
+        } catch (loadError) {
+          if (!cancelled) {
+            setError(loadError instanceof Error ? loadError.message : "Receipt unavailable.");
+          }
+        }
+        return;
+      }
+
       const cachedReceipt = window.sessionStorage.getItem(getPosReceiptCacheKey(orderId));
       let parsedReceipt: PosReceiptOrder | null = null;
       if (cachedReceipt) {
@@ -261,7 +282,7 @@ export function ReceiptView({ orderId }: { orderId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [orderId, router]);
+  }, [orderId, publicToken]);
 
   const receiptMeta = useMemo(() => {
     if (!order) return null;
@@ -273,6 +294,7 @@ export function ReceiptView({ orderId }: { orderId: string }) {
   }, [order]);
 
   const isBundle = mode === "all";
+  const isChef = mode === "chef";
   const copy = mode === "store" ? "store" : "customer";
   const copyLabel = copy === "store" ? "Store Copy" : "Customer Copy";
 
@@ -288,14 +310,14 @@ export function ReceiptView({ orderId }: { orderId: string }) {
         {
           type: "pos-receipt-printed",
           orderId,
-          copy: isBundle ? "all" : copy
+          copy: isBundle ? "all" : isChef ? "chef" : copy
         },
         window.location.origin
       );
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [autoPrint, copy, isBundle, order, orderId, receiptMeta]);
+  }, [autoPrint, copy, isBundle, isChef, order, orderId, receiptMeta]);
 
   if (error) {
     return <div className="mx-auto max-w-sm px-4 py-10 text-sm text-red-600">{error}</div>;
@@ -317,7 +339,7 @@ export function ReceiptView({ orderId }: { orderId: string }) {
             Print
           </button>
         </div>
-        {isBundle ? <ReceiptBundle order={order} receiptMeta={receiptMeta} /> : <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel={copyLabel} />}
+        {isBundle ? <ReceiptBundle order={order} receiptMeta={receiptMeta} /> : isChef ? <ChefSlip order={order} /> : <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel={copyLabel} />}
       </div>
     </div>
   );

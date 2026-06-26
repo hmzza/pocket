@@ -2,13 +2,13 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Minus, Plus, Search, Trash2, LogOut, Receipt, ShoppingBag, PencilLine } from "lucide-react";
+import { Minus, Plus, Search, Trash2, LogOut, Receipt, ShoppingBag, PencilLine, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, logoutPosSession } from "@/lib/pos-client";
-import type { AddOnGroup, PosCatalogProduct } from "@/lib/types";
+import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession } from "@/lib/pos-client";
+import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
 
 type TicketLine = {
@@ -32,13 +32,6 @@ const paymentOptions = [
   { value: "EASYPAISA", label: "EasyPaisa" },
   { value: "JAZZCASH", label: "JazzCash" }
 ] as const;
-
-const paymentTaxDefaults: Record<(typeof paymentOptions)[number]["value"], number> = {
-  CASH: 15,
-  EASYPAISA: 15,
-  JAZZCASH: 15,
-  CARD: 5
-};
 
 const serviceTypes = ["TAKEAWAY", "DINE_IN"] as const;
 
@@ -102,6 +95,45 @@ function calculateLinePrice(product: PosCatalogProduct, selections: ProductSelec
   };
 }
 
+function parsePositiveInteger(value: string, fallback = 1) {
+  const parsed = Number.parseInt(value.replace(/\D/g, ""), 10);
+  return Number.isFinite(parsed) ? Math.max(1, parsed) : fallback;
+}
+
+function parseMoney(value: string) {
+  const parsed = Number(value.replace(/[^\d.]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildTicketSignature(input: {
+  type: "product" | "manual";
+  productId?: string;
+  name: string;
+  customDescription?: string;
+  unitPrice: number;
+  selections: ProductSelection[];
+}) {
+  if (input.type === "manual") {
+    return `manual:${input.name.trim().toLowerCase()}:${input.customDescription?.trim().toLowerCase() ?? ""}:${input.unitPrice.toFixed(2)}`;
+  }
+
+  const selections = normalizeSelections(input.selections)
+    .map((selection) => `${selection.groupId}:${selection.optionIds.slice().sort().join(",")}`)
+    .sort()
+    .join("|");
+  return `product:${input.productId}:${selections}`;
+}
+
+function mergeTicketLine(lines: TicketLine[], nextLine: TicketLine) {
+  const nextSignature = buildTicketSignature(nextLine);
+  const existingIndex = lines.findIndex((line) => buildTicketSignature(line) === nextSignature);
+  if (existingIndex === -1) {
+    return [...lines, nextLine];
+  }
+
+  return lines.map((line, index) => index === existingIndex ? { ...line, quantity: line.quantity + nextLine.quantity } : line);
+}
+
 export function PosTerminal() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -119,21 +151,19 @@ export function PosTerminal() {
   const [serviceType, setServiceType] = useState<(typeof serviceTypes)[number]>("TAKEAWAY");
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentOptions)[number]["value"]>("CASH");
   const [discountType, setDiscountType] = useState<"NONE" | "PERCENTAGE" | "FIXED">("NONE");
-  const [discountValue, setDiscountValue] = useState(0);
-  const [paidAmount, setPaidAmount] = useState("");
-  const [checkoutNote, setCheckoutNote] = useState("");
+  const [discountValue, setDiscountValue] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [productDialog, setProductDialog] = useState<PosCatalogProduct | null>(null);
   const [productSelections, setProductSelections] = useState<ProductSelection[]>([]);
-  const [productQuantity, setProductQuantity] = useState(1);
-  const [productNote, setProductNote] = useState("");
+  const [productQuantity, setProductQuantity] = useState("1");
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [manualName, setManualName] = useState("");
   const [manualDescription, setManualDescription] = useState("");
-  const [manualQuantity, setManualQuantity] = useState(1);
+  const [manualQuantity, setManualQuantity] = useState("1");
   const [manualUnitPrice, setManualUnitPrice] = useState("");
-  const [manualNote, setManualNote] = useState("");
   const [lastReceiptOrderId, setLastReceiptOrderId] = useState("");
+  const [lastReceiptUrl, setLastReceiptUrl] = useState("");
+  const [matchedCustomer, setMatchedCustomer] = useState<PosCustomerLookup | null>(null);
   const [orderCompleted, setOrderCompleted] = useState(false);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
@@ -199,18 +229,45 @@ export function PosTerminal() {
   const subtotal = useMemo(() => ticket.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [ticket]);
   const discountAmount = useMemo(() => {
     if (discountType === "PERCENTAGE") {
-      return Math.min(subtotal, (subtotal * discountValue) / 100);
+      return Math.min(subtotal, (subtotal * parseMoney(discountValue)) / 100);
     }
     if (discountType === "FIXED") {
-      return Math.min(subtotal, discountValue);
+      return Math.min(subtotal, parseMoney(discountValue));
     }
     return 0;
   }, [discountType, discountValue, subtotal]);
   const total = useMemo(() => Math.max(0, subtotal - discountAmount), [discountAmount, subtotal]);
-  const taxRate = paymentTaxDefaults[paymentMethod];
-  const taxAmount = useMemo(() => Number(((total * taxRate) / 100).toFixed(2)), [taxRate, total]);
-  const payableTotal = useMemo(() => Number((total + taxAmount).toFixed(2)), [taxAmount, total]);
-  const change = Math.max(0, Number(paidAmount || 0) - payableTotal);
+  const payableTotal = total;
+
+  useEffect(() => {
+    const normalizedPhone = customerPhone.replace(/\D/g, "");
+    if (normalizedPhone.length < 7 || orderCompleted) {
+      setMatchedCustomer(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const customer = await lookupPosCustomer(customerPhone);
+        if (!cancelled) {
+          setMatchedCustomer(customer);
+          if (customer?.name && !customerName.trim()) {
+            setCustomerName(customer.name);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setMatchedCustomer(null);
+        }
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [customerName, customerPhone, orderCompleted]);
 
   function addProductToTicket(product: PosCatalogProduct) {
     if (orderCompleted) {
@@ -220,14 +277,12 @@ export function PosTerminal() {
     if (product.addOnGroups.length) {
       setProductDialog(product);
       setProductSelections(buildDefaultSelections(product.addOnGroups));
-      setProductQuantity(1);
-      setProductNote("");
+      setProductQuantity("1");
       return;
     }
 
-    setTicket((current) => [
-      ...current,
-      {
+    setTicket((current) =>
+      mergeTicketLine(current, {
         id: crypto.randomUUID(),
         type: "product",
         productId: product.id,
@@ -237,8 +292,8 @@ export function PosTerminal() {
         unitPrice: product.price,
         selections: [],
         addOns: []
-      }
-    ]);
+      })
+    );
   }
 
   function confirmConfiguredProduct() {
@@ -255,20 +310,19 @@ export function PosTerminal() {
     }
 
     const pricing = calculateLinePrice(productDialog, normalizedSelections);
-    setTicket((current) => [
-      ...current,
-      {
+    setTicket((current) =>
+      mergeTicketLine(current, {
         id: crypto.randomUUID(),
         type: "product",
         productId: productDialog.id,
         name: productDialog.name,
         categoryName: productDialog.categoryName,
-        quantity: productQuantity,
+        quantity: parsePositiveInteger(productQuantity),
         unitPrice: pricing.unitPrice,
         selections: normalizedSelections,
         addOns: pricing.addOns,
-      }
-    ]);
+      })
+    );
     setProductDialog(null);
     setError("");
   }
@@ -278,32 +332,30 @@ export function PosTerminal() {
       return;
     }
 
-    const price = Number(manualUnitPrice);
+    const price = parseMoney(manualUnitPrice);
     if (!manualName.trim() || Number.isNaN(price)) {
       setError("Manual item needs a name and valid amount.");
       return;
     }
 
-    setTicket((current) => [
-      ...current,
-      {
+    setTicket((current) =>
+      mergeTicketLine(current, {
         id: crypto.randomUUID(),
         type: "manual",
         name: manualName.trim(),
         categoryName: "Manual",
-        quantity: manualQuantity,
+        quantity: parsePositiveInteger(manualQuantity),
         unitPrice: price,
         customDescription: manualDescription.trim(),
         selections: [],
         addOns: []
-      }
-    ]);
+      })
+    );
     setManualDialogOpen(false);
     setManualName("");
     setManualDescription("");
-    setManualQuantity(1);
+    setManualQuantity("1");
     setManualUnitPrice("");
-    setManualNote("");
     setError("");
   }
 
@@ -319,9 +371,7 @@ export function PosTerminal() {
         customerName: customerName.trim() || undefined,
         customerPhone: customerPhone.trim() || undefined,
         discountType,
-        discountValue,
-        paidAmount: Number(paidAmount || 0),
-        note: checkoutNote.trim() || undefined,
+        discountValue: parseMoney(discountValue),
         items: ticket.map((item) =>
           item.type === "manual"
             ? {
@@ -342,6 +392,7 @@ export function PosTerminal() {
 
       window.sessionStorage.setItem(getPosReceiptCacheKey(response.order.id), JSON.stringify(response.order));
       setLastReceiptOrderId(response.order.id);
+      setLastReceiptUrl(response.order.digitalReceiptUrl ?? "");
       setOrderCompleted(true);
     } catch (submitError) {
       if (submitError instanceof Error) {
@@ -365,17 +416,17 @@ export function PosTerminal() {
     setServiceType("TAKEAWAY");
     setPaymentMethod("CASH");
     setDiscountType("NONE");
-    setDiscountValue(0);
-    setPaidAmount("");
-    setCheckoutNote("");
+    setDiscountValue("");
     setLastReceiptOrderId("");
+    setLastReceiptUrl("");
+    setMatchedCustomer(null);
     setOrderCompleted(false);
     setSearch("");
     setCategoryId("ALL");
     setError("");
   }
 
-  function printReceipt() {
+  function printReceipt(copy: "all" | "chef" | "store" = "all") {
     if (!lastReceiptOrderId) {
       return;
     }
@@ -388,7 +439,7 @@ export function PosTerminal() {
     iframe.style.height = "0";
     iframe.style.border = "0";
     iframe.setAttribute("aria-hidden", "true");
-    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=all&autoPrint=1`;
+    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=${copy}&autoPrint=1`;
 
     const cleanup = () => {
       window.removeEventListener("message", handleMessage);
@@ -400,13 +451,24 @@ export function PosTerminal() {
         return;
       }
 
-      if (event.data?.type === "pos-receipt-printed" && event.data?.orderId === lastReceiptOrderId && event.data?.copy === "all") {
+      if (event.data?.type === "pos-receipt-printed" && event.data?.orderId === lastReceiptOrderId && event.data?.copy === copy) {
         cleanup();
       }
     };
 
     window.addEventListener("message", handleMessage);
     document.body.appendChild(iframe);
+  }
+
+  function sendReceipt() {
+    if (!lastReceiptUrl || !customerPhone.trim()) {
+      setError("Customer phone is required to send the receipt.");
+      return;
+    }
+
+    const phone = customerPhone.replace(/\D/g, "");
+    const message = `Pocket receipt for ${formatCurrency(payableTotal)}: ${lastReceiptUrl}`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
   }
 
   if (!ready || loading) {
@@ -498,20 +560,31 @@ export function PosTerminal() {
             </Card>
 
             <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-              {visibleProducts.map((product) => (
-                <button
-                  key={product.id}
-                  type="button"
-                  onClick={() => addProductToTicket(product)}
-                  disabled={orderCompleted}
-                  className="rounded-2xl border border-white/10 bg-white/5 p-2.5 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80">{product.categoryName}</p>
-                  <p className="mt-1 text-[0.95rem] font-black leading-tight xl:text-[0.98rem]">{product.name}</p>
-                  <p className="mt-1.5 text-sm font-semibold text-amber-200">{formatCurrency(product.price)}</p>
-                  {product.addOnGroups.length ? <p className="mt-1 text-[0.72rem] text-white/60">Customization required</p> : null}
-                </button>
-              ))}
+              {visibleProducts.map((product) => {
+                const ticketQuantity = ticket
+                  .filter((line) => line.type === "product" && line.productId === product.id)
+                  .reduce((sum, line) => sum + line.quantity, 0);
+
+                return (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => addProductToTicket(product)}
+                    disabled={orderCompleted}
+                    className="relative rounded-2xl border border-white/10 bg-white/5 p-2.5 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
+                  >
+                    {ticketQuantity ? (
+                      <span className="absolute right-2 top-2 rounded-full bg-amber-300 px-2 py-0.5 text-xs font-black text-slate-950">
+                        x{ticketQuantity}
+                      </span>
+                    ) : null}
+                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80">{product.categoryName}</p>
+                    <p className="mt-1 pr-8 text-[0.95rem] font-black leading-tight xl:text-[0.98rem]">{product.name}</p>
+                    <p className="mt-1.5 text-sm font-semibold text-amber-200">{formatCurrency(product.price)}</p>
+                    {product.addOnGroups.length ? <p className="mt-1 text-[0.72rem] text-white/60">Customization required</p> : null}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -594,6 +667,19 @@ export function PosTerminal() {
                 <Input className="h-9 text-sm" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" disabled={orderCompleted} />
                 <Input className="h-9 text-sm" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" disabled={orderCompleted} />
               </div>
+              {matchedCustomer ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+                  <p className="font-bold">Repeat customer: {matchedCustomer.name ?? matchedCustomer.phone}</p>
+                  <p className="mt-0.5">
+                    {matchedCustomer.totalOrders} orders
+                    {matchedCustomer.lastOrderSummary ? ` · Last: ${matchedCustomer.lastOrderSummary}` : ""}
+                  </p>
+                </div>
+              ) : customerPhone.replace(/\D/g, "").length >= 7 ? (
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                  New customer phone. Receipt sharing will be available after checkout.
+                </div>
+              ) : null}
               <div className="grid gap-2 md:grid-cols-2">
                 <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={orderCompleted}>
                   {serviceTypes.map((entry) => (
@@ -616,16 +702,24 @@ export function PosTerminal() {
                   <option value="PERCENTAGE">Percentage</option>
                   <option value="FIXED">Fixed amount</option>
                 </select>
-                <Input className="h-9 text-sm" type="number" value={discountValue} onChange={(event) => setDiscountValue(Number(event.target.value || 0))} placeholder="Discount" disabled={orderCompleted} />
+                <Input className="h-9 text-sm" inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="Discount" disabled={orderCompleted} />
               </div>
-              <Input className="h-9 text-sm" type="number" value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} placeholder="Paid amount" disabled={orderCompleted} />
-              <Textarea value={checkoutNote} onChange={(event) => setCheckoutNote(event.target.value)} placeholder="Order note (optional)" className="min-h-14 text-sm" disabled={orderCompleted} />
             </div>
 
             {lastReceiptOrderId ? (
               <div className="mt-2.5 grid gap-2 md:grid-cols-2">
-                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={printReceipt} type="button">
+                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("all")} type="button">
                   Print Receipt
+                </Button>
+                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("chef")} type="button">
+                  Print Chef
+                </Button>
+                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("store")} type="button">
+                  Print Store
+                </Button>
+                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={sendReceipt} type="button">
+                  <Send className="h-4 w-4" />
+                  Send Receipt
                 </Button>
                 <Button className="h-9 rounded-2xl text-sm" type="button" onClick={startNewOrder}>
                   Start New Order
@@ -636,13 +730,10 @@ export function PosTerminal() {
             <div className="mt-2.5 space-y-1 rounded-2xl bg-slate-950 px-3 py-2 text-[0.84rem] text-white">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
-              <div className="flex justify-between"><span>Tax ({taxRate}%)</span><span>{formatCurrency(taxAmount)}</span></div>
               <div className="flex justify-between text-[0.94rem] font-bold"><span>Total</span><span>{formatCurrency(payableTotal)}</span></div>
-              <div className="flex justify-between"><span>Paid</span><span>{formatCurrency(Number(paidAmount || 0))}</span></div>
-              <div className="flex justify-between"><span>Change</span><span>{formatCurrency(change)}</span></div>
             </div>
 
-            <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || orderCompleted || Number(paidAmount || 0) < payableTotal} onClick={() => void submitOrder()}>
+            <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || orderCompleted} onClick={() => void submitOrder()}>
               <Receipt className="h-4 w-4" />
               {submitting ? "Processing..." : orderCompleted ? "Order Completed" : "Finish"}
             </Button>
@@ -691,9 +782,8 @@ export function PosTerminal() {
                   </div>
                 </div>
               ))}
-              <div className="grid gap-3 md:grid-cols-[120px_minmax(0,1fr)]">
-                <Input type="number" value={productQuantity} onChange={(event) => setProductQuantity(Math.max(1, Number(event.target.value || 1)))} />
-                <Textarea value={productNote} onChange={(event) => setProductNote(event.target.value)} placeholder="Item note" className="min-h-24" />
+              <div className="grid gap-3">
+                <Input inputMode="numeric" value={productQuantity} onChange={(event) => setProductQuantity(event.target.value)} />
               </div>
               <div className="sticky bottom-0 bg-slate-900 pt-2">
                 <Button className="w-full" onClick={confirmConfiguredProduct}>Add to Ticket</Button>
@@ -714,10 +804,9 @@ export function PosTerminal() {
               <Input value={manualName} onChange={(event) => setManualName(event.target.value)} placeholder="Name" />
               <Textarea value={manualDescription} onChange={(event) => setManualDescription(event.target.value)} placeholder="Description" />
               <div className="grid gap-3 md:grid-cols-2">
-                <Input type="number" value={manualUnitPrice} onChange={(event) => setManualUnitPrice(event.target.value)} placeholder="Unit price" />
-                <Input type="number" value={manualQuantity} onChange={(event) => setManualQuantity(Math.max(1, Number(event.target.value || 1)))} placeholder="Quantity" />
+                <Input inputMode="decimal" value={manualUnitPrice} onChange={(event) => setManualUnitPrice(event.target.value)} placeholder="Unit price" />
+                <Input inputMode="numeric" value={manualQuantity} onChange={(event) => setManualQuantity(event.target.value)} placeholder="Quantity" />
               </div>
-              <Textarea value={manualNote} onChange={(event) => setManualNote(event.target.value)} placeholder="Note" />
               <Button className="w-full" onClick={addManualItem}>Add Manual Item</Button>
             </div>
           </Card>

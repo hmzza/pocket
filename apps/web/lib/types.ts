@@ -351,6 +351,7 @@ export type PosReceiptOrder = {
   paidAmount: number;
   changeDueAmount: number;
   placedAt: string;
+  digitalReceiptUrl?: string;
   branch: {
     id: string;
     name: string;
@@ -373,4 +374,13 @@ export type PosReceiptOrder = {
       priceDelta: number;
     }>;
   }>;
+};
+
+export type PosCustomerLookup = {
+  name?: string | null;
+  phone?: string | null;
+  totalOrders: number;
+  totalSpend: number;
+  lastOrderDate: string;
+  lastOrderSummary: string;
 };

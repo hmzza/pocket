@@ -5,6 +5,10 @@ import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { generateOrderNumber, withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { applyOrderInventory } from "../lib/inventory.js";
+import { env } from "../config.js";
+import { formatOrderForReceipt } from "../lib/pos-receipt.js";
+import { signReceiptToken } from "../lib/receipt-token.js";
 import { applyInventoryChanges, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
 
 const router = Router();
@@ -24,16 +28,6 @@ const posProductInclude = {
   },
   branchPricing: true
 };
-
-const paymentTaxDefaults: Record<PaymentMethod, number> = {
-  CASH_ON_DELIVERY: 15,
-  CASH: 15,
-  EASYPAISA: 15,
-  JAZZCASH: 15,
-  CARD: 5
-};
-
-const FBR_REFERENCE_NUMBER = "8816692-5";
 
 const selectionSchema = z.object({
   groupId: z.string().cuid(),
@@ -76,68 +70,22 @@ const checkoutSchema = z.object({
   customerPhone: z.string().max(20).optional(),
   discountType: z.enum(["NONE", "PERCENTAGE", "FIXED"]).default("NONE"),
   discountValue: z.number().min(0).max(100_000).default(0),
-  paidAmount: z.number().nonnegative(),
-  note: z.string().max(240).optional(),
   items: z.array(cartItemSchema).min(1)
 });
 
-function formatOrderForReceipt(order: any) {
-  const taxRate = Number(order.taxRate);
-  const serviceFee = Number(order.deliveryFee ?? 0);
-  const grossTotal = Number(order.subtotal);
-  const discountAmount = Number(order.discountAmount);
-  const totalTax = Number(order.taxAmount);
-  const netTotal = Number(order.totalAmount);
+function normalizePhone(value: string) {
+  return value.replace(/\D/g, "");
+}
 
+function buildDigitalReceiptUrl(order: { id: string; orderNumber: string }) {
+  const token = signReceiptToken({ orderId: order.id, orderNumber: order.orderNumber });
+  return `${env.WEB_URL}/receipt/${order.orderNumber}?token=${encodeURIComponent(token)}`;
+}
+
+function formatReceiptResponse(order: any) {
   return {
-    id: order.id,
-    receiptNumber: order.orderNumber,
-    orderNumber: order.orderNumber,
-    fbrReferenceNumber: FBR_REFERENCE_NUMBER,
-    posNo: "001",
-    userId: order.cashierId ?? "Admin",
-    channel: order.channel,
-    serviceType: order.serviceType,
-    orderType: order.serviceType,
-    status: order.status,
-    customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
-    customerPhone: order.customerPhone ?? order.customer?.phone ?? null,
-    paymentMethod: order.paymentMethod,
-    paymentStatus: order.paymentStatus,
-    createdAt: order.placedAt,
-    subtotal: grossTotal,
-    grossTotal,
-    discountAmount,
-    serviceFee,
-    taxRate,
-    totalTax,
-    netTotal,
-    totalAmount: netTotal,
-    paidAmount: Number(order.cashReceivedAmount ?? order.totalAmount),
-    changeDueAmount: Number(order.changeDueAmount ?? 0),
-    placedAt: order.placedAt,
-    branch: {
-      id: order.branch.id,
-      name: order.branch.name,
-      addressLine1: order.branch.addressLine1,
-      phone: order.branch.phone
-    },
-    items: order.items.map((item: any) => ({
-      id: item.id,
-      productName: item.productName,
-      customDescription: item.customDescription ?? null,
-      quantity: item.quantity,
-      unitPrice: Number(item.unitPrice),
-      taxRate,
-      taxAmount: Number((Number(item.unitPrice) * item.quantity * taxRate / 100).toFixed(2)),
-      lineTotal: Number((Number(item.unitPrice) * item.quantity * (1 + taxRate / 100)).toFixed(2)),
-      note: item.note ?? null,
-      addOns: item.addOns.map((addOn: any) => ({
-        id: addOn.id,
-        optionName: addOn.optionName,
-        priceDelta: Number(addOn.priceDelta)
-      }))
-    }))
+    ...formatOrderForReceipt(order),
+    digitalReceiptUrl: buildDigitalReceiptUrl(order)
   };
 }
 
@@ -184,7 +132,16 @@ router.get("/catalog", async (req, res, next) => {
       orderBy: { sortOrder: "asc" }
     });
 
-    return res.json({ branches, branchId, categories, products });
+    const posProducts = products.map((product) =>
+      product.slug === "loaded-fries"
+        ? {
+            ...product,
+            addOnGroups: product.addOnGroups.filter((group) => group.name !== "Extras")
+          }
+        : product
+    );
+
+    return res.json({ branches, branchId, categories, products: posProducts });
   } catch (error) {
     return next(error);
   }
@@ -214,7 +171,60 @@ router.get("/orders/:orderId", async (req, res) => {
     return res.status(404).json({ message: "POS order not found." });
   }
 
-  return res.json({ order: formatOrderForReceipt(order) });
+  return res.json({ order: formatReceiptResponse(order) });
+});
+
+router.get("/customers/lookup", async (req, res, next) => {
+  try {
+    const query = z.object({ phone: z.string().min(4).max(20) }).parse(req.query);
+    const normalized = normalizePhone(query.phone);
+
+    if (normalized.length < 4) {
+      return res.json({ customer: null });
+    }
+
+    const orders = await prisma.order.findMany({
+      where: {
+        channel: OrderChannel.POS,
+        customerPhone: {
+          not: null
+        }
+      },
+      select: {
+        customerName: true,
+        customerPhone: true,
+        totalAmount: true,
+        placedAt: true,
+        items: {
+          select: {
+            productName: true,
+            quantity: true
+          }
+        }
+      },
+      orderBy: { placedAt: "desc" },
+      take: 200
+    });
+
+    const matched = orders.filter((order) => normalizePhone(order.customerPhone ?? "").endsWith(normalized.slice(-7)));
+    if (!matched.length) {
+      return res.json({ customer: null });
+    }
+
+    const latest = matched[0]!;
+    return res.json({
+      customer: {
+        name: latest.customerName,
+        phone: latest.customerPhone,
+        totalOrders: matched.length,
+        totalSpend: matched.reduce((sum, order) => sum + Number(order.totalAmount), 0),
+        lastOrderDate: latest.placedAt,
+        lastOrderSummary: latest.items.map((item) => `${item.quantity}x ${item.productName}`).join(", ")
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.post("/checkout", async (req, res, next) => {
@@ -227,9 +237,7 @@ router.post("/checkout", async (req, res, next) => {
     // Run every independent read in parallel instead of serially. On a remote
     // database each query is a full network round-trip (~200ms+), so collapsing
     // branch validation, product/pricing lookup, order-number generation, and
-    // inventory reads into one batch removes several round-trips from the
-    // critical path. relationLoadStrategy "join" folds the product relation
-    // includes into a single SQL JOIN (one round-trip instead of ~5).
+    // inventory reads into one batch removes several round-trips from checkout.
     const [branch, products, initialOrderNumber, inventoryData] = await Promise.all([
       prisma.branch.findFirst({
         where: { id: payload.branchId, isActive: true }
@@ -244,8 +252,7 @@ router.post("/checkout", async (req, res, next) => {
           branchPricing: {
             where: { branchId: payload.branchId }
           }
-        },
-        relationLoadStrategy: "join"
+        }
       }),
       generateOrderNumber(),
       readInventoryData(prisma, payload.branchId, productIds)
@@ -285,11 +292,14 @@ router.post("/checkout", async (req, res, next) => {
         throw new Error(`${product.name} is not available for this branch.`);
       }
 
-      const groups = new Map(product.addOnGroups.map((group) => [group.id, group]));
+      const productAddOnGroups = product.slug === "loaded-fries"
+        ? product.addOnGroups.filter((group) => group.name !== "Extras")
+        : product.addOnGroups;
+      const groups = new Map(productAddOnGroups.map((group) => [group.id, group]));
       const selectedGroups = new Map(item.selections.map((selection) => [selection.groupId, selection.optionIds]));
       const lineAddOns: Array<{ optionId: string; optionName: string; priceDelta: number }> = [];
 
-      for (const group of product.addOnGroups) {
+      for (const group of productAddOnGroups) {
         const selectedOptionIds = selectedGroups.get(group.id) ?? [];
         if (selectedOptionIds.length < group.minSelect || selectedOptionIds.length > group.maxSelect) {
           throw new Error(`${product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
@@ -341,16 +351,9 @@ router.post("/checkout", async (req, res, next) => {
           ? Number(payload.discountValue.toFixed(2))
           : 0;
     const safeDiscountAmount = Math.min(subtotal, discountAmount);
-    const taxableAmount = Math.max(0, subtotal - safeDiscountAmount);
-    const taxRate = paymentTaxDefaults[payload.paymentMethod as PaymentMethod];
-    const taxAmount = Number(((taxableAmount * taxRate) / 100).toFixed(2));
-    const totalAmount = Number((taxableAmount + taxAmount).toFixed(2));
-    const paidAmount = Number(payload.paidAmount.toFixed(2));
-    const changeDueAmount = Number((paidAmount - totalAmount).toFixed(2));
-
-    if (paidAmount < totalAmount) {
-      return res.status(400).json({ message: "Paid amount must cover the order total." });
-    }
+    const totalAmount = Number(Math.max(0, subtotal - safeDiscountAmount).toFixed(2));
+    const paidAmount = totalAmount;
+    const changeDueAmount = 0;
 
     // Compute inventory deductions in memory before opening the transaction so
     // the transaction only performs writes (shorter lock hold, fewer in-txn
@@ -377,8 +380,8 @@ router.post("/checkout", async (req, res, next) => {
             paymentStatus: PaymentStatus.PAID,
             cashierId: req.user!.id,
             subtotal,
-            taxRate,
-            taxAmount,
+            taxRate: 0,
+            taxAmount: 0,
             deliveryFee: 0,
             discountAmount: safeDiscountAmount,
             manualDiscountType: payload.discountType === "NONE" ? null : (payload.discountType as DiscountType),
@@ -386,7 +389,7 @@ router.post("/checkout", async (req, res, next) => {
             cashReceivedAmount: paidAmount,
             changeDueAmount,
             totalAmount,
-            deliveryInstructions: payload.note?.trim() || null,
+            deliveryInstructions: null,
             items: {
               create: normalizedItems.map((item) => ({
                 productId: item.productId,
@@ -438,10 +441,7 @@ router.post("/checkout", async (req, res, next) => {
     );
 
     res.status(201).json({
-      order: formatOrderForReceipt(order),
-      defaults: {
-        taxRate: paymentTaxDefaults[payload.paymentMethod as PaymentMethod]
-      }
+      order: formatOrderForReceipt(order)
     });
 
     // The audit log is not needed for the response — write it after responding
@@ -455,14 +455,15 @@ router.post("/checkout", async (req, res, next) => {
         orderNumber,
         branchId: payload.branchId,
         itemCount: payload.items.length,
-        paymentMethod: payload.paymentMethod,
-        defaultTaxRate: paymentTaxDefaults[payload.paymentMethod as PaymentMethod]
+        paymentMethod: payload.paymentMethod
       }
     }).catch((auditError) => {
       console.error("Failed to write POS checkout audit log", auditError);
     });
 
-    return;
+    return res.status(201).json({
+      order: formatReceiptResponse(order)
+    });
   } catch (error) {
     return next(error);
   }

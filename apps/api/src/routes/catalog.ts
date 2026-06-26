@@ -6,6 +6,8 @@ import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
+import { formatOrderForReceipt } from "../lib/pos-receipt.js";
+import { verifyReceiptToken } from "../lib/receipt-token.js";
 
 const router = Router();
 const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
@@ -310,6 +312,51 @@ router.post("/track", async (req, res, next) => {
       }))
     }
   });
+});
+
+router.get("/receipts/:orderNumber", async (req, res) => {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+
+  if (!token) {
+    return res.status(401).json({ message: "Receipt token is required." });
+  }
+
+  try {
+    const payload = verifyReceiptToken(token);
+    if (payload.orderNumber !== req.params.orderNumber) {
+      return res.status(401).json({ message: "Invalid receipt token." });
+    }
+
+    const order = await prisma.order.findFirst({
+      where: {
+        id: payload.orderId,
+        orderNumber: payload.orderNumber
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true
+          }
+        },
+        branch: true,
+        items: {
+          include: {
+            addOns: true
+          }
+        }
+      }
+    });
+
+    if (!order) {
+      return res.status(404).json({ message: "Receipt not found." });
+    }
+
+    return res.json({ order: formatOrderForReceipt(order) });
+  } catch {
+    return res.status(401).json({ message: "Invalid receipt token." });
+  }
 });
 
 router.post("/checkout", async (req, res, next) => {
