@@ -373,6 +373,7 @@ export function PosTerminal() {
   async function submitOrder() {
     setSubmitting(true);
     setError("");
+    const submittedCustomerPhone = customerPhone.trim();
 
     try {
       const response = await createPosOrder({
@@ -380,7 +381,7 @@ export function PosTerminal() {
         serviceType,
         paymentMethod,
         customerName: customerName.trim() || undefined,
-        customerPhone: customerPhone.trim() || undefined,
+        customerPhone: submittedCustomerPhone || undefined,
         discountType,
         discountValue: parseMoney(discountValue),
         items: ticket.map((item) =>
@@ -404,7 +405,7 @@ export function PosTerminal() {
       window.sessionStorage.setItem(getPosReceiptCacheKey(response.order.id), JSON.stringify(response.order));
       setLastReceiptOrderId(response.order.id);
       setLastReceiptUrl(response.order.digitalReceiptUrl ?? "");
-      setLastReceiptPhone(response.order.customerPhone ?? customerPhone.trim());
+      setLastReceiptPhone(response.order.customerPhone ?? submittedCustomerPhone);
       setOrderCompleted(true);
     } catch (submitError) {
       if (submitError instanceof Error) {
