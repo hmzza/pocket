@@ -441,7 +441,7 @@ router.post("/checkout", async (req, res, next) => {
     );
 
     res.status(201).json({
-      order: formatOrderForReceipt(order)
+      order: formatReceiptResponse(order)
     });
 
     // The audit log is not needed for the response — write it after responding
