@@ -63,7 +63,7 @@ const cartItemSchema = z.discriminatedUnion("type", [
     name: z.string().min(1).max(80),
     description: z.string().max(200).optional(),
     quantity: z.number().int().min(1).max(50),
-    unitPrice: z.number().nonnegative(),
+    unitPrice: z.number().nonnegative().max(100_000),
     note: z.string().max(240).optional()
   })
 ]);
@@ -74,9 +74,8 @@ const checkoutSchema = z.object({
   paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH"]),
   customerName: z.string().max(80).optional(),
   customerPhone: z.string().max(20).optional(),
-  taxRate: z.number().min(0).max(100),
   discountType: z.enum(["NONE", "PERCENTAGE", "FIXED"]).default("NONE"),
-  discountValue: z.number().min(0).default(0),
+  discountValue: z.number().min(0).max(100_000).default(0),
   paidAmount: z.number().nonnegative(),
   note: z.string().max(240).optional(),
   items: z.array(cartItemSchema).min(1)
@@ -195,7 +194,13 @@ router.get("/orders/:orderId", async (req, res) => {
   const order = await prisma.order.findUnique({
     where: { id: req.params.orderId },
     include: {
-      customer: true,
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          phone: true
+        }
+      },
       branch: true,
       items: {
         include: {
@@ -337,7 +342,8 @@ router.post("/checkout", async (req, res, next) => {
           : 0;
     const safeDiscountAmount = Math.min(subtotal, discountAmount);
     const taxableAmount = Math.max(0, subtotal - safeDiscountAmount);
-    const taxAmount = Number(((taxableAmount * payload.taxRate) / 100).toFixed(2));
+    const taxRate = paymentTaxDefaults[payload.paymentMethod as PaymentMethod];
+    const taxAmount = Number(((taxableAmount * taxRate) / 100).toFixed(2));
     const totalAmount = Number((taxableAmount + taxAmount).toFixed(2));
     const paidAmount = Number(payload.paidAmount.toFixed(2));
     const changeDueAmount = Number((paidAmount - totalAmount).toFixed(2));
@@ -371,7 +377,7 @@ router.post("/checkout", async (req, res, next) => {
             paymentStatus: PaymentStatus.PAID,
             cashierId: req.user!.id,
             subtotal,
-            taxRate: payload.taxRate,
+            taxRate,
             taxAmount,
             deliveryFee: 0,
             discountAmount: safeDiscountAmount,
@@ -402,7 +408,13 @@ router.post("/checkout", async (req, res, next) => {
             }
           },
           include: {
-            customer: true,
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                phone: true
+              }
+            },
             branch: true,
             items: {
               include: {

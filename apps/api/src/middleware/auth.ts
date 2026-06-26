@@ -7,6 +7,8 @@ export type RequestUser = Pick<User, "id" | "email" | "name"> & {
   role: RoleCode;
 };
 
+export const AUTH_COOKIE_NAME = "pocket_session";
+
 declare module "express-serve-static-core" {
   interface Request {
     user?: RequestUser;
@@ -15,7 +17,8 @@ declare module "express-serve-static-core" {
 
 export async function authenticate(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
-  const token = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+  const bearerToken = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
+  const token = req.cookies?.[AUTH_COOKIE_NAME] ?? bearerToken;
 
   if (!token) {
     return res.status(401).json({ message: "Authentication required." });

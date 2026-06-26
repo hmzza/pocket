@@ -52,11 +52,14 @@ export function AddToCartButton({ product }: { product: Product }) {
       }
     }
 
-    addToCart({
+    const wasAdded = addToCart({
       productId: product.id,
       selectedAddOnIds: product.addOnGroups.flatMap((group) => selectedOptions[group.id] ?? [])
     });
-    setDialogOpen(false);
+
+    if (wasAdded) {
+      setDialogOpen(false);
+    }
   }
 
   return (
@@ -142,4 +145,3 @@ export function AddToCartButton({ product }: { product: Product }) {
     </>
   );
 }
-

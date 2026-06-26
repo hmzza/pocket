@@ -12,3 +12,4 @@ config.bat
 .env
 .env.*
 !.env.example
+*.pem

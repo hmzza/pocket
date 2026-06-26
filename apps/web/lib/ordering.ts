@@ -50,8 +50,7 @@ export async function validateCouponCode(code: string, subtotal: number): Promis
 
   return {
     code: normalizedCode,
-    discount: Number(payload?.discount ?? 0),
-    title: payload?.coupon?.title
+    discount: Number(payload?.discount ?? 0)
   };
 }
 

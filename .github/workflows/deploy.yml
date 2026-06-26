@@ -1,0 +1,92 @@
+name: Deploy
+
+# Auto-deploy on every push to main (after this workflow's checks).
+# Backend and frontend deploy independently based on which paths changed.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    name: Detect changed apps
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'apps/api/**'
+              - 'prisma/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'ecosystem.config.js'
+              - 'scripts/deploy.sh'
+              - '.github/workflows/deploy.yml'
+            web:
+              - 'apps/web/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'ecosystem.config.js'
+              - 'scripts/deploy.sh'
+              - '.github/workflows/deploy.yml'
+
+  deploy-backend:
+    name: Deploy backend (api.pocketpakistan.com)
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          install -m600 /dev/null ~/.ssh/id_deploy
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+      - name: Sync .env from secret
+        env:
+          API_ENV: ${{ secrets.API_ENV }}
+        run: |
+          # Guard: never overwrite the live .env with an empty/invalid secret.
+          if [ -z "$API_ENV" ] || ! printf '%s' "$API_ENV" | grep -q '^DATABASE_URL='; then
+            echo "::error::API_ENV secret is empty or missing DATABASE_URL — aborting (server .env left untouched)"
+            exit 1
+          fi
+          printf '%s' "$API_ENV" | ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}" 'cat > /home/ubuntu/pocket/.env'
+      - name: Deploy
+        run: ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}" 'bash -s -- pocket-api @pocket/api ${{ github.sha }}' < scripts/deploy.sh
+
+  deploy-frontend:
+    name: Deploy frontend (pocketpakistan.com)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          install -m600 /dev/null ~/.ssh/id_deploy
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
+          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+      - name: Sync .env from secret
+        env:
+          WEB_ENV: ${{ secrets.WEB_ENV }}
+        run: |
+          # Guard: never overwrite the live env with an empty/invalid secret.
+          if [ -z "$WEB_ENV" ] || ! printf '%s' "$WEB_ENV" | grep -q 'NEXT_PUBLIC_API_URL='; then
+            echo "::error::WEB_ENV secret is empty or missing NEXT_PUBLIC_API_URL — aborting (server env left untouched)"
+            exit 1
+          fi
+          printf '%s' "$WEB_ENV" | ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}" 'cat > /home/ubuntu/pocket/apps/web/.env.production'
+      - name: Deploy
+        run: ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}" 'bash -s -- pocket-web @pocket/web ${{ github.sha }}' < scripts/deploy.sh

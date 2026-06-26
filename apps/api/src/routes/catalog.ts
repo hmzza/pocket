@@ -9,6 +9,7 @@ import { applyOrderInventory } from "../lib/inventory.js";
 
 const router = Router();
 const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
+const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
 
 const productInclude = {
   category: true,
@@ -208,7 +209,13 @@ router.get("/branches", async (_req, res) => {
 });
 
 router.get("/settings", async (_req, res) => {
-  const settings = await prisma.setting.findMany();
+  const settings = await prisma.setting.findMany({
+    where: {
+      key: {
+        in: Array.from(PUBLIC_SETTING_KEYS)
+      }
+    }
+  });
   return res.json({
     settings: settings.reduce<Record<string, unknown>>((accumulator, item) => {
       accumulator[item.key] = item.value;
@@ -240,17 +247,29 @@ router.post("/coupons/validate", async (req, res, next) => {
         : Number(coupon.value);
 
     return res.json({
-      coupon,
-      discount
+      valid: true,
+      discount: Math.min(payload.subtotal, Number(discount.toFixed(2)))
     });
   } catch (error) {
     return next(error);
   }
 });
 
-router.get("/track/:orderNumber", async (req, res) => {
+router.post("/track", async (req, res, next) => {
+  let payload: { orderNumber: string; phone: string };
+  try {
+    payload = z
+      .object({
+        orderNumber: z.string().min(3).max(40),
+        phone: z.string().min(4).max(20)
+      })
+      .parse(req.body);
+  } catch (error) {
+    return next(error);
+  }
+
   const order = await prisma.order.findUnique({
-    where: { orderNumber: req.params.orderNumber },
+    where: { orderNumber: payload.orderNumber },
     include: {
       items: {
         include: {
@@ -266,7 +285,31 @@ router.get("/track/:orderNumber", async (req, res) => {
     return res.status(404).json({ message: "Order not found." });
   }
 
-  return res.json({ order });
+  const normalizedInputPhone = payload.phone.replace(/\D/g, "");
+  const normalizedOrderPhone = (order.customerPhone ?? "").replace(/\D/g, "");
+  if (!normalizedOrderPhone || normalizedInputPhone.slice(-7) !== normalizedOrderPhone.slice(-7)) {
+    return res.status(404).json({ message: "Order not found." });
+  }
+
+  return res.json({
+    order: {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      branch: {
+        name: order.branch.name
+      },
+      expectedDeliveryAt: order.expectedDeliveryAt,
+      totalAmount: Number(order.totalAmount),
+      placedAt: order.placedAt,
+      items: order.items.map((item) => ({
+        id: item.id,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice)
+      }))
+    }
+  });
 });
 
 router.post("/checkout", async (req, res, next) => {
@@ -396,13 +439,7 @@ router.post("/checkout", async (req, res, next) => {
         return res.status(409).json({ message: "Email or phone is already used by a staff account." });
       }
 
-      await prisma.user.update({
-        where: { id: existingCustomer.id },
-        data: {
-          name: payload.name,
-          phone: payload.phone
-        }
-      });
+      customerId = existingCustomer.id;
     } else {
       const guestPasswordHash = await bcrypt.hash(`guest-${Date.now()}-${Math.random().toString(36).slice(2)}`, 12);
       const customer = await prisma.user.create({
@@ -483,7 +520,14 @@ router.post("/checkout", async (req, res, next) => {
             },
             branch: true,
             address: true,
-            customer: true
+            customer: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                phone: true
+              }
+            }
           }
         });
 

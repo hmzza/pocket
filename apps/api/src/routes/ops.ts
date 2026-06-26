@@ -60,6 +60,10 @@ function serializeOrder(order: any) {
   };
 }
 
+function isTerminalStatus(status: OrderStatus) {
+  return status === OrderStatus.DELIVERED || status === OrderStatus.CANCELLED;
+}
+
 router.get("/orders", async (req, res, next) => {
   try {
     const query = querySchema.parse(req.query);
@@ -84,7 +88,14 @@ router.get("/orders", async (req, res, next) => {
           : {})
       },
       include: {
-        customer: true,
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true
+          }
+        },
         branch: true,
         address: true,
         items: {
@@ -105,9 +116,23 @@ router.get("/orders", async (req, res, next) => {
 router.patch("/orders/:id/status", async (req, res, next) => {
   try {
     const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);
-    const order = await prisma.order.update({
-      where: { id: req.params.id },
-      data: { status: payload.status }
+    const order = await prisma.$transaction(async (transaction) => {
+      const currentOrder = await transaction.order.findUnique({
+        where: { id: req.params.id }
+      });
+
+      if (!currentOrder) {
+        throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+      }
+
+      if (isTerminalStatus(currentOrder.status) && currentOrder.status !== payload.status) {
+        throw Object.assign(new Error("Terminal order statuses cannot be changed."), { statusCode: 409 });
+      }
+
+      return transaction.order.update({
+        where: { id: req.params.id },
+        data: { status: payload.status }
+      });
     });
 
     if (order.customerId) {

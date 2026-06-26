@@ -22,13 +22,11 @@ export default function AdminLoginPage() {
         headers: {
           "Content-Type": "application/json"
         },
+        credentials: "include",
         body: JSON.stringify({ email, password })
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        window.localStorage.setItem("pocket-admin-token", data.token);
-      } else {
+      if (!response.ok) {
         throw new Error("Invalid credentials");
       }
 

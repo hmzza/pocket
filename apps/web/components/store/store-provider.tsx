@@ -1,9 +1,12 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { API_URL } from "@/lib/catalog";
-import { products as legacyProducts } from "@/lib/mock-data";
+import { branch, products as legacyProducts } from "@/lib/mock-data";
 import type { AddOnOption, CartProduct, Product } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 type CartEntry = {
   id: string;
@@ -22,7 +25,7 @@ type StoreContextValue = {
   cart: CartEntry[];
   favorites: string[];
   recentlyViewed: string[];
-  addToCart: (input: AddToCartInput) => void;
+  addToCart: (input: AddToCartInput) => boolean;
   updateQuantity: (cartItemId: string, quantity: number) => void;
   clearCart: () => void;
   toggleFavorite: (productId: string) => void;
@@ -37,6 +40,7 @@ const CART_KEY = "pocket-cart";
 const FAVORITES_KEY = "pocket-favorites";
 const RECENT_KEY = "pocket-recent";
 const legacyIdToSlug = new Map(legacyProducts.map((product) => [product.id, product.slug]));
+const storeAddress = `${branch.addressLine1}, ${branch.city}`;
 
 function createCartEntryId() {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -98,9 +102,16 @@ function mergeCartEntries(entries: CartEntry[]) {
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
+  const [orderingNoticeOpen, setOrderingNoticeOpen] = useState(false);
+  const [hasShownHomepageNotice, setHasShownHomepageNotice] = useState(false);
+
+  function showOrderingNotice() {
+    setOrderingNoticeOpen(true);
+  }
 
   useEffect(() => {
     const nextCart = localStorage.getItem(CART_KEY);
@@ -183,35 +194,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(RECENT_KEY, JSON.stringify(recentlyViewed));
   }, [recentlyViewed]);
 
+  useEffect(() => {
+    if (pathname !== "/" || hasShownHomepageNotice) {
+      return;
+    }
+
+    setOrderingNoticeOpen(true);
+    setHasShownHomepageNotice(true);
+  }, [hasShownHomepageNotice, pathname]);
+
   const value = useMemo<StoreContextValue>(
     () => ({
       cart,
       favorites,
       recentlyViewed,
-      addToCart: ({ productId, quantity = 1, selectedAddOnIds = [] }) => {
-        const normalizedAddOnIds = normalizeAddOnIds(selectedAddOnIds);
-        const signature = buildEntrySignature(productId, normalizedAddOnIds);
-
-        setCart((current) => {
-          const existing = current.find(
-            (entry) => buildEntrySignature(entry.productId, entry.selectedAddOnIds) === signature
-          );
-          if (existing) {
-            return current.map((entry) =>
-              entry.id === existing.id ? { ...entry, quantity: Math.min(20, entry.quantity + quantity) } : entry
-            );
-          }
-
-          return [
-            ...current,
-            {
-              id: createCartEntryId(),
-              productId,
-              quantity: Math.min(20, Math.max(1, quantity)),
-              selectedAddOnIds: normalizedAddOnIds
-            }
-          ];
-        });
+      addToCart: (_input) => {
+        showOrderingNotice();
+        return false;
       },
       updateQuantity: (cartItemId, quantity) => {
         setCart((current) =>
@@ -262,7 +261,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [cart, favorites, recentlyViewed]
   );
 
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return (
+    <StoreContext.Provider value={value}>
+      {children}
+
+      {orderingNoticeOpen ? (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="ordering-notice-title">
+          <Card className="w-full max-w-xl rounded-3xl border-pocket-navy/10 p-6 sm:p-8">
+            <div className="space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-pocket-orange">Notice</p>
+              <div className="space-y-3">
+                <h2 id="ordering-notice-title" className="text-3xl font-black text-pocket-navy">
+                  We are not taking online orders right now.
+                </h2>
+                <p className="text-base leading-7 text-pocket-navy/75">
+                  Please visit us physically to place your order. You can still browse the menu and view all items on the website.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-pocket-cream p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Visit Us</p>
+                <p className="mt-2 text-lg font-bold text-pocket-navy">{storeAddress}</p>
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={() => setOrderingNoticeOpen(false)}>Close</Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      ) : null}
+    </StoreContext.Provider>
+  );
 }
 
 export function useStore() {

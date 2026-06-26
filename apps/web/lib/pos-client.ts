@@ -3,28 +3,19 @@
 import type { AdminOrder, PosBranch, PosCatalogProduct, PosReceiptOrder } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-const POS_TOKEN_KEY = "pocket-pos-token";
 const POS_RECEIPT_CACHE_PREFIX = "pocket-pos-receipt:";
 
-function getToken() {
-  return window.localStorage.getItem(POS_TOKEN_KEY);
-}
-
 async function posFetch<T>(path: string, init?: RequestInit) {
-  const token = getToken();
   const headers = new Headers(init?.headers);
 
   if (!headers.has("Content-Type") && init?.body) {
     headers.set("Content-Type", "application/json");
   }
 
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers
+    headers,
+    credentials: "include"
   });
 
   if (!response.ok) {
@@ -43,16 +34,18 @@ async function posFetch<T>(path: string, init?: RequestInit) {
   return (await response.json()) as T;
 }
 
-export function getPosTokenKey() {
-  return POS_TOKEN_KEY;
-}
-
 export function getPosReceiptCacheKey(orderId: string) {
   return `${POS_RECEIPT_CACHE_PREFIX}${orderId}`;
 }
 
 export async function fetchPosSession() {
   return posFetch<{ user: { id: string; role: string; name: string; email: string } }>("/api/auth/me");
+}
+
+export async function logoutPosSession() {
+  await posFetch<null>("/api/auth/logout", {
+    method: "POST"
+  });
 }
 
 export async function fetchPosCatalog(params?: { branchId?: string; categoryId?: string; search?: string }) {

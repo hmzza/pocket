@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { fetchPosReceipt, getPosReceiptCacheKey, getPosTokenKey } from "@/lib/pos-client";
+import { fetchPosReceipt, getPosReceiptCacheKey } from "@/lib/pos-client";
 import type { PosReceiptOrder } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -231,12 +231,6 @@ export function ReceiptView({ orderId }: { orderId: string }) {
     let cancelled = false;
 
     async function loadReceipt() {
-      const token = window.localStorage.getItem(getPosTokenKey());
-      if (!token) {
-        router.replace("/pos/login");
-        return;
-      }
-
       const cachedReceipt = window.sessionStorage.getItem(getPosReceiptCacheKey(orderId));
       let parsedReceipt: PosReceiptOrder | null = null;
       if (cachedReceipt) {
