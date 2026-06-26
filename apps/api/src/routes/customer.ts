@@ -11,6 +11,21 @@ const router = Router();
 
 router.use(authenticate);
 
+function serializeCustomerProfile(profile: any) {
+  return {
+    id: profile.id,
+    name: profile.name,
+    email: profile.email,
+    phone: profile.phone,
+    avatarUrl: profile.avatarUrl,
+    marketingOptIn: profile.marketingOptIn,
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt,
+    addresses: profile.addresses ?? [],
+    orders: profile.orders ?? []
+  };
+}
+
 router.get("/profile", async (req, res) => {
   const profile = await prisma.user.findUnique({
     where: { id: req.user!.id },
@@ -23,7 +38,7 @@ router.get("/profile", async (req, res) => {
     }
   });
 
-  return res.json({ profile });
+  return res.json({ profile: profile ? serializeCustomerProfile(profile) : null });
 });
 
 router.patch("/profile", async (req, res, next) => {
@@ -38,7 +53,17 @@ router.patch("/profile", async (req, res, next) => {
 
     const profile = await prisma.user.update({
       where: { id: req.user!.id },
-      data: payload
+      data: payload,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        avatarUrl: true,
+        marketingOptIn: true,
+        createdAt: true,
+        updatedAt: true
+      }
     });
 
     return res.json({ profile });
@@ -251,7 +276,19 @@ router.post("/checkout", async (req, res, next) => {
       include: {
         items: {
           include: {
-            product: true
+            product: {
+              include: {
+                addOnGroups: {
+                  orderBy: { sortOrder: "asc" },
+                  include: {
+                    options: {
+                      where: { isActive: true },
+                      orderBy: { sortOrder: "asc" }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -261,16 +298,35 @@ router.post("/checkout", async (req, res, next) => {
       return res.status(409).json({ message: "Cart is empty." });
     }
 
-    const selectedOptionIds = cart.items.flatMap((item) => item.selectedAddOnIds);
-    const addOnOptions = await prisma.addOnOption.findMany({
-      where: { id: { in: selectedOptionIds } }
-    });
-    const addOnMap = new Map(addOnOptions.map((option) => [option.id, option]));
+    const normalizedItems = cart.items.map((item) => {
+      const selectedAddOnIds = [...new Set(item.selectedAddOnIds)];
+      const addOns = item.product.addOnGroups.flatMap((group) => {
+        const selectedOptions = group.options.filter((option) => selectedAddOnIds.includes(option.id));
+        if (selectedOptions.length < group.minSelect || selectedOptions.length > group.maxSelect) {
+          throw Object.assign(new Error(`${item.product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`), { statusCode: 400 });
+        }
 
-    const subtotal = cart.items.reduce((total, item) => {
-      const addOnTotal = item.selectedAddOnIds.reduce((sum, optionId) => sum + Number(addOnMap.get(optionId)?.priceDelta ?? 0), 0);
-      return total + (Number(item.product.basePrice) + addOnTotal) * item.quantity;
-    }, 0);
+        return selectedOptions.map((option) => ({
+          optionId: option.id,
+          optionName: option.name,
+          priceDelta: Number(option.priceDelta)
+        }));
+      });
+
+      if (addOns.length !== selectedAddOnIds.length) {
+        throw Object.assign(new Error(`${item.product.name}: invalid add-on selection.`), { statusCode: 400 });
+      }
+
+      const unitPrice = Number(item.product.basePrice) + addOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
+
+      return {
+        ...item,
+        addOns,
+        unitPrice
+      };
+    });
+
+    const subtotal = normalizedItems.reduce((total, item) => total + item.unitPrice * item.quantity, 0);
 
     let couponId: string | undefined;
     let discountAmount = 0;
@@ -292,6 +348,20 @@ router.post("/checkout", async (req, res, next) => {
     const totalAmount = Math.max(0, subtotal + taxAmount + deliveryFee - discountAmount);
 
     let addressId = payload.addressId;
+    if (addressId) {
+      const address = await prisma.address.findFirst({
+        where: {
+          id: addressId,
+          userId: req.user!.id
+        },
+        select: { id: true }
+      });
+
+      if (!address) {
+        return res.status(403).json({ message: "Address does not belong to this account." });
+      }
+    }
+
     if (!addressId && payload.address) {
       const address = await prisma.address.create({
         data: {
@@ -327,21 +397,18 @@ router.post("/checkout", async (req, res, next) => {
             expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
             deliveryInstructions: payload.deliveryInstructions,
             items: {
-              create: cart.items.map((item) => ({
+              create: normalizedItems.map((item) => ({
                 productId: item.productId,
                 productName: item.product.name,
                 quantity: item.quantity,
-                unitPrice: Number(item.product.basePrice),
+                unitPrice: item.unitPrice,
                 note: item.note,
                 addOns: {
-                  create: item.selectedAddOnIds
-                    .map((optionId) => addOnMap.get(optionId))
-                    .filter(Boolean)
-                    .map((option) => ({
-                      optionId: option!.id,
-                      optionName: option!.name,
-                      priceDelta: Number(option!.priceDelta)
-                    }))
+                  create: item.addOns.map((option) => ({
+                    optionId: option.optionId,
+                    optionName: option.optionName,
+                    priceDelta: option.priceDelta
+                  }))
                 }
               }))
             }

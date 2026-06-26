@@ -1,9 +1,9 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { RoleCode } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { hashPassword, signToken, verifyPassword } from "../lib/auth.js";
-import { authenticate } from "../middleware/auth.js";
+import { AUTH_COOKIE_NAME, authenticate } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -72,9 +72,22 @@ async function authenticateCredentials(email: string, password: string) {
   return user;
 }
 
+function authCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/"
+  };
+}
+
+function setAuthCookie(res: Response, user: NonNullable<Awaited<ReturnType<typeof authenticateCredentials>>>) {
+  const token = signToken({ sub: user.id, email: user.email, role: user.role.code });
+  res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions());
+}
+
 function buildAuthResponse(user: NonNullable<Awaited<ReturnType<typeof authenticateCredentials>>>) {
   return {
-    token: signToken({ sub: user.id, email: user.email, role: user.role.code }),
     user: {
       id: user.id,
       name: user.name,
@@ -98,6 +111,7 @@ router.post("/login", async (req, res, next) => {
       return res.status(403).json({ message: "Use the staff login page for this account." });
     }
 
+    setAuthCookie(res, user);
     return res.json(buildAuthResponse(user));
   } catch (error) {
     return next(error);
@@ -117,6 +131,7 @@ router.post("/admin-login", async (req, res, next) => {
       return res.status(403).json({ message: "Admin access is restricted to admin roles." });
     }
 
+    setAuthCookie(res, user);
     return res.json(buildAuthResponse(user));
   } catch (error) {
     return next(error);
@@ -136,10 +151,16 @@ router.post("/pos-login", async (req, res, next) => {
       return res.status(403).json({ message: "POS access is restricted to approved staff accounts." });
     }
 
+    setAuthCookie(res, user);
     return res.json(buildAuthResponse(user));
   } catch (error) {
     return next(error);
   }
+});
+
+router.post("/logout", (_req, res) => {
+  res.clearCookie(AUTH_COOKIE_NAME, authCookieOptions());
+  return res.status(204).send();
 });
 
 router.get("/me", authenticate, async (req, res) => {

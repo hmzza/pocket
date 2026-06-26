@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, getPosTokenKey } from "@/lib/pos-client";
+import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, logoutPosSession } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -32,6 +32,13 @@ const paymentOptions = [
   { value: "EASYPAISA", label: "EasyPaisa" },
   { value: "JAZZCASH", label: "JazzCash" }
 ] as const;
+
+const paymentTaxDefaults: Record<(typeof paymentOptions)[number]["value"], number> = {
+  CASH: 15,
+  EASYPAISA: 15,
+  JAZZCASH: 15,
+  CARD: 5
+};
 
 const serviceTypes = ["TAKEAWAY", "DINE_IN"] as const;
 
@@ -147,16 +154,9 @@ export function PosTerminal() {
     let cancelled = false;
 
     async function initialize() {
-      const token = window.localStorage.getItem(getPosTokenKey());
-      if (!token) {
-        router.replace("/pos/login");
-        return;
-      }
-
       try {
         const session = await fetchPosSession();
         if (!["ADMIN", "SUPER_ADMIN", "POS_STAFF"].includes(session.user.role)) {
-          window.localStorage.removeItem(getPosTokenKey());
           router.replace("/pos/login");
           return;
         }
@@ -168,7 +168,6 @@ export function PosTerminal() {
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load POS terminal.");
-          window.localStorage.removeItem(getPosTokenKey());
           router.replace("/pos/login");
         }
       } finally {
@@ -208,7 +207,10 @@ export function PosTerminal() {
     return 0;
   }, [discountType, discountValue, subtotal]);
   const total = useMemo(() => Math.max(0, subtotal - discountAmount), [discountAmount, subtotal]);
-  const change = Math.max(0, Number(paidAmount || 0) - total);
+  const taxRate = paymentTaxDefaults[paymentMethod];
+  const taxAmount = useMemo(() => Number(((total * taxRate) / 100).toFixed(2)), [taxRate, total]);
+  const payableTotal = useMemo(() => Number((total + taxAmount).toFixed(2)), [taxAmount, total]);
+  const change = Math.max(0, Number(paidAmount || 0) - payableTotal);
 
   function addProductToTicket(product: PosCatalogProduct) {
     if (orderCompleted) {
@@ -316,7 +318,6 @@ export function PosTerminal() {
         paymentMethod,
         customerName: customerName.trim() || undefined,
         customerPhone: customerPhone.trim() || undefined,
-        taxRate: 0,
         discountType,
         discountValue,
         paidAmount: Number(paidAmount || 0),
@@ -446,8 +447,8 @@ export function PosTerminal() {
             <Button
               variant="outline"
               className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
-              onClick={() => {
-                window.localStorage.removeItem(getPosTokenKey());
+              onClick={async () => {
+                await logoutPosSession().catch(() => null);
                 router.replace("/pos/login");
               }}
             >
@@ -635,12 +636,13 @@ export function PosTerminal() {
             <div className="mt-2.5 space-y-1 rounded-2xl bg-slate-950 px-3 py-2 text-[0.84rem] text-white">
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
-              <div className="flex justify-between text-[0.94rem] font-bold"><span>Total</span><span>{formatCurrency(total)}</span></div>
+              <div className="flex justify-between"><span>Tax ({taxRate}%)</span><span>{formatCurrency(taxAmount)}</span></div>
+              <div className="flex justify-between text-[0.94rem] font-bold"><span>Total</span><span>{formatCurrency(payableTotal)}</span></div>
               <div className="flex justify-between"><span>Paid</span><span>{formatCurrency(Number(paidAmount || 0))}</span></div>
               <div className="flex justify-between"><span>Change</span><span>{formatCurrency(change)}</span></div>
             </div>
 
-            <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || orderCompleted || Number(paidAmount || 0) < total} onClick={() => void submitOrder()}>
+            <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || orderCompleted || Number(paidAmount || 0) < payableTotal} onClick={() => void submitOrder()}>
               <Receipt className="h-4 w-4" />
               {submitting ? "Processing..." : orderCompleted ? "Order Completed" : "Finish"}
             </Button>

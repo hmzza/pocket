@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getPosTokenKey } from "@/lib/pos-client";
 
 export default function PosLoginPage() {
   const [email, setEmail] = useState("");
@@ -23,6 +22,7 @@ export default function PosLoginPage() {
         headers: {
           "Content-Type": "application/json"
         },
+        credentials: "include",
         body: JSON.stringify({ email, password })
       });
 
@@ -31,8 +31,6 @@ export default function PosLoginPage() {
         throw new Error(payload?.message ?? "Login failed.");
       }
 
-      const data = await response.json();
-      window.localStorage.setItem(getPosTokenKey(), data.token);
       window.location.replace("/pos");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Login failed.");
