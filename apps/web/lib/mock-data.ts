@@ -230,7 +230,7 @@ export const products: Product[] = [
     bestSeller: true,
     ingredients: ["French fries", "Cheese sauce", "Jalapeno", "Olives", "Corn", "Chicken"],
     nutrition: { calories: 640, protein: 17, carbs: 50, fats: 30 },
-    addOnGroups: [garlicMayoAddOnGroup],
+    addOnGroups: [],
     reviews: []
   },
   {

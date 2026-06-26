@@ -841,7 +841,16 @@ async function main() {
       });
     }
 
-    if (seed.slug === "thela-fries" || seed.slug === "loaded-fries") {
+    if (seed.slug === "loaded-fries") {
+      await prisma.addOnGroup.deleteMany({
+        where: {
+          productId: product.id,
+          name: "Extras"
+        }
+      });
+    }
+
+    if (seed.slug === "thela-fries") {
       await syncAddOnGroup({
         name: "Extras",
         minSelect: 0,

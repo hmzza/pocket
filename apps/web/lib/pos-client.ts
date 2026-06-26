@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminOrder, PosBranch, PosCatalogProduct, PosReceiptOrder } from "@/lib/types";
+import type { AdminOrder, PosBranch, PosCatalogProduct, PosCustomerLookup, PosReceiptOrder } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const POS_RECEIPT_CACHE_PREFIX = "pocket-pos-receipt:";
@@ -103,6 +103,12 @@ export async function createPosOrder(payload: Record<string, unknown>) {
   });
 }
 
+export async function lookupPosCustomer(phone: string) {
+  const query = new URLSearchParams({ phone });
+  const data = await posFetch<{ customer: PosCustomerLookup | null }>(`/api/pos/customers/lookup?${query.toString()}`);
+  return data.customer;
+}
+
 export async function fetchPosOrders(params?: { scope?: "active" | "delivered" | "all"; search?: string }) {
   const query = new URLSearchParams();
   if (params?.scope) query.set("scope", params.scope);
@@ -120,6 +126,17 @@ export async function updatePosOrderStatus(orderId: string, status: string) {
 
 export async function fetchPosReceipt(orderId: string) {
   const data = await posFetch<{ order: PosReceiptOrder }>(`/api/pos/orders/${orderId}`);
+  return data.order;
+}
+
+export async function fetchPublicReceipt(orderNumber: string, token: string) {
+  const response = await fetch(`${API_URL}/api/receipts/${orderNumber}?token=${encodeURIComponent(token)}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new Error(payload?.message ?? "Receipt unavailable.");
+  }
+
+  const data = await response.json() as { order: PosReceiptOrder };
   return data.order;
 }
 
