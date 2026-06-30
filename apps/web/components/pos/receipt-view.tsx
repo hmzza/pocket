@@ -19,6 +19,16 @@ function formatPaymentMethod(value: string) {
   return map[value] ?? value.replaceAll("_", " ");
 }
 
+function formatOrderSource(value: string) {
+  const map: Record<string, string> = {
+    POS: "POS",
+    ONLINE: "Online",
+    FOODPANDA: "Foodpanda"
+  };
+
+  return map[value] ?? value.replaceAll("_", " ");
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   return {
@@ -69,6 +79,7 @@ function ReceiptSlip({
           ["Time", receiptMeta.time],
           ["User ID", order.userId || "Admin"],
           ["Customer Name", order.customerName || "Walk-in"],
+          ["Source", formatOrderSource(order.orderSource)],
           ["Order Type", order.orderType.replaceAll("_", " ")]
         ].map(([label, value]) => (
           <div key={`${copyLabel}-${label}`} className="flex items-start justify-between gap-3">

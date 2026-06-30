@@ -15,6 +15,7 @@ export function formatOrderForReceipt(order: any) {
     posNo: "001",
     userId: order.cashierId ?? "Admin",
     channel: order.channel,
+    orderSource: order.orderSource,
     serviceType: order.serviceType,
     orderType: order.serviceType,
     status: order.status,
