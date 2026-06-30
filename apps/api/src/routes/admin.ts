@@ -161,6 +161,7 @@ function serializeOrderForOperations(order: any) {
     id: order.id,
     orderNumber: order.orderNumber,
     channel: order.channel,
+    orderSource: order.orderSource,
     serviceType: order.serviceType,
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
@@ -329,6 +330,7 @@ router.get("/dashboard", async (req, res, next) => {
     const breakdownMaps = {
       statuses: new Map<string, { label: string; count: number; revenue: number }>(),
       channels: new Map<string, { label: string; count: number; revenue: number }>(),
+      sources: new Map<string, { label: string; count: number; revenue: number }>(),
       serviceTypes: new Map<string, { label: string; count: number; revenue: number }>(),
       payments: new Map<string, { label: string; count: number; revenue: number }>(),
       branches: new Map<string, { label: string; count: number; revenue: number }>(),
@@ -343,6 +345,7 @@ router.get("/dashboard", async (req, res, next) => {
       const orderRevenue = Number(order.totalAmount);
       const statusKey = order.status;
       const channelKey = order.channel;
+      const sourceKey = order.orderSource;
       const serviceKey = order.serviceType;
       const paymentKey = order.paymentMethod;
       const branchKey = order.branch?.name ?? "Unknown branch";
@@ -352,6 +355,7 @@ router.get("/dashboard", async (req, res, next) => {
       for (const [map, key, label] of [
         [breakdownMaps.statuses, statusKey, statusKey.replaceAll("_", " ")],
         [breakdownMaps.channels, channelKey, channelKey],
+        [breakdownMaps.sources, sourceKey, sourceKey.replaceAll("_", " ")],
         [breakdownMaps.serviceTypes, serviceKey, serviceKey.replaceAll("_", " ")],
         [breakdownMaps.payments, paymentKey, paymentKey.replaceAll("_", " ")],
         [breakdownMaps.branches, branchKey, branchKey]
@@ -432,7 +436,8 @@ router.get("/dashboard", async (req, res, next) => {
           totalAmount: Number(order.totalAmount),
           placedAt: order.placedAt,
           branch: order.branch?.name ?? "Unknown branch",
-          channel: order.channel
+          channel: order.channel,
+          orderSource: order.orderSource
         })),
       lowStock: lowStock.map((entry) => ({
         ingredient: entry.ingredient?.name ?? "Unknown ingredient",
@@ -442,6 +447,7 @@ router.get("/dashboard", async (req, res, next) => {
       breakdowns: {
         statuses: Array.from(breakdownMaps.statuses.values()).sort((left, right) => right.count - left.count),
         channels: Array.from(breakdownMaps.channels.values()).sort((left, right) => right.revenue - left.revenue),
+        sources: Array.from(breakdownMaps.sources.values()).sort((left, right) => right.revenue - left.revenue),
         serviceTypes: Array.from(breakdownMaps.serviceTypes.values()).sort((left, right) => right.revenue - left.revenue),
         payments: Array.from(breakdownMaps.payments.values()).sort((left, right) => right.revenue - left.revenue),
         branches: Array.from(breakdownMaps.branches.values()).sort((left, right) => right.revenue - left.revenue),
@@ -1114,6 +1120,7 @@ router.get("/orders", async (req, res, next) => {
     const query = z
       .object({
         status: z.nativeEnum(OrderStatus).optional(),
+        source: z.enum(["ONLINE", "POS", "FOODPANDA"]).optional(),
         search: z.string().optional()
       })
       .parse(req.query);
@@ -1121,6 +1128,7 @@ router.get("/orders", async (req, res, next) => {
     const orders = await prisma.order.findMany({
       where: {
         ...(query.status ? { status: query.status } : {}),
+        ...(query.source ? { orderSource: query.source } : {}),
         ...(query.search
           ? {
               OR: [
