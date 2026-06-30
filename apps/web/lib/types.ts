@@ -157,6 +157,39 @@ export type DashboardData = {
   };
 };
 
+export type FoodpandaReportData = {
+  range: {
+    preset: AdminRangePreset;
+    start: string;
+    end: string;
+    label: string;
+  };
+  summary: {
+    grossSales: number;
+    orders: number;
+    averageOrderValue: number;
+  };
+  series: Array<{ label: string; revenue: number; orders: number }>;
+  topProducts: Array<{ productName: string; quantity: number; revenue: number }>;
+  orders: Array<{
+    id: string;
+    orderNumber: string;
+    customerName: string;
+    customerPhone?: string;
+    status: string;
+    totalAmount: number;
+    placedAt: string;
+    branch: string;
+    paymentMethod: string;
+    items: Array<{
+      id: string;
+      productName: string;
+      quantity: number;
+      unitPrice: number;
+    }>;
+  }>;
+};
+
 export type AdminInventorySummary = {
   totalItems: number;
   lowStockItems: number;
