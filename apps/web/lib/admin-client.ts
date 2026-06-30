@@ -121,7 +121,6 @@ export async function fetchAdminOrders() {
     id: order.id,
     orderNumber: order.orderNumber,
     channel: order.channel,
-    orderSource: order.orderSource,
     serviceType: order.serviceType,
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
@@ -251,8 +250,7 @@ export async function fetchAdminDashboard(params?: {
       totalAmount: Number(order.totalAmount),
       placedAt: order.placedAt,
       branch: order.branch,
-      channel: order.channel,
-      orderSource: order.orderSource
+      channel: order.channel
     })),
     lowStock: dashboard.lowStock.map((entry: any) => ({
       ingredient: entry.ingredient,
@@ -266,11 +264,6 @@ export async function fetchAdminDashboard(params?: {
         revenue: Number(entry.revenue)
       })),
       channels: dashboard.breakdowns.channels.map((entry: any) => ({
-        label: entry.label,
-        count: entry.count,
-        revenue: Number(entry.revenue)
-      })),
-      sources: dashboard.breakdowns.sources.map((entry: any) => ({
         label: entry.label,
         count: entry.count,
         revenue: Number(entry.revenue)

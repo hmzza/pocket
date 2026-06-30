@@ -33,12 +33,6 @@ const paymentOptions = [
   { value: "JAZZCASH", label: "JazzCash" }
 ] as const;
 
-const orderSources = [
-  { value: "POS", label: "POS" },
-  { value: "ONLINE", label: "Online" },
-  { value: "FOODPANDA", label: "Foodpanda" }
-] as const;
-
 const serviceTypes = ["TAKEAWAY", "DINE_IN"] as const;
 
 function buildDefaultSelections(groups: AddOnGroup[]) {
@@ -134,16 +128,6 @@ function formatPaymentMethod(value: string) {
   return map[value] ?? value.replaceAll("_", " ");
 }
 
-function formatOrderSource(value: string) {
-  const map: Record<string, string> = {
-    POS: "POS",
-    ONLINE: "Online",
-    FOODPANDA: "Foodpanda"
-  };
-
-  return map[value] ?? value.replaceAll("_", " ");
-}
-
 function formatReceiptDateTime(value: string) {
   const date = new Date(value);
   return {
@@ -167,7 +151,6 @@ function buildWhatsAppReceiptMessage(order: PosReceiptOrder) {
     `Time: ${receiptMeta.time}`,
     `Customer: ${order.customerName || "Walk-in"}`,
     `Order Type: ${order.orderType.replaceAll("_", " ")}`,
-    `Source: ${formatOrderSource(order.orderSource)}`,
     `Payment: ${formatPaymentMethod(order.paymentMethod)}`,
     "",
     "Items"
@@ -241,7 +224,6 @@ export function PosTerminal() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [serviceType, setServiceType] = useState<(typeof serviceTypes)[number]>("TAKEAWAY");
-  const [orderSource, setOrderSource] = useState<(typeof orderSources)[number]["value"]>("POS");
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentOptions)[number]["value"]>("CASH");
   const [discountType, setDiscountType] = useState<"NONE" | "PERCENTAGE" | "FIXED">("NONE");
   const [discountValue, setDiscountValue] = useState("");
@@ -462,7 +444,6 @@ export function PosTerminal() {
       const response = await createPosOrder({
         branchId,
         serviceType,
-        orderSource,
         paymentMethod,
         customerName: customerName.trim() || undefined,
         customerPhone: submittedCustomerPhone || undefined,
@@ -511,7 +492,6 @@ export function PosTerminal() {
     setCustomerName("");
     setCustomerPhone("");
     setServiceType("TAKEAWAY");
-    setOrderSource("POS");
     setPaymentMethod("CASH");
     setDiscountType("NONE");
     setDiscountValue("");
@@ -784,18 +764,11 @@ export function PosTerminal() {
                   New customer phone. Receipt sharing will be available after checkout.
                 </div>
               ) : null}
-              <div className="grid gap-2 md:grid-cols-3">
+              <div className="grid gap-2 md:grid-cols-2">
                 <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={orderCompleted}>
                   {serviceTypes.map((entry) => (
                     <option key={entry} value={entry}>
                       {entry.replaceAll("_", " ")}
-                    </option>
-                  ))}
-                </select>
-                <select value={orderSource} onChange={(event) => setOrderSource(event.target.value as (typeof orderSources)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={orderCompleted}>
-                  {orderSources.map((entry) => (
-                    <option key={entry.value} value={entry.value}>
-                      {entry.label}
                     </option>
                   ))}
                 </select>

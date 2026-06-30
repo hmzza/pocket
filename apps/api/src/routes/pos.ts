@@ -65,7 +65,6 @@ const cartItemSchema = z.discriminatedUnion("type", [
 const checkoutSchema = z.object({
   branchId: z.string().cuid(),
   serviceType: z.nativeEnum(ServiceType),
-  orderSource: z.enum(["ONLINE", "POS", "FOODPANDA"]).default("POS"),
   paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH"]),
   customerName: z.string().max(80).optional(),
   customerPhone: z.string().max(20).optional(),
@@ -375,7 +374,6 @@ router.post("/checkout", async (req, res, next) => {
             customerName: payload.customerName?.trim() || null,
             customerPhone: payload.customerPhone?.trim() || null,
             channel: OrderChannel.POS,
-            orderSource: payload.orderSource,
             serviceType: payload.serviceType,
             status: "CONFIRMED",
             paymentMethod: payload.paymentMethod as PaymentMethod,
@@ -453,14 +451,13 @@ router.post("/checkout", async (req, res, next) => {
       action: "pos.checkout",
       entityType: "order",
       entityId: order.id,
-        payload: {
-          orderNumber,
-          branchId: payload.branchId,
-          itemCount: payload.items.length,
-          paymentMethod: payload.paymentMethod,
-          orderSource: payload.orderSource
-        }
-      }).catch((auditError) => {
+      payload: {
+        orderNumber,
+        branchId: payload.branchId,
+        itemCount: payload.items.length,
+        paymentMethod: payload.paymentMethod
+      }
+    }).catch((auditError) => {
       console.error("Failed to write POS checkout audit log", auditError);
     });
 

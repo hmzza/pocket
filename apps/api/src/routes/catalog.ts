@@ -526,7 +526,6 @@ router.post("/checkout", async (req, res, next) => {
             addressId: address.id,
             couponId,
             channel: OrderChannel.ONLINE,
-            orderSource: "ONLINE",
             serviceType: ServiceType.DELIVERY,
             customerName: payload.name,
             customerPhone: payload.phone,
@@ -606,7 +605,7 @@ router.post("/checkout", async (req, res, next) => {
       action: "order.checkout.guest",
       entityType: "order",
       entityId: order.id,
-      payload: { orderNumber, guest: true, orderSource: "ONLINE" }
+      payload: { orderNumber, guest: true }
     });
 
     return res.status(201).json({ order });

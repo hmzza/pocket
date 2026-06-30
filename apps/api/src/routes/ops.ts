@@ -19,7 +19,6 @@ function serializeOrder(order: any) {
     id: order.id,
     orderNumber: order.orderNumber,
     channel: order.channel,
-    orderSource: order.orderSource,
     serviceType: order.serviceType,
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,

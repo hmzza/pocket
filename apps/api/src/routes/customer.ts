@@ -386,7 +386,6 @@ router.post("/checkout", async (req, res, next) => {
             addressId,
             couponId,
             customerName: req.user!.name,
-            orderSource: "ONLINE",
             paymentMethod: payload.paymentMethod,
             paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
             subtotal,
@@ -459,7 +458,7 @@ router.post("/checkout", async (req, res, next) => {
       action: "order.checkout",
       entityType: "order",
       entityId: order.id,
-      payload: { orderNumber, orderSource: "ONLINE" }
+      payload: { orderNumber }
     });
 
     return res.status(201).json({ order });
