@@ -8,8 +8,7 @@ import type {
   AdminProduct,
   AdminRangePreset,
   Category,
-  DashboardData,
-  FoodpandaReportData
+  DashboardData
 } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -295,61 +294,6 @@ export async function fetchAdminDashboard(params?: {
         revenue: Number(entry.revenue)
       }))
     }
-  };
-}
-
-export async function fetchAdminFoodpanda(params?: {
-  preset?: AdminRangePreset;
-  start?: string;
-  end?: string;
-}): Promise<FoodpandaReportData> {
-  const searchParams = new URLSearchParams();
-  if (params?.preset) searchParams.set("preset", params.preset);
-  if (params?.start) searchParams.set("start", params.start);
-  if (params?.end) searchParams.set("end", params.end);
-
-  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
-  const report = await adminFetch<any>(`/api/admin/foodpanda${suffix}`);
-
-  return {
-    range: {
-      preset: report.range.preset,
-      start: report.range.start,
-      end: report.range.end,
-      label: report.range.label
-    },
-    summary: {
-      grossSales: Number(report.summary.grossSales),
-      orders: report.summary.orders,
-      averageOrderValue: Number(report.summary.averageOrderValue)
-    },
-    series: report.series.map((entry: any) => ({
-      label: entry.label,
-      revenue: Number(entry.revenue),
-      orders: entry.orders
-    })),
-    topProducts: report.topProducts.map((entry: any) => ({
-      productName: entry.productName,
-      quantity: entry.quantity,
-      revenue: Number(entry.revenue)
-    })),
-    orders: report.orders.map((order: any) => ({
-      id: order.id,
-      orderNumber: order.orderNumber,
-      customerName: order.customerName,
-      customerPhone: order.customerPhone ?? undefined,
-      status: order.status,
-      totalAmount: Number(order.totalAmount),
-      placedAt: order.placedAt,
-      branch: order.branch,
-      paymentMethod: order.paymentMethod,
-      items: order.items.map((item: any) => ({
-        id: item.id,
-        productName: item.productName,
-        quantity: item.quantity,
-        unitPrice: Number(item.unitPrice)
-      }))
-    }))
   };
 }
 

@@ -64,7 +64,7 @@ const cartItemSchema = z.discriminatedUnion("type", [
 
 const checkoutSchema = z.object({
   branchId: z.string().cuid(),
-  serviceType: z.enum(["INSHOP", "FOODPANDA"]),
+  serviceType: z.nativeEnum(ServiceType),
   paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH"]),
   customerName: z.string().max(80).optional(),
   customerPhone: z.string().max(20).optional(),
@@ -374,7 +374,7 @@ router.post("/checkout", async (req, res, next) => {
             customerName: payload.customerName?.trim() || null,
             customerPhone: payload.customerPhone?.trim() || null,
             channel: OrderChannel.POS,
-            serviceType: payload.serviceType as ServiceType,
+            serviceType: payload.serviceType,
             status: "CONFIRMED",
             paymentMethod: payload.paymentMethod as PaymentMethod,
             paymentStatus: PaymentStatus.PAID,
