@@ -140,7 +140,6 @@ export type DashboardData = {
     placedAt: string;
     branch: string;
     channel: string;
-    orderSource: string;
   }>;
   lowStock: Array<{
     ingredient: string;
@@ -150,7 +149,6 @@ export type DashboardData = {
   breakdowns: {
     statuses: Array<{ label: string; count: number; revenue: number }>;
     channels: Array<{ label: string; count: number; revenue: number }>;
-    sources: Array<{ label: string; count: number; revenue: number }>;
     serviceTypes: Array<{ label: string; count: number; revenue: number }>;
     payments: Array<{ label: string; count: number; revenue: number }>;
     branches: Array<{ label: string; count: number; revenue: number }>;
@@ -272,7 +270,6 @@ export type AdminOrder = {
   id: string;
   orderNumber: string;
   channel: string;
-  orderSource: string;
   serviceType: string;
   customerName: string;
   customerPhone?: string;
@@ -334,7 +331,6 @@ export type PosReceiptOrder = {
   posNo: string;
   userId: string;
   channel: string;
-  orderSource: string;
   serviceType: string;
   orderType: string;
   status: string;

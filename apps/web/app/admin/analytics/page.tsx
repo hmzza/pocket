@@ -59,10 +59,6 @@ export default function AdminAnalyticsPage() {
     () => dashboard?.breakdowns.branches.slice().sort((left, right) => right.revenue - left.revenue)[0],
     [dashboard]
   );
-  const bestSource = useMemo(
-    () => dashboard?.breakdowns.sources.slice().sort((left, right) => right.revenue - left.revenue)[0],
-    [dashboard]
-  );
   const bestWeekday = useMemo(
     () => dashboard?.breakdowns.weekdays.slice().sort((left, right) => right.revenue - left.revenue)[0],
     [dashboard]
@@ -72,7 +68,7 @@ export default function AdminAnalyticsPage() {
     <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
       <AdminShell
         title="Analytics"
-        description="Deeper operational breakdowns across hour, weekday, branch, source, and payment behaviour for the selected period."
+        description="Deeper operational breakdowns across hour, weekday, branch, and payment behaviour for the selected period."
       >
         <div className="flex flex-wrap gap-2">
           {presets.map((option) => (
@@ -96,7 +92,7 @@ export default function AdminAnalyticsPage() {
           <Card className="p-6 text-sm text-pocket-navy/60">Loading analytics...</Card>
         ) : (
           <>
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3">
               <MiniHighlight
                 title="Peak Revenue Hour"
                 value={bestHour?.label ?? "N/A"}
@@ -114,12 +110,6 @@ export default function AdminAnalyticsPage() {
                 value={bestWeekday?.label ?? "N/A"}
                 helper={bestWeekday ? `${formatCurrency(bestWeekday.revenue)} across ${bestWeekday.count} orders` : "No day pattern yet"}
                 icon={TrendingUp}
-              />
-              <MiniHighlight
-                title="Strongest Source"
-                value={bestSource?.label ?? "N/A"}
-                helper={bestSource ? `${formatCurrency(bestSource.revenue)} across ${bestSource.count} orders` : "No source pattern yet"}
-                icon={Store}
               />
             </div>
 
@@ -161,11 +151,6 @@ export default function AdminAnalyticsPage() {
                 title="Branch Breakdown"
                 rows={dashboard.breakdowns.branches}
                 helper="Useful once more branches are live."
-              />
-              <AnalyticsTable
-                title="Source Breakdown"
-                rows={dashboard.breakdowns.sources}
-                helper="Compare Foodpanda, online, and counter sales."
               />
               <AnalyticsTable
                 title="Status Breakdown"

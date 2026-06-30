@@ -9,16 +9,6 @@ import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders, ORDER_STATUSE
 import type { AdminOrder } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
-function formatOrderSource(value: string) {
-  const map: Record<string, string> = {
-    POS: "POS",
-    ONLINE: "Online",
-    FOODPANDA: "Foodpanda"
-  };
-
-  return map[value] ?? value.replaceAll("_", " ");
-}
-
 function OrderDetails({ order }: { order: AdminOrder }) {
   return (
     <div className="grid gap-6 rounded-lg bg-pocket-cream p-5 lg:grid-cols-[0.85fr_1.15fr]">
@@ -26,7 +16,7 @@ function OrderDetails({ order }: { order: AdminOrder }) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Order ID</p>
           <p className="mt-2 text-base font-bold text-pocket-navy">{order.orderNumber}</p>
-          <p className="text-sm text-pocket-navy/60">{order.channel.replaceAll("_", " ")} · {formatOrderSource(order.orderSource)} · {order.serviceType.replaceAll("_", " ")}</p>
+          <p className="text-sm text-pocket-navy/60">{order.channel.replaceAll("_", " ")} · {order.serviceType.replaceAll("_", " ")}</p>
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Customer</p>
@@ -38,7 +28,6 @@ function OrderDetails({ order }: { order: AdminOrder }) {
           <p className="mt-2 text-sm font-medium text-pocket-navy">{order.paymentMethod.replaceAll("_", " ")}</p>
           <p className="text-sm text-pocket-navy/60">{order.paymentStatus.replaceAll("_", " ")}</p>
           <p className="mt-2 text-sm text-pocket-navy/60">Channel: {order.channel.replaceAll("_", " ")}</p>
-          <p className="text-sm text-pocket-navy/60">Source: {formatOrderSource(order.orderSource)}</p>
           <p className="text-sm text-pocket-navy/60">Service: {order.serviceType.replaceAll("_", " ")}</p>
           <p className="text-sm text-pocket-navy/60">Paid: {formatCurrency(order.paidAmount)}</p>
           <p className="text-sm text-pocket-navy/60">Change: {formatCurrency(order.changeDueAmount)}</p>
@@ -97,7 +86,6 @@ export function OrderManagement() {
   const [viewFilter, setViewFilter] = useState<"ACTIVE" | "DELIVERED" | "ALL">("ACTIVE");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [sourceFilter, setSourceFilter] = useState("ALL");
   const [expandedOrderId, setExpandedOrderId] = useState("");
   const [updatingOrderId, setUpdatingOrderId] = useState("");
   const [deletingOrderId, setDeletingOrderId] = useState("");
@@ -127,12 +115,11 @@ export function OrderManagement() {
       const matchesView =
         viewFilter === "ALL" ? true : viewFilter === "ACTIVE" ? isActive : order.status === "DELIVERED";
       const matchesStatus = statusFilter === "ALL" || order.status === statusFilter;
-      const matchesSource = sourceFilter === "ALL" || order.orderSource === sourceFilter;
-      const haystack = `${order.orderNumber} ${order.customerName} ${order.branch} ${order.channel} ${order.orderSource} ${order.paymentMethod} ${order.address?.addressLine1 ?? ""} ${order.address?.city ?? ""}`.toLowerCase();
+      const haystack = `${order.orderNumber} ${order.customerName} ${order.branch} ${order.channel} ${order.address?.addressLine1 ?? ""} ${order.address?.city ?? ""}`.toLowerCase();
       const matchesSearch = !search || haystack.includes(search.toLowerCase());
-      return matchesView && matchesStatus && matchesSource && matchesSearch;
+      return matchesView && matchesStatus && matchesSearch;
     });
-  }, [orders, search, sourceFilter, statusFilter, viewFilter]);
+  }, [orders, search, statusFilter, viewFilter]);
 
   async function changeStatus(orderId: string, status: string) {
     setUpdatingOrderId(orderId);
@@ -201,8 +188,8 @@ export function OrderManagement() {
               </Button>
             ))}
           </div>
-          <div className="grid gap-4 lg:grid-cols-[1fr_220px_220px_auto]">
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, customer, branch, source, or address" />
+          <div className="grid gap-4 lg:grid-cols-[1fr_220px_auto]">
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, customer, branch, or address" />
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
@@ -212,18 +199,6 @@ export function OrderManagement() {
               {ORDER_STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {status.replaceAll("_", " ")}
-                </option>
-              ))}
-            </select>
-            <select
-              value={sourceFilter}
-              onChange={(event) => setSourceFilter(event.target.value)}
-              className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
-            >
-              <option value="ALL">All sources</option>
-              {["POS", "ONLINE", "FOODPANDA"].map((source) => (
-                <option key={source} value={source}>
-                  {formatOrderSource(source)}
                 </option>
               ))}
             </select>
@@ -277,9 +252,7 @@ export function OrderManagement() {
                   <div>
                     <p className="font-bold text-pocket-navy">{order.orderNumber}</p>
                     <p className="text-pocket-navy/60">{order.branch}</p>
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-pocket-orange">
-                      {order.channel.replaceAll("_", " ")} · {formatOrderSource(order.orderSource)}
-                    </p>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-pocket-orange">{order.channel.replaceAll("_", " ")}</p>
                     <p className="mt-1 text-xs font-medium uppercase tracking-wide text-pocket-navy/40">
                       {new Intl.DateTimeFormat("en-PK", {
                         month: "short",

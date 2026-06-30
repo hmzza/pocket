@@ -71,19 +71,8 @@ export default function AdminPage() {
   }, [preset, startDate, endDate]);
 
   const strongestChannel = useMemo(() => dashboard?.breakdowns.channels[0], [dashboard]);
-  const strongestSource = useMemo(() => dashboard?.breakdowns.sources[0], [dashboard]);
   const strongestServiceType = useMemo(() => dashboard?.breakdowns.serviceTypes[0], [dashboard]);
   const strongestPayment = useMemo(() => dashboard?.breakdowns.payments[0], [dashboard]);
-  const foodpandaSales = useMemo(
-    () => dashboard?.breakdowns.sources.find((entry) => entry.label.toUpperCase() === "FOODPANDA"),
-    [dashboard]
-  );
-  const otherSales = useMemo(() => {
-    if (!dashboard) return undefined;
-    return dashboard.breakdowns.sources
-      .filter((entry) => entry.label.toUpperCase() !== "FOODPANDA")
-      .reduce((sum, entry) => sum + entry.revenue, 0);
-  }, [dashboard]);
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
@@ -157,12 +146,6 @@ export default function AdminPage() {
                   Top channel: {strongestChannel.label}
                 </span>
               ) : null}
-              {strongestSource ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                  <Package2 className="h-4 w-4 text-amber-300" />
-                  Top source: {strongestSource.label}
-                </span>
-              ) : null}
               {strongestServiceType ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
                   <Package2 className="h-4 w-4 text-amber-300" />
@@ -216,19 +199,6 @@ export default function AdminPage() {
               />
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <StatStrip
-                label="Foodpanda Sales"
-                value={formatCurrency(foodpandaSales?.revenue ?? 0)}
-                helper={foodpandaSales ? `${foodpandaSales.count} orders in this period.` : "No Foodpanda orders in the selected period."}
-              />
-              <StatStrip
-                label="Other Sales"
-                value={formatCurrency(otherSales ?? 0)}
-                helper="Revenue from all non-Foodpanda orders."
-              />
-            </div>
-
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
               <SalesChart
                 sales={dashboard.series}
@@ -264,11 +234,6 @@ export default function AdminPage() {
                 title="Channel Mix"
                 items={dashboard.breakdowns.channels}
                 helper="How orders are split across POS and online."
-              />
-              <BreakdownCard
-                title="Source Mix"
-                items={dashboard.breakdowns.sources}
-                helper="Track Foodpanda, online, and counter sales separately."
               />
               <BreakdownCard
                 title="Service Mix"
@@ -347,7 +312,7 @@ export default function AdminPage() {
                           <p className="font-bold text-pocket-navy">{order.orderNumber}</p>
                           <p className="text-sm text-pocket-navy/60">{order.customerName}</p>
                           <p className="mt-1 text-xs uppercase tracking-[0.2em] text-pocket-navy/45">
-                            {order.branch} · {order.channel} · {order.orderSource.replaceAll("_", " ")}
+                            {order.branch} · {order.channel}
                           </p>
                         </div>
                         <div className="text-right">

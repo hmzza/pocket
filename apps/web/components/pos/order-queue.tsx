@@ -16,16 +16,6 @@ const scopeOptions = [
   { value: "all", label: "All" }
 ] as const;
 
-function formatOrderSource(value: string) {
-  const map: Record<string, string> = {
-    POS: "POS",
-    ONLINE: "Online",
-    FOODPANDA: "Foodpanda"
-  };
-
-  return map[value] ?? value.replaceAll("_", " ");
-}
-
 function OrderCard({
   order,
   onComplete
@@ -43,7 +33,7 @@ function OrderCard({
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-orange-600">Order ID</p>
             <h3 className="mt-1 text-2xl font-black text-slate-900">{order.orderNumber}</h3>
             <p className="mt-1 text-sm text-slate-500">
-              {order.channel.replaceAll("_", " ")} · {formatOrderSource(order.orderSource)} · {order.serviceType.replaceAll("_", " ")} · {new Intl.DateTimeFormat("en-PK", { hour: "numeric", minute: "2-digit", day: "numeric", month: "short" }).format(new Date(order.placedAt))}
+              {order.channel.replaceAll("_", " ")} · {order.serviceType.replaceAll("_", " ")} · {new Intl.DateTimeFormat("en-PK", { hour: "numeric", minute: "2-digit", day: "numeric", month: "short" }).format(new Date(order.placedAt))}
             </p>
           </div>
 
@@ -274,7 +264,7 @@ export function PosOrderQueue() {
               Mark {confirmOrder.customerName} order as delivered?
             </p>
             <div className="mt-5 rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              <p>{confirmOrder.serviceType.replaceAll("_", " ")} · {confirmOrder.channel.replaceAll("_", " ")} · {formatOrderSource(confirmOrder.orderSource)}</p>
+              <p>{confirmOrder.serviceType.replaceAll("_", " ")} · {confirmOrder.channel.replaceAll("_", " ")}</p>
               <p className="mt-1 font-semibold text-slate-900">{formatCurrency(confirmOrder.totalAmount)}</p>
             </div>
             <div className="mt-6 flex flex-wrap justify-end gap-3">

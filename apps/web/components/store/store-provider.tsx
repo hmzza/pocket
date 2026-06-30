@@ -272,10 +272,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-pocket-orange">Notice</p>
               <div className="space-y-3">
                 <h2 id="ordering-notice-title" className="text-3xl font-black text-pocket-navy">
-                  We are taking online orders only on Foodpanda.
+                  We are not taking online orders right now.
                 </h2>
                 <p className="text-base leading-7 text-pocket-navy/75">
-                  Please place your online order through Foodpanda. You can still browse the menu and view all items on the website.
+                  Please visit us physically to place your order. You can still browse the menu and view all items on the website.
                 </p>
               </div>
               <div className="rounded-2xl bg-pocket-cream p-4">

@@ -572,10 +572,10 @@ export const dashboardData: DashboardData = {
     { productName: "Kiwi Passion", quantity: 91, revenue: 36400 }
   ],
   recentOrders: [
-    { id: "o1", orderNumber: "PKT-2026-000131", customerName: "Ali Raza", status: "PREPARING", totalAmount: 1490, placedAt: "2026-06-07T16:58:00.000Z", branch: branch.name, channel: "ONLINE", orderSource: "ONLINE" },
-    { id: "o2", orderNumber: "PKT-2026-000130", customerName: "Noor Hassan", status: "CONFIRMED", totalAmount: 930, placedAt: "2026-06-07T15:35:00.000Z", branch: branch.name, channel: "POS", orderSource: "POS" },
-    { id: "o3", orderNumber: "PKT-2026-000129", customerName: "Ayesha Khan", status: "OUT_FOR_DELIVERY", totalAmount: 883, placedAt: "2026-06-07T14:12:00.000Z", branch: branch.name, channel: "ONLINE", orderSource: "FOODPANDA" },
-    { id: "o4", orderNumber: "PKT-2026-000128", customerName: "M. Salman", status: "DELIVERED", totalAmount: 690, placedAt: "2026-06-07T13:02:00.000Z", branch: branch.name, channel: "POS", orderSource: "POS" }
+    { id: "o1", orderNumber: "PKT-2026-000131", customerName: "Ali Raza", status: "PREPARING", totalAmount: 1490, placedAt: "2026-06-07T16:58:00.000Z", branch: branch.name, channel: "ONLINE" },
+    { id: "o2", orderNumber: "PKT-2026-000130", customerName: "Noor Hassan", status: "CONFIRMED", totalAmount: 930, placedAt: "2026-06-07T15:35:00.000Z", branch: branch.name, channel: "POS" },
+    { id: "o3", orderNumber: "PKT-2026-000129", customerName: "Ayesha Khan", status: "OUT_FOR_DELIVERY", totalAmount: 883, placedAt: "2026-06-07T14:12:00.000Z", branch: branch.name, channel: "ONLINE" },
+    { id: "o4", orderNumber: "PKT-2026-000128", customerName: "M. Salman", status: "DELIVERED", totalAmount: 690, placedAt: "2026-06-07T13:02:00.000Z", branch: branch.name, channel: "POS" }
   ],
   lowStock: [
     { ingredient: "Beef slices", branch: "Pocket G-11 Markaz", quantityOnHand: 6 },
@@ -592,11 +592,6 @@ export const dashboardData: DashboardData = {
     channels: [
       { label: "POS", count: 72, revenue: 86400 },
       { label: "ONLINE", count: 52, revenue: 62300 }
-    ],
-    sources: [
-      { label: "POS", count: 72, revenue: 86400 },
-      { label: "ONLINE", count: 41, revenue: 49200 },
-      { label: "FOODPANDA", count: 11, revenue: 13100 }
     ],
     serviceTypes: [
       { label: "TAKEAWAY", count: 68, revenue: 80100 },
