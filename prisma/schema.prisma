@@ -48,8 +48,6 @@ enum ServiceType {
   DELIVERY
   TAKEAWAY
   DINE_IN
-  INSHOP
-  FOODPANDA
 }
 
 enum PaymentStatus {

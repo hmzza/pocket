@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { InventoryTransactionType, OrderStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { InventoryTransactionType, OrderStatus, Prisma, RoleCode } from "@prisma/client";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { authenticate, authorize } from "../middleware/auth.js";
@@ -275,8 +275,7 @@ router.get("/dashboard", async (req, res, next) => {
           placedAt: {
             gte: range.start,
             lte: range.end
-          },
-          serviceType: { not: ServiceType.FOODPANDA }
+          }
         },
         include: {
           customer: {
@@ -295,8 +294,7 @@ router.get("/dashboard", async (req, res, next) => {
           placedAt: {
             gte: previousStart,
             lt: previousEnd
-          },
-          serviceType: { not: ServiceType.FOODPANDA }
+          }
         },
         select: {
           totalAmount: true,
@@ -460,89 +458,6 @@ router.get("/dashboard", async (req, res, next) => {
   }
 });
 
-router.get("/foodpanda", async (req, res, next) => {
-  try {
-    const query = dashboardQuerySchema.parse(req.query);
-    const range = buildDashboardRange(query);
-    const orders = await prisma.order.findMany({
-      where: {
-        serviceType: ServiceType.FOODPANDA,
-        placedAt: {
-          gte: range.start,
-          lte: range.end
-        }
-      },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        branch: true,
-        items: true
-      },
-      orderBy: { placedAt: "asc" }
-    });
-
-    const grossSales = orders.reduce((sum, order) => sum + Number(order.totalAmount), 0);
-    const orderCount = orders.length;
-    const productMap = new Map<string, { productName: string; quantity: number; revenue: number }>();
-
-    for (const order of orders) {
-      for (const item of order.items) {
-        const existing = productMap.get(item.productName) ?? {
-          productName: item.productName,
-          quantity: 0,
-          revenue: 0
-        };
-        existing.quantity += item.quantity;
-        existing.revenue += Number(item.unitPrice) * item.quantity;
-        productMap.set(item.productName, existing);
-      }
-    }
-
-    return res.json({
-      range: {
-        preset: range.preset,
-        start: range.start.toISOString(),
-        end: range.end.toISOString(),
-        label: range.label
-      },
-      summary: {
-        grossSales: Number(grossSales.toFixed(2)),
-        orders: orderCount,
-        averageOrderValue: orderCount ? Number((grossSales / orderCount).toFixed(2)) : 0
-      },
-      series: buildSalesSeries(orders, range.start, range.end),
-      topProducts: Array.from(productMap.values())
-        .sort((left, right) => right.quantity - left.quantity)
-        .slice(0, 8),
-      orders: [...orders]
-        .sort((left, right) => right.placedAt.getTime() - left.placedAt.getTime())
-        .map((order) => ({
-          id: order.id,
-          orderNumber: order.orderNumber,
-          customerName: order.customer?.name ?? order.customerName ?? "Walk-in Customer",
-          customerPhone: order.customerPhone ?? undefined,
-          status: order.status,
-          totalAmount: Number(order.totalAmount),
-          placedAt: order.placedAt,
-          branch: order.branch?.name ?? "Unknown branch",
-          paymentMethod: order.paymentMethod,
-          items: order.items.map((item) => ({
-            id: item.id,
-            productName: item.productName,
-            quantity: item.quantity,
-            unitPrice: Number(item.unitPrice)
-          }))
-        }))
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
 router.get("/analytics/sales", async (req, res, next) => {
   try {
     const query = dashboardQuerySchema.parse(req.query);
@@ -552,8 +467,7 @@ router.get("/analytics/sales", async (req, res, next) => {
         placedAt: {
           gte: range.start,
           lte: range.end
-        },
-        serviceType: { not: ServiceType.FOODPANDA }
+        }
       },
       select: {
         placedAt: true,
