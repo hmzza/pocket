@@ -440,8 +440,12 @@ router.post("/checkout", async (req, res, next) => {
       initialOrderNumber
     );
 
-    // The audit log is not awaited, so it never blocks the cashier response.
-    // Failures are logged, not surfaced.
+    res.status(201).json({
+      order: formatReceiptResponse(order)
+    });
+
+    // The audit log is not needed for the response — write it after responding
+    // so it never blocks the cashier. Failures are logged, not surfaced.
     void writeAuditLog({
       actorId: req.user!.id,
       action: "pos.checkout",
