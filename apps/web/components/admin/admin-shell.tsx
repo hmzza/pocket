@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, Boxes, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, Users } from "lucide-react";
+import { BarChart3, Boxes, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, Store, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ const links: Array<{
   { href: "/admin/products", label: "Products", icon: Boxes },
   { href: "/admin/inventory", label: "Inventory", icon: Package2 },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
+  { href: "/admin/foodpanda", label: "Foodpanda", icon: Store },
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt }

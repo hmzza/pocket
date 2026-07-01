@@ -19,6 +19,18 @@ function formatPaymentMethod(value: string) {
   return map[value] ?? value.replaceAll("_", " ");
 }
 
+function formatServiceType(value: string) {
+  const map: Record<string, string> = {
+    INSHOP: "Inshop",
+    FOODPANDA: "Foodpanda",
+    TAKEAWAY: "Takeaway",
+    DINE_IN: "Dine in",
+    DELIVERY: "Delivery"
+  };
+
+  return map[value] ?? value.replaceAll("_", " ");
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   return {
@@ -33,7 +45,7 @@ function money(value: number) {
 
 type ReceiptCopy = "customer" | "store";
 
-type ReceiptMode = ReceiptCopy | "chef" | "all";
+type ReceiptMode = ReceiptCopy | "chef" | "all" | "store-chef";
 
 function ReceiptSlip({
   order,
@@ -69,7 +81,7 @@ function ReceiptSlip({
           ["Time", receiptMeta.time],
           ["User ID", order.userId || "Admin"],
           ["Customer Name", order.customerName || "Walk-in"],
-          ["Order Type", order.orderType.replaceAll("_", " ")]
+          ["Order Type", formatServiceType(order.orderType)]
         ].map(([label, value]) => (
           <div key={`${copyLabel}-${label}`} className="flex items-start justify-between gap-3">
             <span className="font-semibold text-black print:font-bold">{label}:</span>
@@ -226,6 +238,23 @@ function ReceiptBundle({
   );
 }
 
+function StoreChefBundle({
+  order,
+  receiptMeta
+}: {
+  order: PosReceiptOrder;
+  receiptMeta: { date: string; time: string };
+}) {
+  return (
+    <div className="space-y-3 print:space-y-0">
+      <div className="print:break-after-page">
+        <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel="Store Copy" />
+      </div>
+      <ChefSlip order={order} />
+    </div>
+  );
+}
+
 export function ReceiptView({ orderId, publicToken }: { orderId: string; publicToken?: string }) {
   const searchParams = useSearchParams();
   const [order, setOrder] = useState<PosReceiptOrder | null>(null);
@@ -294,6 +323,7 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
   }, [order]);
 
   const isBundle = mode === "all";
+  const isStoreChef = mode === "store-chef";
   const isChef = mode === "chef";
   const copy = mode === "store" ? "store" : "customer";
   const copyLabel = copy === "store" ? "Store Copy" : "Customer Copy";
@@ -310,14 +340,14 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
         {
           type: "pos-receipt-printed",
           orderId,
-          copy: isBundle ? "all" : isChef ? "chef" : copy
+          copy: isBundle ? "all" : isStoreChef ? "store-chef" : isChef ? "chef" : copy
         },
         window.location.origin
       );
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [autoPrint, copy, isBundle, isChef, order, orderId, receiptMeta]);
+  }, [autoPrint, copy, isBundle, isChef, isStoreChef, order, orderId, receiptMeta]);
 
   if (error) {
     return <div className="mx-auto max-w-sm px-4 py-10 text-sm text-red-600">{error}</div>;
@@ -339,7 +369,7 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
             Print
           </button>
         </div>
-        {isBundle ? <ReceiptBundle order={order} receiptMeta={receiptMeta} /> : isChef ? <ChefSlip order={order} /> : <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel={copyLabel} />}
+        {isBundle ? <ReceiptBundle order={order} receiptMeta={receiptMeta} /> : isStoreChef ? <StoreChefBundle order={order} receiptMeta={receiptMeta} /> : isChef ? <ChefSlip order={order} /> : <ReceiptSlip order={order} receiptMeta={receiptMeta} copyLabel={copyLabel} />}
       </div>
     </div>
   );

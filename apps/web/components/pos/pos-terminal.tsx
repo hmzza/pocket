@@ -33,7 +33,10 @@ const paymentOptions = [
   { value: "JAZZCASH", label: "JazzCash" }
 ] as const;
 
-const serviceTypes = ["TAKEAWAY", "DINE_IN"] as const;
+const serviceTypes = [
+  { value: "INSHOP", label: "Inshop" },
+  { value: "FOODPANDA", label: "Foodpanda" }
+] as const;
 
 function buildDefaultSelections(groups: AddOnGroup[]) {
   return normalizeSelections(
@@ -128,6 +131,18 @@ function formatPaymentMethod(value: string) {
   return map[value] ?? value.replaceAll("_", " ");
 }
 
+function formatServiceType(value: string) {
+  const map: Record<string, string> = {
+    INSHOP: "Inshop",
+    FOODPANDA: "Foodpanda",
+    TAKEAWAY: "Takeaway",
+    DINE_IN: "Dine in",
+    DELIVERY: "Delivery"
+  };
+
+  return map[value] ?? value.replaceAll("_", " ");
+}
+
 function formatReceiptDateTime(value: string) {
   const date = new Date(value);
   return {
@@ -150,7 +165,7 @@ function buildWhatsAppReceiptMessage(order: PosReceiptOrder) {
     `Date: ${receiptMeta.date}`,
     `Time: ${receiptMeta.time}`,
     `Customer: ${order.customerName || "Walk-in"}`,
-    `Order Type: ${order.orderType.replaceAll("_", " ")}`,
+    `Order Type: ${formatServiceType(order.orderType)}`,
     `Payment: ${formatPaymentMethod(order.paymentMethod)}`,
     "",
     "Items"
@@ -223,7 +238,7 @@ export function PosTerminal() {
   const [ticket, setTicket] = useState<TicketLine[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [serviceType, setServiceType] = useState<(typeof serviceTypes)[number]>("TAKEAWAY");
+  const [serviceType, setServiceType] = useState<(typeof serviceTypes)[number]["value"]>("INSHOP");
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentOptions)[number]["value"]>("CASH");
   const [discountType, setDiscountType] = useState<"NONE" | "PERCENTAGE" | "FIXED">("NONE");
   const [discountValue, setDiscountValue] = useState("");
@@ -491,7 +506,7 @@ export function PosTerminal() {
     setTicket([]);
     setCustomerName("");
     setCustomerPhone("");
-    setServiceType("TAKEAWAY");
+    setServiceType("INSHOP");
     setPaymentMethod("CASH");
     setDiscountType("NONE");
     setDiscountValue("");
@@ -505,7 +520,7 @@ export function PosTerminal() {
     setError("");
   }
 
-  function printReceipt(copy: "all" | "chef" | "store" = "all") {
+  function printReceipt(copy: "all" | "chef" | "store" | "store-chef" = "all") {
     if (!lastReceiptOrderId) {
       return;
     }
@@ -765,10 +780,10 @@ export function PosTerminal() {
                 </div>
               ) : null}
               <div className="grid gap-2 md:grid-cols-2">
-                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={orderCompleted}>
+                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={orderCompleted}>
                   {serviceTypes.map((entry) => (
-                    <option key={entry} value={entry}>
-                      {entry.replaceAll("_", " ")}
+                    <option key={entry.value} value={entry.value}>
+                      {entry.label}
                     </option>
                   ))}
                 </select>
@@ -792,7 +807,7 @@ export function PosTerminal() {
 
             {lastReceiptOrderId ? (
               <div className="mt-2.5 grid gap-2 md:grid-cols-2">
-                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("all")} type="button">
+                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("store-chef")} type="button">
                   Print Receipt
                 </Button>
                 <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("chef")} type="button">
