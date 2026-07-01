@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession } from "@/lib/pos-client";
+import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -256,6 +256,7 @@ export function PosTerminal() {
   const [lastReceiptPhone, setLastReceiptPhone] = useState("");
   const [matchedCustomer, setMatchedCustomer] = useState<PosCustomerLookup | null>(null);
   const [orderCompleted, setOrderCompleted] = useState(false);
+  const [editingOrderId, setEditingOrderId] = useState("");
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   async function loadCatalog(nextBranchId?: string) {
@@ -329,10 +330,12 @@ export function PosTerminal() {
   }, [discountType, discountValue, subtotal]);
   const total = useMemo(() => Math.max(0, subtotal - discountAmount), [discountAmount, subtotal]);
   const payableTotal = total;
+  const editingCompletedOrder = Boolean(editingOrderId);
+  const ticketLocked = orderCompleted && !editingCompletedOrder;
 
   useEffect(() => {
     const normalizedPhone = customerPhone.replace(/\D/g, "");
-    if (normalizedPhone.length < 7 || orderCompleted) {
+    if (normalizedPhone.length < 7 || ticketLocked) {
       setMatchedCustomer(null);
       return;
     }
@@ -358,10 +361,10 @@ export function PosTerminal() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [customerName, customerPhone, orderCompleted]);
+  }, [customerName, customerPhone, ticketLocked]);
 
   function addProductToTicket(product: PosCatalogProduct) {
-    if (orderCompleted) {
+    if (ticketLocked) {
       return;
     }
 
@@ -388,7 +391,7 @@ export function PosTerminal() {
   }
 
   function confirmConfiguredProduct() {
-    if (!productDialog || orderCompleted) return;
+    if (!productDialog || ticketLocked) return;
 
     const normalizedSelections = normalizeSelections(productSelections);
 
@@ -419,7 +422,7 @@ export function PosTerminal() {
   }
 
   function addManualItem() {
-    if (orderCompleted) {
+    if (ticketLocked) {
       return;
     }
 
@@ -456,7 +459,7 @@ export function PosTerminal() {
     const submittedCustomerPhone = customerPhone.trim();
 
     try {
-      const response = await createPosOrder({
+      const payload = {
         branchId,
         serviceType,
         paymentMethod,
@@ -480,13 +483,18 @@ export function PosTerminal() {
                 selections: normalizeSelections(item.selections)
               }
         )
-      });
+      };
+
+      const response = editingOrderId
+        ? await updatePosOrder(editingOrderId, payload)
+        : await createPosOrder(payload);
 
       window.sessionStorage.setItem(getPosReceiptCacheKey(response.order.id), JSON.stringify(response.order));
       setLastReceiptOrderId(response.order.id);
       setLastReceiptOrder(response.order);
       setLastReceiptPhone(response.order.customerPhone ?? submittedCustomerPhone);
       setOrderCompleted(true);
+      setEditingOrderId("");
     } catch (submitError) {
       if (submitError instanceof Error) {
         const details = (submitError as Error & { details?: string[] }).details ?? [];
@@ -515,8 +523,19 @@ export function PosTerminal() {
     setLastReceiptPhone("");
     setMatchedCustomer(null);
     setOrderCompleted(false);
+    setEditingOrderId("");
     setSearch("");
     setCategoryId("ALL");
+    setError("");
+  }
+
+  function editLastOrder() {
+    if (!lastReceiptOrderId || !lastReceiptOrder) {
+      return;
+    }
+
+    setOrderCompleted(true);
+    setEditingOrderId(lastReceiptOrderId);
     setError("");
   }
 
@@ -590,6 +609,7 @@ export function PosTerminal() {
                 setBranchId(nextBranchId);
                 void loadCatalog(nextBranchId);
               }}
+              disabled={orderCompleted}
               className="h-10 rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm"
             >
               {branches.map((branch) => (
@@ -651,7 +671,7 @@ export function PosTerminal() {
                     </option>
                   ))}
                 </select>
-                <Button className="h-11 rounded-2xl" onClick={() => setManualDialogOpen(true)} disabled={orderCompleted}>
+                <Button className="h-11 rounded-2xl" onClick={() => setManualDialogOpen(true)} disabled={ticketLocked}>
                   <PencilLine className="h-4 w-4" />
                   Other Item
                 </Button>
@@ -669,7 +689,7 @@ export function PosTerminal() {
                     key={product.id}
                     type="button"
                     onClick={() => addProductToTicket(product)}
-                    disabled={orderCompleted}
+                    disabled={ticketLocked}
                     className="relative rounded-2xl border border-white/10 bg-white/5 p-2.5 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
                   >
                     {ticketQuantity ? (
@@ -698,7 +718,7 @@ export function PosTerminal() {
 
             {orderCompleted ? (
               <div className="mt-2 rounded-2xl border border-amber-300/40 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-                Order completed. Print receipt, then start a new order when ready.
+                {editingCompletedOrder ? "Editing order. Finish again to update the same receipt." : "Order completed. Print receipt, edit it, or start a new order when ready."}
               </div>
             ) : null}
 
@@ -713,7 +733,7 @@ export function PosTerminal() {
                             variant="outline"
                             size="sm"
                             className="mt-0.5 h-7 w-7 shrink-0 px-0"
-                            disabled={orderCompleted}
+                            disabled={ticketLocked}
                             onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: Math.max(1, line.quantity - 1) } : line))}
                           >
                             <Minus className="h-3 w-3" />
@@ -723,7 +743,7 @@ export function PosTerminal() {
                             variant="outline"
                             size="sm"
                             className="mt-0.5 h-7 w-7 shrink-0 px-0"
-                            disabled={orderCompleted}
+                            disabled={ticketLocked}
                             onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line))}
                           >
                             <Plus className="h-3 w-3" />
@@ -747,7 +767,7 @@ export function PosTerminal() {
                           variant="ghost"
                           size="sm"
                           className="mt-0.5 h-6 w-6 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
-                          disabled={orderCompleted}
+                          disabled={ticketLocked}
                           onClick={() => setTicket((current) => current.filter((line) => line.id !== item.id))}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -763,8 +783,8 @@ export function PosTerminal() {
 
             <div className="mt-2.5 space-y-2 border-t border-slate-200 pt-2.5">
               <div className="grid gap-2 md:grid-cols-2">
-                <Input className="h-9 text-sm" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" disabled={orderCompleted} />
-                <Input className="h-9 text-sm" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" disabled={orderCompleted} />
+                <Input className="h-9 text-sm" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" disabled={ticketLocked} />
+                <Input className="h-9 text-sm" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" disabled={ticketLocked} />
               </div>
               {matchedCustomer ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
@@ -780,14 +800,14 @@ export function PosTerminal() {
                 </div>
               ) : null}
               <div className="grid gap-2 md:grid-cols-2">
-                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={orderCompleted}>
+                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={ticketLocked}>
                   {serviceTypes.map((entry) => (
                     <option key={entry.value} value={entry.value}>
                       {entry.label}
                     </option>
                   ))}
                 </select>
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={orderCompleted}>
+                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={ticketLocked}>
                   {paymentOptions.map((entry) => (
                     <option key={entry.value} value={entry.value}>
                       {entry.label}
@@ -796,16 +816,16 @@ export function PosTerminal() {
                 </select>
               </div>
               <div className="grid gap-2 md:grid-cols-2">
-                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={orderCompleted}>
+                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={ticketLocked}>
                   <option value="NONE">No discount</option>
                   <option value="PERCENTAGE">Percentage</option>
                   <option value="FIXED">Fixed amount</option>
                 </select>
-                <Input className="h-9 text-sm" inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="Discount" disabled={orderCompleted} />
+                <Input className="h-9 text-sm" inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="Discount" disabled={ticketLocked} />
               </div>
             </div>
 
-            {lastReceiptOrderId ? (
+            {lastReceiptOrderId && !editingCompletedOrder ? (
               <div className="mt-2.5 grid gap-2 md:grid-cols-2">
                 <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("store-chef")} type="button">
                   Print Receipt
@@ -820,6 +840,10 @@ export function PosTerminal() {
                   <Send className="h-4 w-4" />
                   Send Receipt
                 </Button>
+                <Button className="h-9 rounded-2xl text-sm" variant="outline" type="button" onClick={editLastOrder}>
+                  <PencilLine className="h-4 w-4" />
+                  Edit Order
+                </Button>
                 <Button className="h-9 rounded-2xl text-sm" type="button" onClick={startNewOrder}>
                   Start New Order
                 </Button>
@@ -832,9 +856,9 @@ export function PosTerminal() {
               <div className="flex justify-between text-[0.94rem] font-bold"><span>Total</span><span>{formatCurrency(payableTotal)}</span></div>
             </div>
 
-            <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || orderCompleted} onClick={() => void submitOrder()}>
+            <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || ticketLocked} onClick={() => void submitOrder()}>
               <Receipt className="h-4 w-4" />
-              {submitting ? "Processing..." : orderCompleted ? "Order Completed" : "Finish"}
+              {submitting ? "Processing..." : editingCompletedOrder ? "Update Order" : orderCompleted ? "Order Completed" : "Finish"}
             </Button>
           </Card>
         </div>

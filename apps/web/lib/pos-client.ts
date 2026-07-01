@@ -103,6 +103,13 @@ export async function createPosOrder(payload: Record<string, unknown>) {
   });
 }
 
+export async function updatePosOrder(orderId: string, payload: Record<string, unknown>) {
+  return posFetch<{ order: PosReceiptOrder }>(`/api/pos/orders/${orderId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function lookupPosCustomer(phone: string) {
   const query = new URLSearchParams({ phone });
   const data = await posFetch<{ customer: PosCustomerLookup | null }>(`/api/pos/customers/lookup?${query.toString()}`);
