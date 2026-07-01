@@ -4,25 +4,15 @@ import type {
   AdminCustomer,
   AdminExpenseData,
   AdminInventoryData,
+  AdminOrderSegment,
   AdminOrder,
   AdminProduct,
   AdminRangePreset,
   Category,
-  DashboardData,
-  FoodpandaReportData
+  DashboardData
 } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
-
-export const ORDER_STATUSES = [
-  "PENDING",
-  "CONFIRMED",
-  "PREPARING",
-  "READY",
-  "OUT_FOR_DELIVERY",
-  "DELIVERED",
-  "CANCELLED"
-] as const;
 
 async function adminFetch<T>(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
@@ -116,8 +106,11 @@ export async function disableAdminProduct(productId: string) {
   });
 }
 
-export async function fetchAdminOrders() {
-  const data = await adminFetch<{ orders: any[] }>("/api/admin/orders");
+export async function fetchAdminOrders(params?: { segment?: AdminOrderSegment }) {
+  const searchParams = new URLSearchParams();
+  if (params?.segment) searchParams.set("segment", params.segment);
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const data = await adminFetch<{ orders: any[] }>(`/api/admin/orders${suffix}`);
   const orders: AdminOrder[] = data.orders.map((order) => ({
     id: order.id,
     orderNumber: order.orderNumber,
@@ -175,14 +168,6 @@ export async function logoutAdminSession() {
   });
 }
 
-export async function updateAdminOrderStatus(orderId: string, status: string) {
-  const data = await adminFetch<{ order: any }>(`/api/admin/orders/${orderId}/status`, {
-    method: "PATCH",
-    body: JSON.stringify({ status })
-  });
-  return data.order;
-}
-
 export async function deleteAdminOrder(orderId: string) {
   const data = await adminFetch<{ deleted: boolean }>(`/api/admin/orders/${orderId}`, {
     method: "DELETE"
@@ -201,11 +186,13 @@ export async function fetchAdminDashboard(params?: {
   preset?: AdminRangePreset;
   start?: string;
   end?: string;
+  segment?: AdminOrderSegment;
 }): Promise<DashboardData> {
   const searchParams = new URLSearchParams();
   if (params?.preset) searchParams.set("preset", params.preset);
   if (params?.start) searchParams.set("start", params.start);
   if (params?.end) searchParams.set("end", params.end);
+  if (params?.segment) searchParams.set("segment", params.segment);
 
   const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
   const dashboard = await adminFetch<any>(`/api/admin/dashboard${suffix}`);
@@ -215,7 +202,8 @@ export async function fetchAdminDashboard(params?: {
       preset: dashboard.range.preset,
       start: dashboard.range.start,
       end: dashboard.range.end,
-      label: dashboard.range.label
+      label: dashboard.range.label,
+      segment: dashboard.range.segment ?? params?.segment ?? "all"
     },
     summary: {
       revenue: Number(dashboard.summary.revenue),
@@ -227,8 +215,6 @@ export async function fetchAdminDashboard(params?: {
       activeCustomers: dashboard.summary.activeCustomers,
       repeatCustomers: dashboard.summary.repeatCustomers,
       totalCustomers: dashboard.summary.totalCustomers,
-      fulfilledRate: Number(dashboard.summary.fulfilledRate),
-      cancellationRate: Number(dashboard.summary.cancellationRate),
       revenueDelta: Number(dashboard.summary.revenueDelta),
       ordersDelta: Number(dashboard.summary.ordersDelta),
       averageOrderValueDelta: Number(dashboard.summary.averageOrderValueDelta)
@@ -247,11 +233,11 @@ export async function fetchAdminDashboard(params?: {
       id: order.id,
       orderNumber: order.orderNumber,
       customerName: order.customerName,
-      status: order.status,
       totalAmount: Number(order.totalAmount),
       placedAt: order.placedAt,
       branch: order.branch,
-      channel: order.channel
+      channel: order.channel,
+      serviceType: order.serviceType
     })),
     lowStock: dashboard.lowStock.map((entry: any) => ({
       ingredient: entry.ingredient,
@@ -259,11 +245,6 @@ export async function fetchAdminDashboard(params?: {
       quantityOnHand: Number(entry.quantityOnHand)
     })),
     breakdowns: {
-      statuses: dashboard.breakdowns.statuses.map((entry: any) => ({
-        label: entry.label,
-        count: entry.count,
-        revenue: Number(entry.revenue)
-      })),
       channels: dashboard.breakdowns.channels.map((entry: any) => ({
         label: entry.label,
         count: entry.count,
@@ -295,61 +276,6 @@ export async function fetchAdminDashboard(params?: {
         revenue: Number(entry.revenue)
       }))
     }
-  };
-}
-
-export async function fetchAdminFoodpanda(params?: {
-  preset?: AdminRangePreset;
-  start?: string;
-  end?: string;
-}): Promise<FoodpandaReportData> {
-  const searchParams = new URLSearchParams();
-  if (params?.preset) searchParams.set("preset", params.preset);
-  if (params?.start) searchParams.set("start", params.start);
-  if (params?.end) searchParams.set("end", params.end);
-
-  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
-  const report = await adminFetch<any>(`/api/admin/foodpanda${suffix}`);
-
-  return {
-    range: {
-      preset: report.range.preset,
-      start: report.range.start,
-      end: report.range.end,
-      label: report.range.label
-    },
-    summary: {
-      grossSales: Number(report.summary.grossSales),
-      orders: report.summary.orders,
-      averageOrderValue: Number(report.summary.averageOrderValue)
-    },
-    series: report.series.map((entry: any) => ({
-      label: entry.label,
-      revenue: Number(entry.revenue),
-      orders: entry.orders
-    })),
-    topProducts: report.topProducts.map((entry: any) => ({
-      productName: entry.productName,
-      quantity: entry.quantity,
-      revenue: Number(entry.revenue)
-    })),
-    orders: report.orders.map((order: any) => ({
-      id: order.id,
-      orderNumber: order.orderNumber,
-      customerName: order.customerName,
-      customerPhone: order.customerPhone ?? undefined,
-      status: order.status,
-      totalAmount: Number(order.totalAmount),
-      placedAt: order.placedAt,
-      branch: order.branch,
-      paymentMethod: order.paymentMethod,
-      items: order.items.map((item: any) => ({
-        id: item.id,
-        productName: item.productName,
-        quantity: item.quantity,
-        unitPrice: Number(item.unitPrice)
-      }))
-    }))
   };
 }
 

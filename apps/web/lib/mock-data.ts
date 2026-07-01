@@ -538,7 +538,8 @@ export const dashboardData: DashboardData = {
     preset: "7d",
     start: "2026-06-01T00:00:00.000Z",
     end: "2026-06-07T23:59:59.000Z",
-    label: "Last 7 days"
+    label: "Last 7 days",
+    segment: "all"
   },
   summary: {
     revenue: 148700,
@@ -550,8 +551,6 @@ export const dashboardData: DashboardData = {
     activeCustomers: 89,
     repeatCustomers: 24,
     totalCustomers: 684,
-    fulfilledRate: 74.2,
-    cancellationRate: 4.8,
     revenueDelta: 13.2,
     ordersDelta: 11.7,
     averageOrderValueDelta: 1.3
@@ -572,31 +571,23 @@ export const dashboardData: DashboardData = {
     { productName: "Kiwi Passion", quantity: 91, revenue: 36400 }
   ],
   recentOrders: [
-    { id: "o1", orderNumber: "PKT-2026-000131", customerName: "Ali Raza", status: "PREPARING", totalAmount: 1490, placedAt: "2026-06-07T16:58:00.000Z", branch: branch.name, channel: "ONLINE" },
-    { id: "o2", orderNumber: "PKT-2026-000130", customerName: "Noor Hassan", status: "CONFIRMED", totalAmount: 930, placedAt: "2026-06-07T15:35:00.000Z", branch: branch.name, channel: "POS" },
-    { id: "o3", orderNumber: "PKT-2026-000129", customerName: "Ayesha Khan", status: "OUT_FOR_DELIVERY", totalAmount: 883, placedAt: "2026-06-07T14:12:00.000Z", branch: branch.name, channel: "ONLINE" },
-    { id: "o4", orderNumber: "PKT-2026-000128", customerName: "M. Salman", status: "DELIVERED", totalAmount: 690, placedAt: "2026-06-07T13:02:00.000Z", branch: branch.name, channel: "POS" }
+    { id: "o1", orderNumber: "PKT-2026-000131", customerName: "Ali Raza", totalAmount: 1490, placedAt: "2026-06-07T16:58:00.000Z", branch: branch.name, channel: "ONLINE", serviceType: "Delivery" },
+    { id: "o2", orderNumber: "PKT-2026-000130", customerName: "Noor Hassan", totalAmount: 930, placedAt: "2026-06-07T15:35:00.000Z", branch: branch.name, channel: "POS", serviceType: "Inshop" },
+    { id: "o3", orderNumber: "PKT-2026-000129", customerName: "Ayesha Khan", totalAmount: 883, placedAt: "2026-06-07T14:12:00.000Z", branch: branch.name, channel: "ONLINE", serviceType: "Delivery" },
+    { id: "o4", orderNumber: "PKT-2026-000128", customerName: "M. Salman", totalAmount: 690, placedAt: "2026-06-07T13:02:00.000Z", branch: branch.name, channel: "POS", serviceType: "Inshop" }
   ],
   lowStock: [
     { ingredient: "Beef slices", branch: "Pocket G-11 Markaz", quantityOnHand: 6 },
     { ingredient: "Garlic sauce", branch: "Pocket G-11 Markaz", quantityOnHand: 5 }
   ],
   breakdowns: {
-    statuses: [
-      { label: "Delivered", count: 62, revenue: 77200 },
-      { label: "Preparing", count: 26, revenue: 28100 },
-      { label: "Confirmed", count: 19, revenue: 21200 },
-      { label: "Out For Delivery", count: 11, revenue: 16100 },
-      { label: "Cancelled", count: 6, revenue: 6100 }
-    ],
     channels: [
       { label: "POS", count: 72, revenue: 86400 },
       { label: "ONLINE", count: 52, revenue: 62300 }
     ],
     serviceTypes: [
-      { label: "TAKEAWAY", count: 68, revenue: 80100 },
-      { label: "DELIVERY", count: 42, revenue: 54800 },
-      { label: "DINE IN", count: 14, revenue: 13800 }
+      { label: "Inshop", count: 82, revenue: 93900 },
+      { label: "DELIVERY", count: 42, revenue: 54800 }
     ],
     payments: [
       { label: "CASH", count: 61, revenue: 74300 },
