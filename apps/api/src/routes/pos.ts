@@ -64,7 +64,7 @@ const cartItemSchema = z.discriminatedUnion("type", [
 
 const checkoutSchema = z.object({
   branchId: z.string().cuid(),
-  serviceType: z.nativeEnum(ServiceType),
+  serviceType: z.enum(["INSHOP", "FOODPANDA"]),
   paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH"]),
   customerName: z.string().max(80).optional(),
   customerPhone: z.string().max(20).optional(),
@@ -374,7 +374,7 @@ router.post("/checkout", async (req, res, next) => {
             customerName: payload.customerName?.trim() || null,
             customerPhone: payload.customerPhone?.trim() || null,
             channel: OrderChannel.POS,
-            serviceType: payload.serviceType,
+            serviceType: payload.serviceType as ServiceType,
             status: "CONFIRMED",
             paymentMethod: payload.paymentMethod as PaymentMethod,
             paymentStatus: PaymentStatus.PAID,
@@ -440,12 +440,8 @@ router.post("/checkout", async (req, res, next) => {
       initialOrderNumber
     );
 
-    res.status(201).json({
-      order: formatReceiptResponse(order)
-    });
-
-    // The audit log is not needed for the response — write it after responding
-    // so it never blocks the cashier. Failures are logged, not surfaced.
+    // The audit log is not awaited, so it never blocks the cashier response.
+    // Failures are logged, not surfaced.
     void writeAuditLog({
       actorId: req.user!.id,
       action: "pos.checkout",
