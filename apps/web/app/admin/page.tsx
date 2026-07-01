@@ -7,7 +7,7 @@ import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard } from "@/lib/admin-client";
-import type { AdminRangePreset, DashboardData } from "@/lib/types";
+import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
 import { cn, formatCompactNumber, formatCurrency } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
@@ -19,9 +19,16 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "custom", label: "Custom" }
 ];
 
+const segments: Array<{ value: AdminOrderSegment; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "inshop", label: "Inshop" },
+  { value: "foodpanda", label: "Foodpanda" }
+];
+
 export default function AdminPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [preset, setPreset] = useState<AdminRangePreset>("7d");
+  const [segment, setSegment] = useState<AdminOrderSegment>("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -39,9 +46,10 @@ export default function AdminPage() {
             ? {
                 preset,
                 start: new Date(`${startDate}T00:00:00`).toISOString(),
-                end: new Date(`${endDate}T23:59:59`).toISOString()
+                end: new Date(`${endDate}T23:59:59`).toISOString(),
+                segment
               }
-            : { preset }
+            : { preset, segment }
         );
 
         if (!cancelled) {
@@ -68,7 +76,7 @@ export default function AdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [preset, startDate, endDate]);
+  }, [preset, startDate, endDate, segment]);
 
   const strongestChannel = useMemo(() => dashboard?.breakdowns.channels[0], [dashboard]);
   const strongestServiceType = useMemo(() => dashboard?.breakdowns.serviceTypes[0], [dashboard]);
@@ -86,10 +94,27 @@ export default function AdminPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-300">Performance Window</p>
               <h2 className="mt-3 text-3xl font-black">Sales command center</h2>
               <p className="mt-2 max-w-2xl text-sm text-white/70">
-                Switch between daily, weekly, monthly, yearly, or custom periods and read the full revenue picture without opening separate reports.
+                Switch periods and filter sales between all orders, Inshop, and Foodpanda without opening separate reports.
               </p>
             </div>
             <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {segments.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setSegment(option.value)}
+                    className={cn(
+                      "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                      segment === option.value
+                        ? "border-white bg-white text-slate-950"
+                        : "border-white/15 bg-white/5 text-white hover:bg-white/10"
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
               <div className="flex flex-wrap gap-2">
                 {presets.map((option) => (
                   <button
@@ -138,7 +163,7 @@ export default function AdminPage() {
             <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
               <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
                 <CalendarDays className="h-4 w-4 text-amber-300" />
-                {dashboard.range.label}
+                {dashboard.range.label} · {segments.find((option) => option.value === dashboard.range.segment)?.label ?? "All"}
               </span>
               {strongestChannel ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
@@ -207,16 +232,6 @@ export default function AdminPage() {
               />
               <Card className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-1">
                 <StatStrip
-                  label="Fulfilled Rate"
-                  value={`${dashboard.summary.fulfilledRate}%`}
-                  helper="Delivered orders as a share of this period."
-                />
-                <StatStrip
-                  label="Cancellation Rate"
-                  value={`${dashboard.summary.cancellationRate}%`}
-                  helper="Cancelled orders in the selected range."
-                />
-                <StatStrip
                   label="Customer Base"
                   value={formatCompactNumber(dashboard.summary.totalCustomers)}
                   helper="Total customer accounts on the platform."
@@ -238,7 +253,7 @@ export default function AdminPage() {
               <BreakdownCard
                 title="Service Mix"
                 items={dashboard.breakdowns.serviceTypes}
-                helper="Takeaway, dine-in, and delivery performance."
+                helper="Inshop includes current Inshop plus older takeaway and dine-in orders."
               />
               <BreakdownCard
                 title="Payment Mix"
@@ -318,7 +333,7 @@ export default function AdminPage() {
                         <div className="text-right">
                           <p className="font-black text-pocket-orange">{formatCurrency(order.totalAmount)}</p>
                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-navy/50">
-                            {order.status.replaceAll("_", " ")}
+                            {order.serviceType}
                           </p>
                         </div>
                       </div>

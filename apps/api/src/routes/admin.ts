@@ -15,7 +15,8 @@ const dashboardQueryBaseSchema = z.object({
   preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("7d"),
   start: z.string().datetime().optional(),
   end: z.string().datetime().optional(),
-  monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional()
+  monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  segment: z.enum(["all", "inshop", "foodpanda"]).default("all")
 });
 
 const dashboardQuerySchema = dashboardQueryBaseSchema.superRefine((value, context) => {
@@ -156,6 +157,30 @@ function parseDecimal(value: Prisma.Decimal | number | string | null | undefined
   return Number(value);
 }
 
+function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda"): Prisma.OrderWhereInput {
+  if (segment === "foodpanda") {
+    return { serviceType: ServiceType.FOODPANDA };
+  }
+
+  if (segment === "inshop") {
+    return { serviceType: { in: [ServiceType.INSHOP, ServiceType.TAKEAWAY, ServiceType.DINE_IN] } };
+  }
+
+  return {};
+}
+
+function getServiceBreakdown(value: ServiceType | string) {
+  if (value === ServiceType.INSHOP || value === ServiceType.TAKEAWAY || value === ServiceType.DINE_IN) {
+    return { key: "INSHOP", label: "Inshop" };
+  }
+
+  if (value === ServiceType.FOODPANDA) {
+    return { key: "FOODPANDA", label: "Foodpanda" };
+  }
+
+  return { key: String(value), label: String(value).replaceAll("_", " ") };
+}
+
 function serializeOrderForOperations(order: any) {
   return {
     id: order.id,
@@ -268,6 +293,7 @@ router.get("/dashboard", async (req, res, next) => {
     const query = dashboardQuerySchema.parse(req.query);
     const range = buildDashboardRange(query);
     const { previousStart, previousEnd } = getPreviousRange(range.start, range.end);
+    const segmentWhere = buildAdminSegmentWhere(query.segment);
 
     const [periodOrders, previousOrders, totalCustomers, lowStock] = await Promise.all([
       prisma.order.findMany({
@@ -276,7 +302,7 @@ router.get("/dashboard", async (req, res, next) => {
             gte: range.start,
             lte: range.end
           },
-          serviceType: { not: ServiceType.FOODPANDA }
+          ...segmentWhere
         },
         include: {
           customer: {
@@ -296,7 +322,7 @@ router.get("/dashboard", async (req, res, next) => {
             gte: previousStart,
             lt: previousEnd
           },
-          serviceType: { not: ServiceType.FOODPANDA }
+          ...segmentWhere
         },
         select: {
           totalAmount: true,
@@ -325,11 +351,8 @@ router.get("/dashboard", async (req, res, next) => {
     }
 
     const repeatCustomers = Array.from(activeCustomerIds.values()).filter((count) => count > 1).length;
-    const deliveredOrders = periodOrders.filter((order) => order.status === OrderStatus.DELIVERED).length;
-    const cancelledOrders = periodOrders.filter((order) => order.status === OrderStatus.CANCELLED).length;
 
     const breakdownMaps = {
-      statuses: new Map<string, { label: string; count: number; revenue: number }>(),
       channels: new Map<string, { label: string; count: number; revenue: number }>(),
       serviceTypes: new Map<string, { label: string; count: number; revenue: number }>(),
       payments: new Map<string, { label: string; count: number; revenue: number }>(),
@@ -343,18 +366,16 @@ router.get("/dashboard", async (req, res, next) => {
 
     for (const order of periodOrders) {
       const orderRevenue = Number(order.totalAmount);
-      const statusKey = order.status;
       const channelKey = order.channel;
-      const serviceKey = order.serviceType;
+      const serviceBreakdown = getServiceBreakdown(order.serviceType);
       const paymentKey = order.paymentMethod;
       const branchKey = order.branch?.name ?? "Unknown branch";
       const weekdayKey = String(order.placedAt.getDay());
       const hourKey = String(order.placedAt.getHours());
 
       for (const [map, key, label] of [
-        [breakdownMaps.statuses, statusKey, statusKey.replaceAll("_", " ")],
         [breakdownMaps.channels, channelKey, channelKey],
-        [breakdownMaps.serviceTypes, serviceKey, serviceKey.replaceAll("_", " ")],
+        [breakdownMaps.serviceTypes, serviceBreakdown.key, serviceBreakdown.label],
         [breakdownMaps.payments, paymentKey, paymentKey.replaceAll("_", " ")],
         [breakdownMaps.branches, branchKey, branchKey]
       ] as const) {
@@ -401,7 +422,8 @@ router.get("/dashboard", async (req, res, next) => {
         preset: range.preset,
         start: range.start.toISOString(),
         end: range.end.toISOString(),
-        label: range.label
+        label: range.label,
+        segment: query.segment
       },
       summary: {
         revenue: Number(revenue.toFixed(2)),
@@ -413,8 +435,6 @@ router.get("/dashboard", async (req, res, next) => {
         activeCustomers: activeCustomerIds.size,
         repeatCustomers,
         totalCustomers,
-        fulfilledRate: orderCount ? Number(((deliveredOrders / orderCount) * 100).toFixed(1)) : 0,
-        cancellationRate: orderCount ? Number(((cancelledOrders / orderCount) * 100).toFixed(1)) : 0,
         revenueDelta: percentageDelta(revenue, previousRevenue),
         ordersDelta: percentageDelta(orderCount, previousOrderCount),
         averageOrderValueDelta: percentageDelta(averageOrderValue, previousAverageOrderValue)
@@ -430,11 +450,11 @@ router.get("/dashboard", async (req, res, next) => {
           id: order.id,
           orderNumber: order.orderNumber,
           customerName: order.customer?.name ?? order.customerName ?? "Walk-in Customer",
-          status: order.status,
           totalAmount: Number(order.totalAmount),
           placedAt: order.placedAt,
           branch: order.branch?.name ?? "Unknown branch",
-          channel: order.channel
+          channel: order.channel,
+          serviceType: getServiceBreakdown(order.serviceType).label
         })),
       lowStock: lowStock.map((entry) => ({
         ingredient: entry.ingredient?.name ?? "Unknown ingredient",
@@ -442,7 +462,6 @@ router.get("/dashboard", async (req, res, next) => {
         quantityOnHand: Number(entry.quantityOnHand)
       })),
       breakdowns: {
-        statuses: Array.from(breakdownMaps.statuses.values()).sort((left, right) => right.count - left.count),
         channels: Array.from(breakdownMaps.channels.values()).sort((left, right) => right.revenue - left.revenue),
         serviceTypes: Array.from(breakdownMaps.serviceTypes.values()).sort((left, right) => right.revenue - left.revenue),
         payments: Array.from(breakdownMaps.payments.values()).sort((left, right) => right.revenue - left.revenue),
@@ -547,13 +566,14 @@ router.get("/analytics/sales", async (req, res, next) => {
   try {
     const query = dashboardQuerySchema.parse(req.query);
     const range = buildDashboardRange(query);
+    const segmentWhere = buildAdminSegmentWhere(query.segment);
     const orders = await prisma.order.findMany({
       where: {
         placedAt: {
           gte: range.start,
           lte: range.end
         },
-        serviceType: { not: ServiceType.FOODPANDA }
+        ...segmentWhere
       },
       select: {
         placedAt: true,
@@ -1200,13 +1220,15 @@ router.get("/orders", async (req, res, next) => {
     const query = z
       .object({
         status: z.nativeEnum(OrderStatus).optional(),
-        search: z.string().optional()
+        search: z.string().optional(),
+        segment: z.enum(["all", "inshop", "foodpanda"]).default("all")
       })
       .parse(req.query);
 
     const orders = await prisma.order.findMany({
       where: {
         ...(query.status ? { status: query.status } : {}),
+        ...buildAdminSegmentWhere(query.segment),
         ...(query.search
           ? {
               OR: [

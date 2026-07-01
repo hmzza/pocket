@@ -105,6 +105,7 @@ export type TrackedOrder = {
 };
 
 export type AdminRangePreset = "today" | "7d" | "30d" | "month" | "year" | "custom";
+export type AdminOrderSegment = "all" | "inshop" | "foodpanda";
 
 export type DashboardData = {
   range: {
@@ -112,6 +113,7 @@ export type DashboardData = {
     start: string;
     end: string;
     label: string;
+    segment: AdminOrderSegment;
   };
   summary: {
     revenue: number;
@@ -123,8 +125,6 @@ export type DashboardData = {
     activeCustomers: number;
     repeatCustomers: number;
     totalCustomers: number;
-    fulfilledRate: number;
-    cancellationRate: number;
     revenueDelta: number;
     ordersDelta: number;
     averageOrderValueDelta: number;
@@ -135,11 +135,11 @@ export type DashboardData = {
     id: string;
     orderNumber: string;
     customerName: string;
-    status: string;
     totalAmount: number;
     placedAt: string;
     branch: string;
     channel: string;
+    serviceType: string;
   }>;
   lowStock: Array<{
     ingredient: string;
@@ -147,7 +147,6 @@ export type DashboardData = {
     quantityOnHand: number;
   }>;
   breakdowns: {
-    statuses: Array<{ label: string; count: number; revenue: number }>;
     channels: Array<{ label: string; count: number; revenue: number }>;
     serviceTypes: Array<{ label: string; count: number; revenue: number }>;
     payments: Array<{ label: string; count: number; revenue: number }>;
@@ -155,39 +154,6 @@ export type DashboardData = {
     weekdays: Array<{ label: string; count: number; revenue: number }>;
     hours: Array<{ label: string; count: number; revenue: number }>;
   };
-};
-
-export type FoodpandaReportData = {
-  range: {
-    preset: AdminRangePreset;
-    start: string;
-    end: string;
-    label: string;
-  };
-  summary: {
-    grossSales: number;
-    orders: number;
-    averageOrderValue: number;
-  };
-  series: Array<{ label: string; revenue: number; orders: number }>;
-  topProducts: Array<{ productName: string; quantity: number; revenue: number }>;
-  orders: Array<{
-    id: string;
-    orderNumber: string;
-    customerName: string;
-    customerPhone?: string;
-    status: string;
-    totalAmount: number;
-    placedAt: string;
-    branch: string;
-    paymentMethod: string;
-    items: Array<{
-      id: string;
-      productName: string;
-      quantity: number;
-      unitPrice: number;
-    }>;
-  }>;
 };
 
 export type AdminInventorySummary = {

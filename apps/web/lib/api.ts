@@ -104,7 +104,8 @@ export async function getDashboardData(): Promise<DashboardData> {
       preset: dashboard.range.preset,
       start: dashboard.range.start,
       end: dashboard.range.end,
-      label: dashboard.range.label
+      label: dashboard.range.label,
+      segment: dashboard.range.segment ?? "all"
     },
     summary: dashboard.summary,
     series: dashboard.series.map((entry: any) => ({
@@ -121,11 +122,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       id: order.id,
       orderNumber: order.orderNumber,
       customerName: order.customerName,
-      status: order.status,
       totalAmount: Number(order.totalAmount),
       placedAt: order.placedAt,
       branch: order.branch,
-      channel: order.channel
+      channel: order.channel,
+      serviceType: order.serviceType
     })),
     lowStock: dashboard.lowStock.map((entry: any) => ({
       ingredient: entry.ingredient,
@@ -186,7 +187,7 @@ export async function getAdminOrders() {
       id: order.id,
       orderNumber: order.orderNumber,
       customerName: order.customerName,
-      status: order.status,
+      status: "PENDING",
       branch: order.branch,
       totalAmount: order.totalAmount,
       itemCount: 2
