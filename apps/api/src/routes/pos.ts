@@ -1,11 +1,10 @@
-import { DiscountType, OrderChannel, PaymentMethod, PaymentStatus, RoleCode, ServiceType, type Prisma } from "@prisma/client";
+import { DiscountType, OrderChannel, OrderStatus, PaymentMethod, PaymentStatus, RoleCode, ServiceType, type Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { generateOrderNumber, withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { authenticate, authorize } from "../middleware/auth.js";
-import { applyOrderInventory } from "../lib/inventory.js";
 import { env } from "../config.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { signReceiptToken } from "../lib/receipt-token.js";
@@ -73,6 +72,8 @@ const checkoutSchema = z.object({
   items: z.array(cartItemSchema).min(1)
 });
 
+type CheckoutPayload = z.infer<typeof checkoutSchema>;
+
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
 }
@@ -88,6 +89,189 @@ function formatReceiptResponse(order: any) {
     digitalReceiptUrl: buildDigitalReceiptUrl(order)
   };
 }
+
+function getProductIds(items: CheckoutPayload["items"]) {
+  return [
+    ...new Set(
+      items
+        .filter((item): item is Extract<CheckoutPayload["items"][number], { type: "product" }> => item.type === "product")
+        .map((item) => item.productId)
+    )
+  ];
+}
+
+async function buildPosOrderPayload(payload: CheckoutPayload) {
+  const productIds = getProductIds(payload.items);
+
+  const [branch, products, inventoryData] = await Promise.all([
+    prisma.branch.findFirst({
+      where: { id: payload.branchId, isActive: true }
+    }),
+    prisma.product.findMany({
+      where: {
+        id: { in: productIds },
+        isActive: true
+      },
+      include: {
+        ...posProductInclude,
+        branchPricing: {
+          where: { branchId: payload.branchId }
+        }
+      }
+    }),
+    readInventoryData(prisma, payload.branchId, productIds)
+  ]);
+
+  if (!branch) {
+    throw Object.assign(new Error("Selected branch is unavailable."), { statusCode: 404 });
+  }
+
+  if (products.length !== productIds.length) {
+    throw Object.assign(new Error("One or more selected products are unavailable."), { statusCode: 400 });
+  }
+
+  const productMap = new Map(products.map((product) => [product.id, product]));
+
+  const normalizedItems = payload.items.map((item) => {
+    if (item.type === "manual") {
+      return {
+        type: "manual" as const,
+        productId: null,
+        productName: item.name,
+        customDescription: item.description?.trim() || null,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice.toFixed(2)),
+        note: item.note?.trim() || null,
+        addOns: [] as Array<{ optionId: string; optionName: string; priceDelta: number }>
+      };
+    }
+
+    const product = productMap.get(item.productId);
+    if (!product) {
+      throw Object.assign(new Error("Selected product is unavailable."), { statusCode: 400 });
+    }
+
+    const branchPricing = product.branchPricing[0];
+    if (branchPricing && !branchPricing.isAvailable) {
+      throw Object.assign(new Error(`${product.name} is not available for this branch.`), { statusCode: 400 });
+    }
+
+    const productAddOnGroups = product.slug === "loaded-fries"
+      ? product.addOnGroups.filter((group) => group.name !== "Extras")
+      : product.addOnGroups;
+    const groups = new Map(productAddOnGroups.map((group) => [group.id, group]));
+    const selectedGroups = new Map(item.selections.map((selection) => [selection.groupId, selection.optionIds]));
+    const lineAddOns: Array<{ optionId: string; optionName: string; priceDelta: number }> = [];
+
+    for (const group of productAddOnGroups) {
+      const selectedOptionIds = selectedGroups.get(group.id) ?? [];
+      if (selectedOptionIds.length < group.minSelect || selectedOptionIds.length > group.maxSelect) {
+        throw Object.assign(new Error(`${product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`), { statusCode: 400 });
+      }
+
+      const dedupedOptionIds = [...new Set(selectedOptionIds)];
+      for (const optionId of dedupedOptionIds) {
+        const option = group.options.find((entry) => entry.id === optionId);
+        if (!option) {
+          throw Object.assign(new Error(`${product.name}: invalid add-on selection.`), { statusCode: 400 });
+        }
+
+        lineAddOns.push({
+          optionId: option.id,
+          optionName: option.name,
+          priceDelta: Number(option.priceDelta)
+        });
+      }
+    }
+
+    for (const selection of item.selections) {
+      if (!groups.has(selection.groupId)) {
+        throw Object.assign(new Error(`${product.name}: invalid add-on group.`), { statusCode: 400 });
+      }
+    }
+
+    const baseUnitPrice = Number((branchPricing?.price ?? product.basePrice).toString());
+    const addOnTotal = lineAddOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
+
+    return {
+      type: "product" as const,
+      productId: product.id,
+      productName: product.name,
+      customDescription: null,
+      quantity: item.quantity,
+      unitPrice: Number((baseUnitPrice + addOnTotal).toFixed(2)),
+      note: item.note?.trim() || null,
+      addOns: lineAddOns
+    };
+  });
+
+  const subtotal = Number(
+    normalizedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0).toFixed(2)
+  );
+  const discountAmount =
+    payload.discountType === "PERCENTAGE"
+      ? Number(((subtotal * payload.discountValue) / 100).toFixed(2))
+      : payload.discountType === "FIXED"
+        ? Number(payload.discountValue.toFixed(2))
+        : 0;
+  const safeDiscountAmount = Math.min(subtotal, discountAmount);
+  const totalAmount = Number(Math.max(0, subtotal - safeDiscountAmount).toFixed(2));
+
+  const consumeChanges = computeInventoryChanges({
+    productIngredients: inventoryData.productIngredients,
+    branchInventories: inventoryData.branchInventories,
+    items: normalizedItems,
+    mode: "consume"
+  });
+
+  return {
+    branch,
+    productIds,
+    normalizedItems,
+    subtotal,
+    discountAmount: safeDiscountAmount,
+    totalAmount,
+    paidAmount: totalAmount,
+    changeDueAmount: 0,
+    consumeChanges
+  };
+}
+
+function buildOrderItemCreateData(normalizedItems: Awaited<ReturnType<typeof buildPosOrderPayload>>["normalizedItems"]) {
+  return normalizedItems.map((item) => ({
+    productId: item.productId,
+    productName: item.productName,
+    customDescription: item.customDescription,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+    note: item.note,
+    addOns: item.addOns.length
+      ? {
+          create: item.addOns.map((addOn) => ({
+            optionId: addOn.optionId,
+            optionName: addOn.optionName,
+            priceDelta: addOn.priceDelta
+          }))
+        }
+      : undefined
+  }));
+}
+
+const posOrderInclude = {
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      phone: true
+    }
+  },
+  branch: true,
+  items: {
+    include: {
+      addOns: true
+    }
+  }
+};
 
 router.get("/catalog", async (req, res, next) => {
   try {
@@ -150,21 +334,7 @@ router.get("/catalog", async (req, res, next) => {
 router.get("/orders/:orderId", async (req, res) => {
   const order = await prisma.order.findUnique({
     where: { id: req.params.orderId },
-    include: {
-      customer: {
-        select: {
-          id: true,
-          name: true,
-          phone: true
-        }
-      },
-      branch: true,
-      items: {
-        include: {
-          addOns: true
-        }
-      }
-    }
+    include: posOrderInclude
   });
 
   if (!order || order.channel !== OrderChannel.POS) {
@@ -230,140 +400,13 @@ router.get("/customers/lookup", async (req, res, next) => {
 router.post("/checkout", async (req, res, next) => {
   try {
     const payload = checkoutSchema.parse(req.body);
-
-    const productItems = payload.items.filter((item) => item.type === "product");
-    const productIds = [...new Set(productItems.map((item) => item.productId))];
+    const orderPayload = await buildPosOrderPayload(payload);
 
     // Run every independent read in parallel instead of serially. On a remote
     // database each query is a full network round-trip (~200ms+), so collapsing
     // branch validation, product/pricing lookup, order-number generation, and
     // inventory reads into one batch removes several round-trips from checkout.
-    const [branch, products, initialOrderNumber, inventoryData] = await Promise.all([
-      prisma.branch.findFirst({
-        where: { id: payload.branchId, isActive: true }
-      }),
-      prisma.product.findMany({
-        where: {
-          id: { in: productIds },
-          isActive: true
-        },
-        include: {
-          ...posProductInclude,
-          branchPricing: {
-            where: { branchId: payload.branchId }
-          }
-        }
-      }),
-      generateOrderNumber(),
-      readInventoryData(prisma, payload.branchId, productIds)
-    ]);
-
-    if (!branch) {
-      return res.status(404).json({ message: "Selected branch is unavailable." });
-    }
-
-    if (products.length !== productIds.length) {
-      return res.status(400).json({ message: "One or more selected products are unavailable." });
-    }
-
-    const productMap = new Map(products.map((product) => [product.id, product]));
-
-    const normalizedItems = payload.items.map((item) => {
-      if (item.type === "manual") {
-        return {
-          type: "manual" as const,
-          productId: null,
-          productName: item.name,
-          customDescription: item.description?.trim() || null,
-          quantity: item.quantity,
-          unitPrice: Number(item.unitPrice.toFixed(2)),
-          note: item.note?.trim() || null,
-          addOns: [] as Array<{ optionId: string; optionName: string; priceDelta: number }>
-        };
-      }
-
-      const product = productMap.get(item.productId);
-      if (!product) {
-        throw new Error("Selected product is unavailable.");
-      }
-
-      const branchPricing = product.branchPricing[0];
-      if (branchPricing && !branchPricing.isAvailable) {
-        throw new Error(`${product.name} is not available for this branch.`);
-      }
-
-      const productAddOnGroups = product.slug === "loaded-fries"
-        ? product.addOnGroups.filter((group) => group.name !== "Extras")
-        : product.addOnGroups;
-      const groups = new Map(productAddOnGroups.map((group) => [group.id, group]));
-      const selectedGroups = new Map(item.selections.map((selection) => [selection.groupId, selection.optionIds]));
-      const lineAddOns: Array<{ optionId: string; optionName: string; priceDelta: number }> = [];
-
-      for (const group of productAddOnGroups) {
-        const selectedOptionIds = selectedGroups.get(group.id) ?? [];
-        if (selectedOptionIds.length < group.minSelect || selectedOptionIds.length > group.maxSelect) {
-          throw new Error(`${product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
-        }
-
-        const dedupedOptionIds = [...new Set(selectedOptionIds)];
-        for (const optionId of dedupedOptionIds) {
-          const option = group.options.find((entry) => entry.id === optionId);
-          if (!option) {
-            throw new Error(`${product.name}: invalid add-on selection.`);
-          }
-
-          lineAddOns.push({
-            optionId: option.id,
-            optionName: option.name,
-            priceDelta: Number(option.priceDelta)
-          });
-        }
-      }
-
-      for (const selection of item.selections) {
-        if (!groups.has(selection.groupId)) {
-          throw new Error(`${product.name}: invalid add-on group.`);
-        }
-      }
-
-      const baseUnitPrice = Number((branchPricing?.price ?? product.basePrice).toString());
-      const addOnTotal = lineAddOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
-
-      return {
-        type: "product" as const,
-        productId: product.id,
-        productName: product.name,
-        customDescription: null,
-        quantity: item.quantity,
-        unitPrice: Number((baseUnitPrice + addOnTotal).toFixed(2)),
-        note: item.note?.trim() || null,
-        addOns: lineAddOns
-      };
-    });
-
-    const subtotal = Number(
-      normalizedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0).toFixed(2)
-    );
-    const discountAmount =
-      payload.discountType === "PERCENTAGE"
-        ? Number(((subtotal * payload.discountValue) / 100).toFixed(2))
-        : payload.discountType === "FIXED"
-          ? Number(payload.discountValue.toFixed(2))
-          : 0;
-    const safeDiscountAmount = Math.min(subtotal, discountAmount);
-    const totalAmount = Number(Math.max(0, subtotal - safeDiscountAmount).toFixed(2));
-    const paidAmount = totalAmount;
-    const changeDueAmount = 0;
-
-    // Compute inventory deductions in memory before opening the transaction so
-    // the transaction only performs writes (shorter lock hold, fewer in-txn
-    // round-trips). Also validates stock presence early, before any write.
-    const inventoryChanges = computeInventoryChanges({
-      productIngredients: inventoryData.productIngredients,
-      branchInventories: inventoryData.branchInventories,
-      items: normalizedItems,
-      mode: "consume"
-    });
+    const initialOrderNumber = await generateOrderNumber();
 
     const { orderNumber, result: order } = await withGeneratedOrderNumber((orderNumber) =>
       prisma.$transaction(async (transaction) => {
@@ -379,57 +422,27 @@ router.post("/checkout", async (req, res, next) => {
             paymentMethod: payload.paymentMethod as PaymentMethod,
             paymentStatus: PaymentStatus.PAID,
             cashierId: req.user!.id,
-            subtotal,
+            subtotal: orderPayload.subtotal,
             taxRate: 0,
             taxAmount: 0,
             deliveryFee: 0,
-            discountAmount: safeDiscountAmount,
+            discountAmount: orderPayload.discountAmount,
             manualDiscountType: payload.discountType === "NONE" ? null : (payload.discountType as DiscountType),
             manualDiscountValue: payload.discountType === "NONE" ? null : payload.discountValue,
-            cashReceivedAmount: paidAmount,
-            changeDueAmount,
-            totalAmount,
+            cashReceivedAmount: orderPayload.paidAmount,
+            changeDueAmount: orderPayload.changeDueAmount,
+            totalAmount: orderPayload.totalAmount,
             deliveryInstructions: null,
             items: {
-              create: normalizedItems.map((item) => ({
-                productId: item.productId,
-                productName: item.productName,
-                customDescription: item.customDescription,
-                quantity: item.quantity,
-                unitPrice: item.unitPrice,
-                note: item.note,
-                addOns: item.addOns.length
-                  ? {
-                      create: item.addOns.map((addOn) => ({
-                        optionId: addOn.optionId,
-                        optionName: addOn.optionName,
-                        priceDelta: addOn.priceDelta
-                      }))
-                    }
-                  : undefined
-              }))
+              create: buildOrderItemCreateData(orderPayload.normalizedItems)
             }
           },
-          include: {
-            customer: {
-              select: {
-                id: true,
-                name: true,
-                phone: true
-              }
-            },
-            branch: true,
-            items: {
-              include: {
-                addOns: true
-              }
-            }
-          }
+          include: posOrderInclude
         });
 
         await applyInventoryChanges({
           transaction,
-          changes: inventoryChanges,
+          changes: orderPayload.consumeChanges,
           orderId: createdOrder.id,
           actorId: req.user!.id,
           mode: "consume"
@@ -459,6 +472,137 @@ router.post("/checkout", async (req, res, next) => {
 
     return res.status(201).json({
       order: formatReceiptResponse(order)
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/orders/:orderId", async (req, res, next) => {
+  try {
+    const payload = checkoutSchema.parse(req.body);
+    const existingOrder = await prisma.order.findUnique({
+      where: { id: req.params.orderId },
+      include: {
+        items: {
+          include: {
+            addOns: true
+          }
+        }
+      }
+    });
+
+    if (!existingOrder || existingOrder.channel !== OrderChannel.POS) {
+      return res.status(404).json({ message: "POS order not found." });
+    }
+
+    if (existingOrder.status === OrderStatus.DELIVERED || existingOrder.status === OrderStatus.CANCELLED) {
+      return res.status(400).json({ message: "Delivered or cancelled POS orders cannot be edited." });
+    }
+
+    if (existingOrder.branchId !== payload.branchId) {
+      return res.status(400).json({ message: "Order branch cannot be changed while editing." });
+    }
+
+    const orderPayload = await buildPosOrderPayload(payload);
+    const oldItems = existingOrder.items.map((item) => ({
+      productId: item.productId,
+      productName: item.productName,
+      customDescription: item.customDescription,
+      quantity: item.quantity,
+      unitPrice: Number(item.unitPrice),
+      note: item.note,
+      addOns: item.addOns.map((addOn) => ({
+        optionId: addOn.optionId ?? "",
+        optionName: addOn.optionName,
+        priceDelta: Number(addOn.priceDelta)
+      }))
+    }));
+    const oldProductIds = [...new Set(oldItems.map((item) => item.productId).filter((value): value is string => Boolean(value)))];
+    const oldInventoryData = await readInventoryData(prisma, existingOrder.branchId, oldProductIds);
+    const returnChanges = computeInventoryChanges({
+      productIngredients: oldInventoryData.productIngredients,
+      branchInventories: oldInventoryData.branchInventories,
+      items: oldItems,
+      mode: "return"
+    });
+
+    const updatedOrder = await prisma.$transaction(async (transaction) => {
+      await applyInventoryChanges({
+        transaction,
+        changes: returnChanges,
+        orderId: existingOrder.id,
+        actorId: req.user!.id,
+        mode: "return"
+      });
+
+      await transaction.orderItemAddOn.deleteMany({
+        where: {
+          orderItem: {
+            orderId: existingOrder.id
+          }
+        }
+      });
+      await transaction.orderItem.deleteMany({
+        where: { orderId: existingOrder.id }
+      });
+
+      const order = await transaction.order.update({
+        where: { id: existingOrder.id },
+        data: {
+          customerName: payload.customerName?.trim() || null,
+          customerPhone: payload.customerPhone?.trim() || null,
+          serviceType: payload.serviceType as ServiceType,
+          status: OrderStatus.CONFIRMED,
+          paymentMethod: payload.paymentMethod as PaymentMethod,
+          paymentStatus: PaymentStatus.PAID,
+          cashierId: req.user!.id,
+          subtotal: orderPayload.subtotal,
+          taxRate: 0,
+          taxAmount: 0,
+          deliveryFee: 0,
+          discountAmount: orderPayload.discountAmount,
+          manualDiscountType: payload.discountType === "NONE" ? null : (payload.discountType as DiscountType),
+          manualDiscountValue: payload.discountType === "NONE" ? null : payload.discountValue,
+          cashReceivedAmount: orderPayload.paidAmount,
+          changeDueAmount: orderPayload.changeDueAmount,
+          totalAmount: orderPayload.totalAmount,
+          deliveryInstructions: null,
+          items: {
+            create: buildOrderItemCreateData(orderPayload.normalizedItems)
+          }
+        },
+        include: posOrderInclude
+      });
+
+      await applyInventoryChanges({
+        transaction,
+        changes: orderPayload.consumeChanges,
+        orderId: existingOrder.id,
+        actorId: req.user!.id,
+        mode: "consume"
+      });
+
+      return order;
+    }, INVENTORY_TRANSACTION_OPTIONS);
+
+    void writeAuditLog({
+      actorId: req.user!.id,
+      action: "pos.order_update",
+      entityType: "order",
+      entityId: updatedOrder.id,
+      payload: {
+        orderNumber: updatedOrder.orderNumber,
+        branchId: existingOrder.branchId,
+        itemCount: payload.items.length,
+        paymentMethod: payload.paymentMethod
+      }
+    }).catch((auditError) => {
+      console.error("Failed to write POS order update audit log", auditError);
+    });
+
+    return res.json({
+      order: formatReceiptResponse(updatedOrder)
     });
   } catch (error) {
     return next(error);
