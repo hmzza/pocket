@@ -59,8 +59,7 @@ function ReceiptSlip({
   return (
     <section className="break-inside-avoid rounded-lg border border-dashed border-black/30 bg-white px-3 py-4 shadow-sm print:break-inside-avoid print:rounded-none print:border-0 print:shadow-none">
       <div className="text-center">
-        <img src="/icon.png" alt="Pocket logo" className="mx-auto h-12 w-12 print:h-14 print:w-14" />
-        <p className="mt-2 text-[26px] font-black tracking-[0.18em]">POCKET</p>
+        <p className="text-[26px] font-black tracking-[0.18em]">POCKET</p>
         <p className="mt-1 text-[11px] font-bold tracking-[0.22em] text-black print:text-[11.5px]">{order.branch.name}</p>
         <p className="mt-2 text-[10.5px] font-bold text-black print:text-[11px]">{order.branch.addressLine1}</p>
         <p className="text-[10.5px] font-bold text-black print:text-[11px]">{order.branch.phone}</p>
@@ -167,8 +166,7 @@ function ChefSlip({
   return (
     <section className="break-inside-avoid rounded-lg border border-dashed border-black/30 bg-white px-3 py-4 shadow-sm print:break-inside-avoid print:rounded-none print:border-0 print:shadow-none">
       <div className="text-center">
-        <img src="/icon.png" alt="Pocket logo" className="mx-auto h-14 w-14 print:h-16 print:w-16" />
-        <p className="mt-2 text-[28px] font-black tracking-[0.12em]">CHEF COPY</p>
+        <p className="text-[28px] font-black tracking-[0.12em]">CHEF COPY</p>
         <p className="mt-1 text-[13px] font-bold uppercase tracking-[0.14em]">Order to Kitchen</p>
       </div>
 
@@ -358,7 +356,7 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
   }
 
   return (
-    <div className="bg-[#f4efe5] px-3 py-4 font-mono text-[11px] leading-tight text-black print:bg-white print:px-0 print:py-0 print:font-medium">
+    <div className="bg-[#f4efe5] px-1 py-0 font-mono text-[11px] leading-tight text-black print:bg-white print:px-0 print:py-0 print:font-medium">
       <div className="mx-auto w-full max-w-[80mm] print:max-w-none print:w-[80mm]">
         <div className="mb-3 flex justify-end gap-2 print:hidden">
           <button
