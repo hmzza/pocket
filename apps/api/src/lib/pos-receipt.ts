@@ -11,6 +11,7 @@ export function formatOrderForReceipt(order: any) {
     id: order.id,
     receiptNumber: order.orderNumber,
     orderNumber: order.orderNumber,
+    foodpandaOrderNumber: order.foodpandaOrderNumber ?? null,
     fbrReferenceNumber: FBR_REFERENCE_NUMBER,
     posNo: "001",
     userId: order.cashierId ?? "Admin",
@@ -51,6 +52,13 @@ export function formatOrderForReceipt(order: any) {
       taxAmount: 0,
       lineTotal: Number((Number(item.unitPrice) * item.quantity).toFixed(2)),
       note: item.note ?? null,
+      bundleComponents: (item.bundleComponents ?? []).map((component: any) => ({
+        id: component.id,
+        productId: component.productId ?? null,
+        productName: component.componentProductName,
+        quantity: Number(component.quantity),
+        unitPrice: Number(component.unitPrice ?? 0)
+      })),
       addOns: item.addOns.map((addOn: any) => ({
         id: addOn.id,
         optionName: addOn.optionName,

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders } from "@/lib/admin-client";
-import type { AdminOrder, AdminOrderSegment } from "@/lib/types";
+import type { AdminOrder, AdminOrderSegment, AdminRangePreset } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
@@ -15,10 +15,30 @@ const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "foodpanda", label: "Foodpanda" }
 ];
 
+const presets: Array<{ value: AdminRangePreset; label: string }> = [
+  { value: "today", label: "Today" },
+  { value: "7d", label: "7 Days" },
+  { value: "30d", label: "30 Days" },
+  { value: "month", label: "This Month" },
+  { value: "year", label: "This Year" },
+  { value: "custom", label: "Custom" }
+];
+
+const orderGridColumns = "grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,0.5fr)_minmax(0,0.8fr)_minmax(0,0.7fr)] gap-4";
+
+function getTodayDateKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 function formatServiceType(value: string) {
   if (["INSHOP", "TAKEAWAY", "DINE_IN"].includes(value)) return "Inshop";
   if (value === "FOODPANDA") return "Foodpanda";
   return value.replaceAll("_", " ");
+}
+
+function formatBundleSummary(components: Array<{ productName: string; quantity: number }>) {
+  return components.map((component) => `${component.quantity}x ${component.productName}`).join(", ");
 }
 
 function OrderDetails({ order }: { order: AdminOrder }) {
@@ -38,6 +58,9 @@ function OrderDetails({ order }: { order: AdminOrder }) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Payment</p>
           <p className="mt-2 text-sm font-medium text-pocket-navy">{order.paymentMethod.replaceAll("_", " ")}</p>
+          <p className="mt-2 text-sm text-pocket-navy/60">
+            Foodpanda order: {order.foodpandaOrderNumber ?? "null"}
+          </p>
           <p className="mt-2 text-sm text-pocket-navy/60">Channel: {order.channel.replaceAll("_", " ")}</p>
           <p className="text-sm text-pocket-navy/60">Service: {formatServiceType(order.serviceType)}</p>
           <p className="text-sm text-pocket-navy/60">Paid: {formatCurrency(order.paidAmount)}</p>
@@ -68,6 +91,7 @@ function OrderDetails({ order }: { order: AdminOrder }) {
                   <p className="font-semibold text-pocket-navy">{item.productName}</p>
                   <p className="text-sm text-pocket-navy/60">Qty {item.quantity}</p>
                   {item.customDescription ? <p className="text-sm text-pocket-navy/60">{item.customDescription}</p> : null}
+                  {item.bundleComponents.length ? <p className="text-sm text-pocket-navy/60">Contains: {formatBundleSummary(item.bundleComponents)}</p> : null}
                   {item.note ? <p className="mt-1 text-sm text-pocket-navy/60">Note: {item.note}</p> : null}
                 </div>
                 <p className="font-bold text-pocket-orange">{formatCurrency(item.unitPrice * item.quantity)}</p>
@@ -94,6 +118,9 @@ export function OrderManagement() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [preset, setPreset] = useState<AdminRangePreset>("today");
+  const [customStart, setCustomStart] = useState(getTodayDateKey());
+  const [customEnd, setCustomEnd] = useState(getTodayDateKey());
   const [segmentFilter, setSegmentFilter] = useState<AdminOrderSegment>("all");
   const [search, setSearch] = useState("");
   const [expandedOrderId, setExpandedOrderId] = useState("");
@@ -103,7 +130,18 @@ export function OrderManagement() {
   async function loadOrders() {
     try {
       setError("");
-      const nextOrders = await fetchAdminOrders({ segment: segmentFilter });
+      if (preset === "custom" && (!customStart || !customEnd)) {
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
+      const nextOrders = await fetchAdminOrders({
+        segment: segmentFilter,
+        preset,
+        start: preset === "custom" ? new Date(`${customStart}T00:00:00`).toISOString() : undefined,
+        end: preset === "custom" ? new Date(`${customEnd}T23:59:59.999`).toISOString() : undefined
+      });
       setOrders(nextOrders);
       setExpandedOrderId((current) => (nextOrders.some((order) => order.id === current) ? current : nextOrders[0]?.id ?? ""));
     } catch (loadError) {
@@ -116,7 +154,7 @@ export function OrderManagement() {
 
   useEffect(() => {
     void loadOrders();
-  }, [segmentFilter]);
+  }, [segmentFilter, preset, customStart, customEnd]);
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
@@ -176,6 +214,25 @@ export function OrderManagement() {
               </Button>
             ))}
           </div>
+          <div className="flex flex-wrap gap-2">
+            {presets.map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                variant={preset === option.value ? "default" : "outline"}
+                onClick={() => setPreset(option.value)}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+          {preset === "custom" ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <Input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
+              <Input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
+              <p className="text-sm text-pocket-navy/60">Pick the same start and end date to view one specific day.</p>
+            </div>
+          ) : null}
           <div className="grid gap-4 lg:grid-cols-[1fr_auto_auto]">
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, customer, branch, or address" />
             <Button
@@ -209,12 +266,13 @@ export function OrderManagement() {
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
 
       <Card className="overflow-hidden">
-        <div className="grid grid-cols-[1.25fr_1.2fr_0.65fr_0.8fr_0.7fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
-          <span>Order</span>
-          <span>Customer</span>
-          <span>Items</span>
-          <span>Total</span>
-          <span>Details</span>
+        <div className={`${orderGridColumns} border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60`}>
+          <span className="min-w-0">Order</span>
+          <span className="min-w-0">Customer</span>
+          <span className="min-w-0">Foodpanda No</span>
+          <span className="min-w-0">Items</span>
+          <span className="min-w-0">Total</span>
+          <span className="min-w-0">Details</span>
         </div>
         {loading ? (
           <div className="px-5 py-8 text-sm text-pocket-navy/60">Loading orders...</div>
@@ -223,8 +281,8 @@ export function OrderManagement() {
             const open = expandedOrderId === order.id;
             return (
               <div key={order.id} className="border-b border-pocket-navy/10 last:border-0">
-                <div className="grid grid-cols-[1.25fr_1.2fr_0.65fr_0.8fr_0.7fr] gap-4 px-5 py-4 text-sm">
-                  <div>
+                <div className={`${orderGridColumns} px-5 py-4 text-sm`}>
+                  <div className="min-w-0">
                     <p className="font-bold text-pocket-navy">{order.orderNumber}</p>
                     <p className="text-pocket-navy/60">{order.branch}</p>
                     <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-pocket-orange">{order.channel.replaceAll("_", " ")}</p>
@@ -237,7 +295,7 @@ export function OrderManagement() {
                       }).format(new Date(order.placedAt))}
                     </p>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="font-medium text-pocket-navy">{order.customerName}</p>
                     {order.customerPhone ? <p className="text-pocket-navy/60">{order.customerPhone}</p> : null}
                     <p className="text-xs font-medium uppercase tracking-wide text-pocket-navy/40">{formatServiceType(order.serviceType)}</p>
@@ -247,9 +305,10 @@ export function OrderManagement() {
                       </p>
                     ) : null}
                   </div>
-                  <span className="font-medium text-pocket-navy/70">{order.items.length}</span>
-                  <span className="font-bold text-pocket-navy">{formatCurrency(order.totalAmount)}</span>
-                  <div className="flex justify-end gap-2">
+                  <span className="min-w-0 font-medium text-pocket-navy/70">{order.foodpandaOrderNumber ?? "null"}</span>
+                  <span className="min-w-0 font-medium text-pocket-navy/70">{order.items.length}</span>
+                  <span className="min-w-0 font-bold text-pocket-navy">{formatCurrency(order.totalAmount)}</span>
+                  <div className="flex min-w-0 justify-end gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setExpandedOrderId(open ? "" : order.id)}>
                       <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
                       View

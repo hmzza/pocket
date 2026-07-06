@@ -25,6 +25,19 @@ const posProductInclude = {
       }
     }
   },
+  bundleComponents: {
+    orderBy: { sortOrder: "asc" as const },
+    include: {
+      componentProduct: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          isActive: true
+        }
+      }
+    }
+  },
   branchPricing: true
 };
 
@@ -61,16 +74,27 @@ const cartItemSchema = z.discriminatedUnion("type", [
   })
 ]);
 
-const checkoutSchema = z.object({
-  branchId: z.string().cuid(),
-  serviceType: z.enum(["INSHOP", "FOODPANDA"]),
-  paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH"]),
-  customerName: z.string().max(80).optional(),
-  customerPhone: z.string().max(20).optional(),
-  discountType: z.enum(["NONE", "PERCENTAGE", "FIXED"]).default("NONE"),
-  discountValue: z.number().min(0).max(100_000).default(0),
-  items: z.array(cartItemSchema).min(1)
-});
+const checkoutSchema = z
+  .object({
+    branchId: z.string().cuid(),
+    serviceType: z.enum(["INSHOP", "FOODPANDA"]),
+    paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH"]),
+    customerName: z.string().max(80).optional(),
+    customerPhone: z.string().max(20).optional(),
+    foodpandaOrderNumber: z.string().max(40).optional(),
+    discountType: z.enum(["NONE", "PERCENTAGE", "FIXED"]).default("NONE"),
+    discountValue: z.number().min(0).max(100_000).default(0),
+    items: z.array(cartItemSchema).min(1)
+  })
+  .superRefine((value, ctx) => {
+    if (value.serviceType === "FOODPANDA" && !value.foodpandaOrderNumber?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["foodpandaOrderNumber"],
+        message: "Foodpanda order number is required for Foodpanda orders."
+      });
+    }
+  });
 
 type CheckoutPayload = z.infer<typeof checkoutSchema>;
 
@@ -90,6 +114,42 @@ function formatReceiptResponse(order: any) {
   };
 }
 
+function formatEditablePosOrder(order: any) {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    branchId: order.branchId,
+    customerName: order.customerName ?? "",
+    customerPhone: order.customerPhone ?? "",
+    serviceType: order.serviceType,
+    paymentMethod: order.paymentMethod,
+    discountType: order.manualDiscountType ?? "NONE",
+    discountValue: Number(order.manualDiscountValue ?? 0),
+    foodpandaOrderNumber: order.foodpandaOrderNumber ?? "",
+    items: order.items.map((item: any) => ({
+      id: item.id,
+      productId: item.productId ?? item.product?.id ?? null,
+      productName: item.productName,
+      categoryName: item.product?.category?.name ?? "Manual",
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice),
+      customDescription: item.customDescription ?? null,
+      note: item.note ?? null,
+      bundleComponents: (item.bundleComponents ?? []).map((component: any) => ({
+        productId: component.productId ?? "",
+        productName: component.componentProductName,
+        quantity: Number(component.quantity),
+        sortOrder: component.sortOrder ?? undefined
+      })),
+      addOns: (item.addOns ?? []).map((addOn: any) => ({
+        id: addOn.id,
+        optionName: addOn.optionName,
+        priceDelta: Number(addOn.priceDelta)
+      }))
+    }))
+  };
+}
+
 function getProductIds(items: CheckoutPayload["items"]) {
   return [
     ...new Set(
@@ -100,10 +160,16 @@ function getProductIds(items: CheckoutPayload["items"]) {
   ];
 }
 
+function getBundleComponentProductIds(products: Array<{ bundleComponents?: Array<{ componentProductId: string }> }>) {
+  return [
+    ...new Set(products.flatMap((product) => (product.bundleComponents ?? []).map((component) => component.componentProductId)))
+  ];
+}
+
 async function buildPosOrderPayload(payload: CheckoutPayload) {
   const productIds = getProductIds(payload.items);
 
-  const [branch, products, inventoryData] = await Promise.all([
+  const [branch, products] = await Promise.all([
     prisma.branch.findFirst({
       where: { id: payload.branchId, isActive: true }
     }),
@@ -118,8 +184,7 @@ async function buildPosOrderPayload(payload: CheckoutPayload) {
           where: { branchId: payload.branchId }
         }
       }
-    }),
-    readInventoryData(prisma, payload.branchId, productIds)
+    })
   ]);
 
   if (!branch) {
@@ -131,6 +196,8 @@ async function buildPosOrderPayload(payload: CheckoutPayload) {
   }
 
   const productMap = new Map(products.map((product) => [product.id, product]));
+  const inventoryProductIds = [...new Set([...productIds, ...getBundleComponentProductIds(products)])];
+  const inventoryData = await readInventoryData(prisma, payload.branchId, inventoryProductIds);
 
   const normalizedItems = payload.items.map((item) => {
     if (item.type === "manual") {
@@ -142,7 +209,8 @@ async function buildPosOrderPayload(payload: CheckoutPayload) {
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice.toFixed(2)),
         note: item.note?.trim() || null,
-        addOns: [] as Array<{ optionId: string; optionName: string; priceDelta: number }>
+        addOns: [] as Array<{ optionId: string; optionName: string; priceDelta: number }>,
+        bundleComponents: [] as Array<{ productId: string; productName: string; quantity: number }>
       };
     }
 
@@ -154,6 +222,11 @@ async function buildPosOrderPayload(payload: CheckoutPayload) {
     const branchPricing = product.branchPricing[0];
     if (branchPricing && !branchPricing.isAvailable) {
       throw Object.assign(new Error(`${product.name} is not available for this branch.`), { statusCode: 400 });
+    }
+
+    const inactiveBundleComponent = product.bundleComponents.find((component) => !component.componentProduct.isActive);
+    if (inactiveBundleComponent) {
+      throw Object.assign(new Error(`${product.name}: one or more bundle items are unavailable.`), { statusCode: 400 });
     }
 
     const productAddOnGroups = product.slug === "loaded-fries"
@@ -192,6 +265,11 @@ async function buildPosOrderPayload(payload: CheckoutPayload) {
 
     const baseUnitPrice = Number((branchPricing?.price ?? product.basePrice).toString());
     const addOnTotal = lineAddOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
+    const bundleComponents = (product.bundleComponents ?? []).map((component) => ({
+      productId: component.componentProduct.id,
+      productName: component.componentProduct.name,
+      quantity: component.quantity * item.quantity
+    }));
 
     return {
       type: "product" as const,
@@ -201,7 +279,8 @@ async function buildPosOrderPayload(payload: CheckoutPayload) {
       quantity: item.quantity,
       unitPrice: Number((baseUnitPrice + addOnTotal).toFixed(2)),
       note: item.note?.trim() || null,
-      addOns: lineAddOns
+      addOns: lineAddOns,
+      bundleComponents
     };
   });
 
@@ -245,6 +324,16 @@ function buildOrderItemCreateData(normalizedItems: Awaited<ReturnType<typeof bui
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     note: item.note,
+    bundleComponents: item.bundleComponents.length
+      ? {
+          create: item.bundleComponents.map((component) => ({
+            productId: component.productId,
+            componentProductName: component.productName,
+            quantity: component.quantity,
+            unitPrice: 0
+          }))
+        }
+      : undefined,
     addOns: item.addOns.length
       ? {
           create: item.addOns.map((addOn) => ({
@@ -268,7 +357,19 @@ const posOrderInclude = {
   branch: true,
   items: {
     include: {
-      addOns: true
+      addOns: true,
+      bundleComponents: true,
+      product: {
+        select: {
+          id: true,
+          name: true,
+          category: {
+            select: {
+              name: true
+            }
+          }
+        }
+      }
     }
   }
 };
@@ -326,6 +427,27 @@ router.get("/catalog", async (req, res, next) => {
     );
 
     return res.json({ branches, branchId, categories, products: posProducts });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/orders/lookup", async (req, res, next) => {
+  try {
+    const query = z.object({ orderNumber: z.string().min(3).max(40) }).parse(req.query);
+    const order = await prisma.order.findUnique({
+      where: { orderNumber: query.orderNumber },
+      include: posOrderInclude
+    });
+
+    if (!order || order.channel !== OrderChannel.POS) {
+      return res.status(404).json({ message: "POS order not found." });
+    }
+
+    return res.json({
+      order: formatReceiptResponse(order),
+      editableOrder: formatEditablePosOrder(order)
+    });
   } catch (error) {
     return next(error);
   }
@@ -416,6 +538,7 @@ router.post("/checkout", async (req, res, next) => {
             branchId: payload.branchId,
             customerName: payload.customerName?.trim() || null,
             customerPhone: payload.customerPhone?.trim() || null,
+            foodpandaOrderNumber: payload.serviceType === "FOODPANDA" ? payload.foodpandaOrderNumber?.trim() || null : null,
             channel: OrderChannel.POS,
             serviceType: payload.serviceType as ServiceType,
             status: "CONFIRMED",
@@ -486,7 +609,8 @@ router.patch("/orders/:orderId", async (req, res, next) => {
       include: {
         items: {
           include: {
-            addOns: true
+            addOns: true,
+            bundleComponents: true
           }
         }
       }
@@ -494,10 +618,6 @@ router.patch("/orders/:orderId", async (req, res, next) => {
 
     if (!existingOrder || existingOrder.channel !== OrderChannel.POS) {
       return res.status(404).json({ message: "POS order not found." });
-    }
-
-    if (existingOrder.status === OrderStatus.DELIVERED || existingOrder.status === OrderStatus.CANCELLED) {
-      return res.status(400).json({ message: "Delivered or cancelled POS orders cannot be edited." });
     }
 
     if (existingOrder.branchId !== payload.branchId) {
@@ -512,13 +632,24 @@ router.patch("/orders/:orderId", async (req, res, next) => {
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       note: item.note,
+      bundleComponents: item.bundleComponents.map((component) => ({
+        productId: component.productId,
+        quantity: component.quantity
+      })),
       addOns: item.addOns.map((addOn) => ({
         optionId: addOn.optionId ?? "",
         optionName: addOn.optionName,
         priceDelta: Number(addOn.priceDelta)
       }))
     }));
-    const oldProductIds = [...new Set(oldItems.map((item) => item.productId).filter((value): value is string => Boolean(value)))];
+    const oldProductIds = [
+      ...new Set(
+        oldItems.flatMap((item) => [
+          item.productId,
+          ...(item.bundleComponents ?? []).map((component) => component.productId)
+        ]).filter((value): value is string => Boolean(value))
+      )
+    ];
     const oldInventoryData = await readInventoryData(prisma, existingOrder.branchId, oldProductIds);
     const returnChanges = computeInventoryChanges({
       productIngredients: oldInventoryData.productIngredients,
@@ -552,6 +683,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
         data: {
           customerName: payload.customerName?.trim() || null,
           customerPhone: payload.customerPhone?.trim() || null,
+          foodpandaOrderNumber: payload.serviceType === "FOODPANDA" ? payload.foodpandaOrderNumber?.trim() || null : null,
           serviceType: payload.serviceType as ServiceType,
           status: OrderStatus.CONFIRMED,
           paymentMethod: payload.paymentMethod as PaymentMethod,

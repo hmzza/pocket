@@ -7,6 +7,10 @@ type InventoryOrderItem = {
   addOns?: Array<{
     optionName: string;
   }>;
+  bundleComponents?: Array<{
+    productId?: string | null;
+    quantity: number;
+  }>;
 };
 
 type ApplyOrderInventoryArgs = {
@@ -159,9 +163,22 @@ export function computeInventoryChanges({
   const totals = new Map<string, number>();
 
   for (const item of items) {
-    if (item.productId) {
+    if (item.productId && !(item.bundleComponents?.length ?? 0)) {
       for (const recipe of recipeByProduct.get(item.productId) ?? []) {
         totals.set(recipe.ingredientId, roundQuantity((totals.get(recipe.ingredientId) ?? 0) + recipe.quantityNeeded * item.quantity));
+      }
+    }
+
+    for (const component of item.bundleComponents ?? []) {
+      if (!component.productId) {
+        continue;
+      }
+
+      for (const recipe of recipeByProduct.get(component.productId) ?? []) {
+        totals.set(
+          recipe.ingredientId,
+          roundQuantity((totals.get(recipe.ingredientId) ?? 0) + recipe.quantityNeeded * component.quantity)
+        );
       }
     }
 
@@ -274,7 +291,14 @@ export async function applyOrderInventory({
   items,
   mode
 }: ApplyOrderInventoryArgs) {
-  const productIds = [...new Set(items.map((item) => item.productId).filter((value): value is string => Boolean(value)))];
+  const productIds = [
+    ...new Set(
+      items.flatMap((item) => [
+        item.productId,
+        ...(item.bundleComponents ?? []).map((component) => component.productId)
+      ]).filter((value): value is string => Boolean(value))
+    )
+  ];
   const { productIngredients, branchInventories } = await readInventoryData(transaction, branchId, productIds);
   const changes = computeInventoryChanges({ productIngredients, branchInventories, items, mode });
   await applyInventoryChanges({ transaction, changes, orderId, actorId, mode });

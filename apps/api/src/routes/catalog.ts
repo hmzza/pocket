@@ -275,7 +275,8 @@ router.post("/track", async (req, res, next) => {
     include: {
       items: {
         include: {
-          addOns: true
+          addOns: true,
+          bundleComponents: true
         }
       },
       branch: true,
@@ -343,7 +344,8 @@ router.get("/receipts/:orderNumber", async (req, res) => {
         branch: true,
         items: {
           include: {
-            addOns: true
+            addOns: true,
+            bundleComponents: true
           }
         }
       }
@@ -562,7 +564,8 @@ router.post("/checkout", async (req, res, next) => {
           include: {
             items: {
               include: {
-                addOns: true
+                addOns: true,
+                bundleComponents: true
               }
             },
             branch: true,

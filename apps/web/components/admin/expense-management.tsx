@@ -16,6 +16,7 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "7d", label: "7 Days" },
   { value: "30d", label: "30 Days" },
   { value: "month", label: "This Month" },
+  { value: "custom", label: "Custom" },
   { value: "year", label: "This Year" }
 ];
 
@@ -24,6 +25,14 @@ const COMMON_EXPENSE_CATEGORIES = ["Inventory", "Utilities", "Rent", "Salaries",
 function getCurrentMonthKey() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getTodayDateKey() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function shiftMonth(monthKey: string, delta: number) {
@@ -168,8 +177,10 @@ function ExpenseEditor({
 
 export function ExpenseManagement() {
   const [data, setData] = useState<AdminExpenseData | null>(null);
-  const [preset, setPreset] = useState<AdminRangePreset>("30d");
+  const [preset, setPreset] = useState<AdminRangePreset>("today");
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey());
+  const [customStart, setCustomStart] = useState(getTodayDateKey());
+  const [customEnd, setCustomEnd] = useState(getTodayDateKey());
   const [branchId, setBranchId] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -183,14 +194,29 @@ export function ExpenseManagement() {
   const [exporting, setExporting] = useState(false);
   const [deletingId, setDeletingId] = useState("");
 
-  async function loadExpenses(nextPreset = preset, nextBranchId = branchId, nextCategory = categoryFilter, nextMonth = selectedMonth) {
+  async function loadExpenses(
+    nextPreset = preset,
+    nextBranchId = branchId,
+    nextCategory = categoryFilter,
+    nextMonth = selectedMonth,
+    nextStart = customStart,
+    nextEnd = customEnd
+  ) {
     try {
       setError("");
+      if (nextPreset === "custom" && (!nextStart || !nextEnd)) {
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       const nextData = await fetchAdminExpenses({
         preset: nextPreset,
         branchId: nextBranchId || undefined,
         category: nextCategory || undefined,
-        monthKey: nextPreset === "month" ? nextMonth : undefined
+        monthKey: nextPreset === "month" ? nextMonth : undefined,
+        start: nextPreset === "custom" ? new Date(`${nextStart}T00:00:00`).toISOString() : undefined,
+        end: nextPreset === "custom" ? new Date(`${nextEnd}T23:59:59.999`).toISOString() : undefined
       });
       setData(nextData);
       const defaultBranchId = nextData.branches[0]?.id || "";
@@ -210,8 +236,8 @@ export function ExpenseManagement() {
   }
 
   useEffect(() => {
-    void loadExpenses(preset, branchId, categoryFilter, selectedMonth);
-  }, [preset, categoryFilter, selectedMonth]);
+    void loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd);
+  }, [preset, categoryFilter, selectedMonth, customStart, customEnd]);
 
   const filteredExpenses = useMemo(() => {
     if (!data) return [];
@@ -272,7 +298,7 @@ export function ExpenseManagement() {
       }
 
       setEditorOpen(false);
-      await loadExpenses(preset, branchId, categoryFilter, selectedMonth);
+      await loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to save expense.");
     } finally {
@@ -290,7 +316,7 @@ export function ExpenseManagement() {
     setError("");
     try {
       await deleteAdminExpense(expense.id);
-      await loadExpenses(preset, branchId, categoryFilter, selectedMonth);
+      await loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete expense.");
     } finally {
@@ -302,14 +328,34 @@ export function ExpenseManagement() {
     setExporting(true);
     setError("");
     try {
+      const exportParams =
+        preset === "custom"
+          ? customStart && customEnd
+            ? {
+                preset,
+                branchId: branchId || undefined,
+                category: categoryFilter || undefined,
+                start: new Date(`${customStart}T00:00:00`).toISOString(),
+                end: new Date(`${customEnd}T23:59:59.999`).toISOString()
+              }
+            : null
+          : {
+              preset,
+              branchId: branchId || undefined,
+              category: categoryFilter || undefined,
+              monthKey: preset === "month" ? selectedMonth : undefined
+            };
+
+      if (!exportParams) {
+        setError("Choose a start and end date before exporting.");
+        return;
+      }
+
       await downloadAdminExpenseExport({
-        preset: "month",
-        branchId: branchId || undefined,
-        category: categoryFilter || undefined,
-        monthKey: selectedMonth
+        ...exportParams
       });
     } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : "Failed to export month sheet.");
+      setError(exportError instanceof Error ? exportError.message : "Failed to export expenses.");
     } finally {
       setExporting(false);
     }
@@ -347,7 +393,7 @@ export function ExpenseManagement() {
         <Card className="flex flex-col gap-4 p-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p>
-            <p className="mt-3 text-sm text-pocket-navy/60">Add new expenses, refresh records, or export the selected month.</p>
+            <p className="mt-3 text-sm text-pocket-navy/60">Add new expenses, refresh records, or export the selected period.</p>
           </div>
           <div className="grid w-full gap-2 sm:grid-cols-[48px_minmax(0,1fr)]">
             <Button
@@ -355,7 +401,7 @@ export function ExpenseManagement() {
               className="h-11 px-0"
               onClick={() => {
                 setRefreshing(true);
-                void loadExpenses(preset, branchId, categoryFilter, selectedMonth);
+                void loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd);
               }}
               disabled={refreshing}
             >
@@ -363,7 +409,7 @@ export function ExpenseManagement() {
             </Button>
             <Button variant="outline" className="h-11 justify-center whitespace-nowrap" onClick={() => void exportMonthSheet()} disabled={exporting}>
               <Download className="h-4 w-4" />
-              {exporting ? "Exporting..." : "Month Sheet"}
+              {exporting ? "Exporting..." : "Export Sheet"}
             </Button>
             <Button className="h-11 justify-center sm:col-span-2" onClick={openCreate}>
               <Plus className="h-4 w-4" />
@@ -393,44 +439,50 @@ export function ExpenseManagement() {
           ))}
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setPreset("month");
-              setSelectedMonth((current) => shiftMonth(current, -1));
-            }}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Input
-            type="month"
-            value={selectedMonth}
-            onChange={(event) => {
-              setPreset("month");
-              setSelectedMonth(event.target.value);
-            }}
-            className="w-[200px]"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setPreset("month");
-              setSelectedMonth((current) => shiftMonth(current, 1));
-            }}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-          <p className="text-sm text-pocket-navy/60">Pick any month to review that month’s records and export its sheet.</p>
+          <p className="text-sm text-pocket-navy/60">Pick a preset, then use the month or custom date fields when needed.</p>
         </div>
+        {preset === "month" ? (
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedMonth((current) => shiftMonth(current, -1));
+              }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Input
+              type="month"
+              value={selectedMonth}
+              onChange={(event) => {
+                setSelectedMonth(event.target.value);
+              }}
+              className="w-[200px]"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedMonth((current) => shiftMonth(current, 1));
+              }}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : null}
+        {preset === "custom" ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <Input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} />
+            <Input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} />
+            <p className="text-sm text-pocket-navy/60">Set the same start and end date to view one specific day.</p>
+          </div>
+        ) : null}
         <div className="mt-4 grid gap-4 lg:grid-cols-[220px_220px_1fr]">
           <select
             value={branchId}
             onChange={(event) => {
-              const nextBranchId = event.target.value;
-              setBranchId(nextBranchId);
-              void loadExpenses(preset, nextBranchId, categoryFilter, selectedMonth);
+              setBranchId(event.target.value);
             }}
             className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
           >
@@ -444,9 +496,7 @@ export function ExpenseManagement() {
           <select
             value={categoryFilter}
             onChange={(event) => {
-              const nextCategory = event.target.value;
-              setCategoryFilter(nextCategory);
-              void loadExpenses(preset, branchId, nextCategory, selectedMonth);
+              setCategoryFilter(event.target.value);
             }}
             className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
           >

@@ -237,7 +237,8 @@ router.get("/orders", async (req, res) => {
     include: {
       items: {
         include: {
-          addOns: true
+          addOns: true,
+          bundleComponents: true
         }
       },
       branch: true,
@@ -416,7 +417,8 @@ router.post("/checkout", async (req, res, next) => {
           include: {
             items: {
               include: {
-                addOns: true
+                addOns: true,
+                bundleComponents: true
               }
             }
           }

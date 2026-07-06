@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createPosOrder, fetchPosCatalog, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession, updatePosOrder } from "@/lib/pos-client";
-import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosReceiptOrder } from "@/lib/types";
+import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession, updatePosOrder } from "@/lib/pos-client";
+import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
 
 type TicketLine = {
@@ -21,6 +21,7 @@ type TicketLine = {
   unitPrice: number;
   customDescription?: string;
   selections: Array<{ groupId: string; optionIds: string[] }>;
+  bundleComponents: Array<{ productId: string; productName: string; quantity: number }>;
   addOns: Array<{ id: string; name: string; priceDelta: number }>;
 };
 
@@ -162,6 +163,7 @@ function buildWhatsAppReceiptMessage(order: PosReceiptOrder) {
     "Purchase Receipt",
     `Receipt No: ${order.receiptNumber}`,
     `Order ID: ${order.id}`,
+    ...(order.foodpandaOrderNumber ? [`Foodpanda Order: ${order.foodpandaOrderNumber}`] : []),
     `Date: ${receiptMeta.date}`,
     `Time: ${receiptMeta.time}`,
     `Customer: ${order.customerName || "Walk-in"}`,
@@ -175,6 +177,9 @@ function buildWhatsAppReceiptMessage(order: PosReceiptOrder) {
     lines.push(`${index + 1}. ${item.productName}`);
     if (item.customDescription) {
       lines.push(`   ${item.customDescription}`);
+    }
+    if (item.bundleComponents.length) {
+      lines.push(`   Contains: ${formatBundleSummary(item.bundleComponents)}`);
     }
     if (item.addOns.length) {
       lines.push(`   Selections: ${item.addOns.map((addOn) => addOn.optionName).join(", ")}`);
@@ -224,6 +229,34 @@ function mergeTicketLine(lines: TicketLine[], nextLine: TicketLine) {
   return lines.map((line, index) => index === existingIndex ? { ...line, quantity: line.quantity + nextLine.quantity } : line);
 }
 
+function formatBundleSummary(components: Array<{ productName: string; quantity: number }>, multiplier = 1) {
+  return components.map((component) => `${component.quantity * multiplier}x ${component.productName}`).join(", ");
+}
+
+function mapEditableOrderToTicket(order: PosEditableOrder): TicketLine[] {
+  return order.items.map((item) => ({
+    id: crypto.randomUUID(),
+    type: item.productId ? "product" : "manual",
+    productId: item.productId ?? undefined,
+    name: item.productName,
+    categoryName: item.categoryName,
+    quantity: item.quantity,
+    unitPrice: item.unitPrice,
+    customDescription: item.customDescription ?? undefined,
+    selections: [],
+    bundleComponents: item.bundleComponents.map((component) => ({
+      productId: component.productId,
+      productName: component.productName,
+      quantity: component.quantity
+    })),
+    addOns: item.addOns.map((addOn) => ({
+      id: addOn.id,
+      name: addOn.optionName,
+      priceDelta: addOn.priceDelta
+    }))
+  }));
+}
+
 export function PosTerminal() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
@@ -239,6 +272,7 @@ export function PosTerminal() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [serviceType, setServiceType] = useState<(typeof serviceTypes)[number]["value"]>("INSHOP");
+  const [foodpandaOrderNumber, setFoodpandaOrderNumber] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<(typeof paymentOptions)[number]["value"]>("CASH");
   const [discountType, setDiscountType] = useState<"NONE" | "PERCENTAGE" | "FIXED">("NONE");
   const [discountValue, setDiscountValue] = useState("");
@@ -257,6 +291,9 @@ export function PosTerminal() {
   const [matchedCustomer, setMatchedCustomer] = useState<PosCustomerLookup | null>(null);
   const [orderCompleted, setOrderCompleted] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState("");
+  const [orderLookupNumber, setOrderLookupNumber] = useState("");
+  const [loadingLookup, setLoadingLookup] = useState(false);
+  const [editPanelOpen, setEditPanelOpen] = useState(false);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   async function loadCatalog(nextBranchId?: string) {
@@ -385,6 +422,7 @@ export function PosTerminal() {
         quantity: 1,
         unitPrice: product.price,
         selections: [],
+        bundleComponents: product.bundleComponents,
         addOns: []
       })
     );
@@ -414,6 +452,7 @@ export function PosTerminal() {
         quantity: parsePositiveInteger(productQuantity),
         unitPrice: pricing.unitPrice,
         selections: normalizedSelections,
+        bundleComponents: productDialog.bundleComponents,
         addOns: pricing.addOns,
       })
     );
@@ -442,6 +481,7 @@ export function PosTerminal() {
         unitPrice: price,
         customDescription: manualDescription.trim(),
         selections: [],
+        bundleComponents: [],
         addOns: []
       })
     );
@@ -453,15 +493,68 @@ export function PosTerminal() {
     setError("");
   }
 
+  function hydrateEditableOrder(order: PosEditableOrder, receiptOrder: PosReceiptOrder) {
+    setTicket(mapEditableOrderToTicket(order));
+    setCustomerName(order.customerName || "");
+    setCustomerPhone(order.customerPhone || "");
+    setServiceType(order.serviceType as (typeof serviceTypes)[number]["value"]);
+    setFoodpandaOrderNumber(order.foodpandaOrderNumber || "");
+    setPaymentMethod(order.paymentMethod as (typeof paymentOptions)[number]["value"]);
+    setDiscountType(order.discountType);
+    setDiscountValue(order.discountValue > 0 ? String(order.discountValue) : "");
+    setLastReceiptOrderId(receiptOrder.id);
+    setLastReceiptOrder(receiptOrder);
+    setLastReceiptPhone(receiptOrder.customerPhone ?? order.customerPhone ?? "");
+    setMatchedCustomer(null);
+    setOrderCompleted(true);
+    setEditingOrderId(order.id);
+    setEditPanelOpen(true);
+    setError("");
+  }
+
+  async function loadOrderForEditing() {
+    const query = orderLookupNumber.trim();
+    if (!query) {
+      setError("Enter a system order number to load.");
+      return;
+    }
+
+    setLoadingLookup(true);
+    setError("");
+
+    try {
+      const response = await fetchPosOrderByNumber(query);
+      hydrateEditableOrder(response.editableOrder, response.order);
+      setOrderLookupNumber(response.order.orderNumber);
+      setEditPanelOpen(true);
+    } catch (lookupError) {
+      if (lookupError instanceof Error) {
+        setError(lookupError.message);
+      } else {
+        setError("Could not load that order.");
+      }
+    } finally {
+      setLoadingLookup(false);
+    }
+  }
+
   async function submitOrder() {
     setSubmitting(true);
     setError("");
     const submittedCustomerPhone = customerPhone.trim();
+    const submittedFoodpandaOrderNumber = foodpandaOrderNumber.trim();
+
+    if (serviceType === "FOODPANDA" && !submittedFoodpandaOrderNumber) {
+      setError("Foodpanda order number is required for Foodpanda orders.");
+      setSubmitting(false);
+      return;
+    }
 
     try {
       const payload = {
         branchId,
         serviceType,
+        foodpandaOrderNumber: serviceType === "FOODPANDA" ? submittedFoodpandaOrderNumber : undefined,
         paymentMethod,
         customerName: customerName.trim() || undefined,
         customerPhone: submittedCustomerPhone || undefined,
@@ -515,6 +608,7 @@ export function PosTerminal() {
     setCustomerName("");
     setCustomerPhone("");
     setServiceType("INSHOP");
+    setFoodpandaOrderNumber("");
     setPaymentMethod("CASH");
     setDiscountType("NONE");
     setDiscountValue("");
@@ -524,6 +618,9 @@ export function PosTerminal() {
     setMatchedCustomer(null);
     setOrderCompleted(false);
     setEditingOrderId("");
+    setOrderLookupNumber("");
+    setLoadingLookup(false);
+    setEditPanelOpen(false);
     setSearch("");
     setCategoryId("ALL");
     setError("");
@@ -536,6 +633,7 @@ export function PosTerminal() {
 
     setOrderCompleted(true);
     setEditingOrderId(lastReceiptOrderId);
+    setEditPanelOpen(false);
     setError("");
   }
 
@@ -648,21 +746,21 @@ export function PosTerminal() {
 
         <div className="grid gap-4 xl:grid-cols-[1.66fr_0.78fr]">
           <div className="space-y-4">
-            <Card className="rounded-3xl border-white/10 bg-white/5 p-3.5 shadow-none">
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_180px]">
-                <label className="flex h-11 items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/60 px-4">
-                  <Search className="h-4 w-4 text-white/60" />
+            <Card className="rounded-3xl border-white/10 bg-white/5 p-2.5 shadow-none">
+              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_190px_160px]">
+                <label className="flex h-9 items-center gap-2.5 rounded-2xl border border-white/10 bg-slate-950/60 px-3.5">
+                  <Search className="h-3.5 w-3.5 text-white/60" />
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder="Search menu"
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-white/40"
+                    className="w-full bg-transparent text-xs outline-none placeholder:text-white/40"
                   />
                 </label>
                 <select
                   value={categoryId}
                   onChange={(event) => setCategoryId(event.target.value)}
-                  className="h-11 rounded-2xl border border-white/10 bg-slate-950/60 px-4 text-sm"
+                  className="h-9 rounded-2xl border border-white/10 bg-slate-950/60 px-3 text-xs"
                 >
                   <option value="ALL">All categories</option>
                   {categories.map((category) => (
@@ -671,8 +769,8 @@ export function PosTerminal() {
                     </option>
                   ))}
                 </select>
-                <Button className="h-11 rounded-2xl" onClick={() => setManualDialogOpen(true)} disabled={ticketLocked}>
-                  <PencilLine className="h-4 w-4" />
+                <Button className="h-9 rounded-2xl text-xs" onClick={() => setManualDialogOpen(true)} disabled={ticketLocked}>
+                  <PencilLine className="h-3.5 w-3.5" />
                   Other Item
                 </Button>
               </div>
@@ -700,6 +798,7 @@ export function PosTerminal() {
                     <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80">{product.categoryName}</p>
                     <p className="mt-1 pr-8 text-[0.95rem] font-black leading-tight xl:text-[0.98rem]">{product.name}</p>
                     <p className="mt-1.5 text-sm font-semibold text-amber-200">{formatCurrency(product.price)}</p>
+                    {product.bundleComponents.length ? <p className="mt-1 text-[0.72rem] text-amber-100/80">Bundle meal</p> : null}
                     {product.addOnGroups.length ? <p className="mt-1 text-[0.72rem] text-white/60">Customization required</p> : null}
                   </button>
                 );
@@ -707,107 +806,112 @@ export function PosTerminal() {
             </div>
           </div>
 
-          <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-3 text-slate-900 shadow-none xl:sticky xl:top-5 xl:max-h-[calc(100vh-5.75rem)] xl:overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-orange-600">Live Ticket</p>
-                <h2 className="mt-1 text-[1.05rem] font-black leading-none">Current Sale</h2>
+            <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-2.5 text-slate-900 shadow-none xl:sticky xl:top-4 xl:max-h-[calc(100vh-4.75rem)] xl:overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-orange-600">Live Ticket</p>
+                  <h2 className="mt-0.5 text-[0.98rem] font-black leading-none">Current Sale</h2>
+                </div>
+                <ShoppingBag className="h-4 w-4 text-orange-600" />
               </div>
-              <ShoppingBag className="h-5 w-5 text-orange-600" />
-            </div>
 
             {orderCompleted ? (
-              <div className="mt-2 rounded-2xl border border-amber-300/40 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+              <div className="mt-1.5 rounded-2xl border border-amber-300/40 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-900">
                 {editingCompletedOrder ? "Editing order. Finish again to update the same receipt." : "Order completed. Print receipt, edit it, or start a new order when ready."}
               </div>
             ) : null}
 
-            <div className="mt-2 space-y-1.5">
+            <div className="mt-1.5 space-y-1">
               {ticket.length ? (
                 ticket.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5">
+                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-2 py-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-1.5">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="mt-0.5 h-7 w-7 shrink-0 px-0"
+                            className="mt-0.5 h-6 w-6 shrink-0 px-0"
                             disabled={ticketLocked}
                             onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: Math.max(1, line.quantity - 1) } : line))}
                           >
-                            <Minus className="h-3 w-3" />
+                            <Minus className="h-2.5 w-2.5" />
                           </Button>
-                          <span className="mt-1 min-w-4 shrink-0 text-center text-xs font-semibold">{item.quantity}</span>
+                          <span className="mt-0.5 min-w-4 shrink-0 text-center text-[11px] font-semibold">{item.quantity}</span>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="mt-0.5 h-7 w-7 shrink-0 px-0"
+                            className="mt-0.5 h-6 w-6 shrink-0 px-0"
                             disabled={ticketLocked}
                             onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line))}
                           >
-                            <Plus className="h-3 w-3" />
+                            <Plus className="h-2.5 w-2.5" />
                           </Button>
                           <div className="min-w-0 flex-1">
-                            <p className="text-[0.78rem] font-bold leading-tight">{item.name}</p>
-                            <p className="text-[0.64rem] leading-tight text-slate-500">{item.categoryName}</p>
+                          <p className="text-[0.72rem] font-bold leading-tight">{item.name}</p>
+                            <p className="text-[0.58rem] leading-tight text-slate-500">{item.categoryName}</p>
                           </div>
                         </div>
-                        {item.customDescription ? <p className="mt-0.5 pl-[6.25rem] text-[0.64rem] leading-tight text-slate-500">{item.customDescription}</p> : null}
+                        {item.customDescription ? <p className="mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-500">{item.customDescription}</p> : null}
+                        {item.bundleComponents.length ? (
+                          <p className="mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600">
+                            Contains: {formatBundleSummary(item.bundleComponents, item.quantity)}
+                          </p>
+                        ) : null}
                         {item.addOns.length ? (
-                          <p className="mt-0.5 pl-[6.25rem] text-[0.64rem] leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
+                          <p className="mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
                         ) : null}
                       </div>
                       <div className="flex shrink-0 items-start gap-1.5">
                         <div className="text-right">
-                          <p className="text-[0.78rem] font-bold leading-tight text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
-                          <p className="text-[0.64rem] leading-tight text-slate-500">{formatCurrency(item.unitPrice)} each</p>
+                          <p className="text-[0.68rem] font-bold leading-tight text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
+                          <p className="text-[0.58rem] leading-tight text-slate-500">{formatCurrency(item.unitPrice)} each</p>
                         </div>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="mt-0.5 h-6 w-6 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          className="mt-0.5 h-5 w-5 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
                           disabled={ticketLocked}
                           onClick={() => setTicket((current) => current.filter((line) => line.id !== item.id))}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-white/70 p-3 text-sm text-slate-500">No items on the ticket yet.</div>
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white/70 p-2 text-[11px] text-slate-500">No items on the ticket yet.</div>
               )}
             </div>
 
-            <div className="mt-2.5 space-y-2 border-t border-slate-200 pt-2.5">
-              <div className="grid gap-2 md:grid-cols-2">
-                <Input className="h-9 text-sm" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" disabled={ticketLocked} />
-                <Input className="h-9 text-sm" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" disabled={ticketLocked} />
+            <div className="mt-2 space-y-1.5 border-t border-slate-200 pt-2">
+              <div className="grid gap-1.5 md:grid-cols-2">
+                <Input className="h-8 text-xs" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" disabled={ticketLocked} />
+                <Input className="h-8 text-xs" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" disabled={ticketLocked} />
               </div>
               {matchedCustomer ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                  <p className="font-bold">Repeat customer: {matchedCustomer.name ?? matchedCustomer.phone}</p>
-                  <p className="mt-0.5">
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-900">
+                  <p className="font-bold leading-tight">Repeat customer: {matchedCustomer.name ?? matchedCustomer.phone}</p>
+                  <p className="mt-0.5 leading-tight">
                     {matchedCustomer.totalOrders} orders
                     {matchedCustomer.lastOrderSummary ? ` · Last: ${matchedCustomer.lastOrderSummary}` : ""}
                   </p>
                 </div>
               ) : customerPhone.replace(/\D/g, "").length >= 7 ? (
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                <div className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600">
                   New customer phone. Receipt sharing will be available after checkout.
                 </div>
               ) : null}
-              <div className="grid gap-2 md:grid-cols-2">
-                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={ticketLocked}>
+              <div className="grid gap-1.5 md:grid-cols-2">
+                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number]["value"])} className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs" disabled={ticketLocked}>
                   {serviceTypes.map((entry) => (
                     <option key={entry.value} value={entry.value}>
                       {entry.label}
                     </option>
                   ))}
                 </select>
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={ticketLocked}>
+                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs" disabled={ticketLocked}>
                   {paymentOptions.map((entry) => (
                     <option key={entry.value} value={entry.value}>
                       {entry.label}
@@ -815,51 +919,102 @@ export function PosTerminal() {
                   ))}
                 </select>
               </div>
-              <div className="grid gap-2 md:grid-cols-2">
-                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm" disabled={ticketLocked}>
+              {serviceType === "FOODPANDA" ? (
+                <Input
+                  className="h-8 text-xs"
+                  value={foodpandaOrderNumber}
+                  onChange={(event) => setFoodpandaOrderNumber(event.target.value)}
+                  placeholder="Foodpanda order number"
+                  disabled={ticketLocked}
+                />
+              ) : null}
+              <div className="grid gap-1.5 md:grid-cols-2">
+                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs" disabled={ticketLocked}>
                   <option value="NONE">No discount</option>
                   <option value="PERCENTAGE">Percentage</option>
                   <option value="FIXED">Fixed amount</option>
                 </select>
-                <Input className="h-9 text-sm" inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="Discount" disabled={ticketLocked} />
+                <Input className="h-8 text-xs" inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="Discount" disabled={ticketLocked} />
               </div>
             </div>
 
-            {lastReceiptOrderId && !editingCompletedOrder ? (
-              <div className="mt-2.5 grid gap-2 md:grid-cols-2">
-                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("store-chef")} type="button">
+            <div className="mt-2 space-y-1 rounded-2xl bg-slate-950 px-2.5 py-1.5 text-[0.8rem] text-white">
+              <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+              <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
+              <div className="flex justify-between text-[0.88rem] font-bold"><span>Total</span><span>{formatCurrency(payableTotal)}</span></div>
+            </div>
+
+            {(!orderCompleted || editingCompletedOrder) ? (
+              <Button className="mt-2 h-8 w-full rounded-2xl text-xs" disabled={!ticket.length || submitting || ticketLocked} onClick={() => void submitOrder()}>
+                <Receipt className="h-3.5 w-3.5" />
+                {submitting ? "Processing..." : editingCompletedOrder ? "Update Order" : "Finish"}
+              </Button>
+            ) : null}
+
+            {lastReceiptOrderId && (orderCompleted || editingCompletedOrder) ? (
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                <Button className="h-8 rounded-2xl text-[11px]" variant="outline" onClick={() => printReceipt("store-chef")} type="button">
                   Print Receipt
                 </Button>
-                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("chef")} type="button">
+                <Button className="h-8 rounded-2xl text-[11px]" variant="outline" onClick={() => printReceipt("chef")} type="button">
                   Print Chef
                 </Button>
-                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={() => printReceipt("store")} type="button">
+                <Button className="h-8 rounded-2xl text-[11px]" variant="outline" onClick={() => printReceipt("store")} type="button">
                   Print Store
                 </Button>
-                <Button className="h-9 rounded-2xl text-sm" variant="outline" onClick={sendReceipt} type="button">
-                  <Send className="h-4 w-4" />
+                <Button className="h-8 rounded-2xl text-[11px]" variant="outline" onClick={sendReceipt} type="button">
+                  <Send className="h-3.5 w-3.5" />
                   Send Receipt
-                </Button>
-                <Button className="h-9 rounded-2xl text-sm" variant="outline" type="button" onClick={editLastOrder}>
-                  <PencilLine className="h-4 w-4" />
-                  Edit Order
-                </Button>
-                <Button className="h-9 rounded-2xl text-sm" type="button" onClick={startNewOrder}>
-                  Start New Order
                 </Button>
               </div>
             ) : null}
 
-            <div className="mt-2.5 space-y-1 rounded-2xl bg-slate-950 px-3 py-2 text-[0.84rem] text-white">
-              <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
-              <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
-              <div className="flex justify-between text-[0.94rem] font-bold"><span>Total</span><span>{formatCurrency(payableTotal)}</span></div>
-            </div>
+            {!orderCompleted ? (
+              <div className="mt-2 space-y-2">
+                <Button
+                  className="h-8 w-full rounded-2xl border border-slate-300 bg-white text-xs text-slate-900 hover:bg-slate-50"
+                  type="button"
+                  onClick={() => {
+                    setEditPanelOpen((current) => !current);
+                  }}
+                >
+                  Edit Older Order
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <Button className="h-8 rounded-2xl bg-amber-300 text-xs text-slate-950 hover:bg-amber-400" type="button" onClick={startNewOrder}>
+                  Start New Order
+                </Button>
+                <Button className="h-8 rounded-2xl bg-slate-950 text-xs text-white hover:bg-slate-800" type="button" onClick={editLastOrder} disabled={!lastReceiptOrderId}>
+                  Edit Current Order
+                </Button>
+              </div>
+            )}
 
-            <Button className="mt-2.5 h-9 w-full rounded-2xl text-sm" disabled={!ticket.length || submitting || ticketLocked} onClick={() => void submitOrder()}>
-              <Receipt className="h-4 w-4" />
-              {submitting ? "Processing..." : editingCompletedOrder ? "Update Order" : orderCompleted ? "Order Completed" : "Finish"}
-            </Button>
+            <div className={[ "overflow-hidden transition-all duration-200 ease-out", editPanelOpen ? "mt-3 max-h-[340px] border-t border-slate-200 pt-3 opacity-100" : "max-h-0 opacity-0" ].join(" ")}>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[0.7rem] font-semibold uppercase tracking-[0.24em] text-slate-500">Edit Order</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">Open an existing order by number, then edit it from this screen.</p>
+                  </div>
+                  {editingCompletedOrder ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900">Editing</span> : null}
+                </div>
+                <div className="grid gap-1.5 md:grid-cols-[minmax(0,1fr)_160px]">
+                  <Input
+                    className="h-8 text-xs"
+                    value={orderLookupNumber}
+                    onChange={(event) => setOrderLookupNumber(event.target.value)}
+                    placeholder="Open existing order by number"
+                    disabled={ticketLocked || loadingLookup}
+                  />
+                  <Button className="h-8 rounded-2xl text-xs" type="button" variant="outline" onClick={() => void loadOrderForEditing()} disabled={ticketLocked || loadingLookup || !orderLookupNumber.trim()}>
+                    {loadingLookup ? "Loading..." : "Open Order"}
+                  </Button>
+                </div>
+              </div>
+            </div>
           </Card>
         </div>
       </div>
@@ -872,6 +1027,9 @@ export function PosTerminal() {
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300">{productDialog.categoryName}</p>
                 <h3 className="mt-2 text-2xl font-black">{productDialog.name}</h3>
                 <p className="mt-2 text-amber-200">{formatCurrency(productDialog.price)}</p>
+                {productDialog.bundleComponents.length ? (
+                  <p className="mt-2 text-sm text-amber-100/80">Contains: {formatBundleSummary(productDialog.bundleComponents)}</p>
+                ) : null}
               </div>
               <Button variant="ghost" className="text-white hover:bg-white/10" onClick={() => setProductDialog(null)}>Close</Button>
             </div>

@@ -26,6 +26,7 @@ enum OrderStatus {
   CONFIRMED
   PREPARING
   READY
+  WATCH_LATER
   OUT_FOR_DELIVERY
   DELIVERED
   CANCELLED
@@ -182,6 +183,9 @@ model Product {
   category         Category           @relation(fields: [categoryId], references: [id])
   images           ProductImage[]
   addOnGroups      AddOnGroup[]
+  bundleComponents ProductBundleComponent[] @relation("BundleProduct")
+  bundledIn        ProductBundleComponent[] @relation("BundleComponentProduct")
+  orderItemBundleComponents OrderItemBundleComponent[] @relation("OrderItemBundleComponentProduct")
   branchPricing    BranchProduct[]
   reviews          Review[]
   favorites        Favorite[]
@@ -221,6 +225,18 @@ model AddOnOption {
   sortOrder   Int         @default(0)
   group       AddOnGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
   orderItems  OrderItemAddOn[]
+}
+
+model ProductBundleComponent {
+  id                 String  @id @default(cuid())
+  productId          String
+  componentProductId  String
+  quantity           Int     @default(1)
+  sortOrder          Int     @default(0)
+  product            Product @relation("BundleProduct", fields: [productId], references: [id], onDelete: Cascade)
+  componentProduct   Product @relation("BundleComponentProduct", fields: [componentProductId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, componentProductId])
 }
 
 model BranchProduct {
@@ -305,6 +321,7 @@ model Order {
   serviceType         ServiceType    @default(DELIVERY)
   customerName        String?
   customerPhone       String?
+  foodpandaOrderNumber String?
   paymentMethod       PaymentMethod
   paymentStatus       PaymentStatus  @default(PENDING)
   subtotal            Decimal        @db.Decimal(10, 2)
@@ -341,6 +358,7 @@ model OrderItem {
   order        Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product      Product?        @relation(fields: [productId], references: [id])
   addOns       OrderItemAddOn[]
+  bundleComponents OrderItemBundleComponent[]
 }
 
 model OrderItemAddOn {
@@ -351,6 +369,17 @@ model OrderItemAddOn {
   priceDelta  Decimal     @db.Decimal(10, 2)
   orderItem   OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   option      AddOnOption @relation(fields: [optionId], references: [id])
+}
+
+model OrderItemBundleComponent {
+  id                    String    @id @default(cuid())
+  orderItemId           String
+  productId             String?
+  componentProductName   String
+  quantity              Int
+  unitPrice             Decimal   @db.Decimal(10, 2) @default(0)
+  orderItem             OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  product               Product?  @relation("OrderItemBundleComponentProduct", fields: [productId], references: [id], onDelete: SetNull)
 }
 
 model Favorite {

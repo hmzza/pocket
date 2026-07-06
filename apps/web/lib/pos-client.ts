@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminOrder, PosBranch, PosCatalogProduct, PosCustomerLookup, PosReceiptOrder } from "@/lib/types";
+import type { AdminOrder, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const POS_RECEIPT_CACHE_PREFIX = "pocket-pos-receipt:";
@@ -79,6 +79,12 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
         categoryId: product.categoryId,
         categoryName: product.category.name,
         price: Number(product.branchPricing?.[0]?.price ?? product.basePrice),
+        bundleComponents: (product.bundleComponents ?? []).map((component: any) => ({
+          productId: component.componentProductId,
+          productName: component.componentProduct?.name ?? "Unknown product",
+          quantity: Number(component.quantity),
+          sortOrder: component.sortOrder ?? undefined
+        })),
         addOnGroups: (product.addOnGroups ?? []).map((group: any) => ({
           id: group.id,
           name: group.name,
@@ -110,24 +116,86 @@ export async function updatePosOrder(orderId: string, payload: Record<string, un
   });
 }
 
+export async function fetchPosOrderByNumber(orderNumber: string) {
+  const query = new URLSearchParams({ orderNumber });
+  return posFetch<{ order: PosReceiptOrder; editableOrder: PosEditableOrder }>(`/api/pos/orders/lookup?${query.toString()}`);
+}
+
 export async function lookupPosCustomer(phone: string) {
   const query = new URLSearchParams({ phone });
   const data = await posFetch<{ customer: PosCustomerLookup | null }>(`/api/pos/customers/lookup?${query.toString()}`);
   return data.customer;
 }
 
-export async function fetchPosOrders(params?: { scope?: "active" | "delivered" | "all"; search?: string }) {
+export async function fetchPosOrders(params?: { scope?: "active" | "watch_later" | "delivered" | "all"; search?: string }) {
   const query = new URLSearchParams();
   if (params?.scope) query.set("scope", params.scope);
   if (params?.search) query.set("search", params.search);
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  return posFetch<{ orders: AdminOrder[] }>(`/api/ops/orders${suffix}`);
+  const data = await posFetch<{ orders: any[] }>(`/api/ops/orders${suffix}`);
+  return {
+    orders: data.orders.map((order): AdminOrder => ({
+    id: order.id,
+    orderNumber: order.orderNumber,
+    channel: order.channel,
+    serviceType: order.serviceType,
+    foodpandaOrderNumber: order.foodpandaOrderNumber ?? null,
+    customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
+      customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
+      status: order.status,
+      branch: order.branch?.name ?? "Unknown branch",
+      totalAmount: Number(order.totalAmount),
+      subtotal: Number(order.subtotal),
+      discountAmount: Number(order.discountAmount),
+      taxRate: Number(order.taxRate),
+      taxAmount: Number(order.taxAmount),
+      paidAmount: Number(order.cashReceivedAmount ?? order.totalAmount),
+      changeDueAmount: Number(order.changeDueAmount ?? 0),
+      paymentMethod: order.paymentMethod,
+      paymentStatus: order.paymentStatus,
+      placedAt: order.placedAt,
+      deliveryInstructions: order.deliveryInstructions ?? undefined,
+      address: order.address
+        ? {
+            addressLine1: order.address.addressLine1,
+            city: order.address.city,
+            instructions: order.address.instructions ?? undefined
+          }
+        : undefined,
+      items: (order.items ?? []).map((item: any) => ({
+        id: item.id,
+        productName: item.productName,
+        customDescription: item.customDescription ?? undefined,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice),
+        note: item.note ?? undefined,
+        bundleComponents: (item.bundleComponents ?? []).map((component: any) => ({
+          productId: component.productId ?? "",
+          productName: component.componentProductName,
+          quantity: Number(component.quantity),
+          sortOrder: component.sortOrder ?? undefined
+        })),
+        addOns: (item.addOns ?? []).map((addOn: any) => ({
+          id: addOn.id,
+          optionName: addOn.optionName,
+          priceDelta: Number(addOn.priceDelta)
+        }))
+      }))
+    }))
+  };
 }
 
 export async function updatePosOrderStatus(orderId: string, status: string) {
   return posFetch(`/api/ops/orders/${orderId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status })
+  });
+}
+
+export async function bulkUpdatePosOrderStatus(orderIds: string[], status: string) {
+  return posFetch(`/api/ops/orders/bulk-status`, {
+    method: "PATCH",
+    body: JSON.stringify({ orderIds, status })
   });
 }
 

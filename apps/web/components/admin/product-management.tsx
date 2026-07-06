@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createAdminProduct, disableAdminProduct, fetchAdminProducts, updateAdminProduct } from "@/lib/admin-client";
+import { createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminProduct } from "@/lib/admin-client";
 import type { AdminProduct, Category } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -24,6 +24,10 @@ type ProductFormState = {
   isActive: boolean;
   stockStatus: string;
   imageUrl: string;
+  bundleComponents: Array<{
+    componentProductId: string;
+    quantity: string;
+  }>;
 };
 
 const EMPTY_FORM: ProductFormState = {
@@ -39,7 +43,8 @@ const EMPTY_FORM: ProductFormState = {
   bestSeller: false,
   isActive: true,
   stockStatus: "IN_STOCK",
-  imageUrl: "/images/shawarma-pocket.svg"
+  imageUrl: "/images/shawarma-pocket.svg",
+  bundleComponents: []
 };
 
 function slugify(value: string) {
@@ -64,15 +69,21 @@ function mapProductToForm(product: AdminProduct): ProductFormState {
     bestSeller: product.bestSeller,
     isActive: product.isActive,
     stockStatus: product.stockStatus,
-    imageUrl: product.imageUrl
+    imageUrl: product.imageUrl,
+    bundleComponents: product.bundleComponents.map((component) => ({
+      componentProductId: component.productId,
+      quantity: String(component.quantity)
+    }))
   };
 }
 
 function ProductEditor({
   open,
   categories,
+  products,
   value,
   editingName,
+  editingProductId,
   saving,
   onChange,
   onClose,
@@ -80,14 +91,17 @@ function ProductEditor({
 }: {
   open: boolean;
   categories: Category[];
+  products: AdminProduct[];
   value: ProductFormState;
   editingName?: string;
+  editingProductId?: string;
   saving: boolean;
   onChange: (next: ProductFormState) => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
   if (!open) return null;
+  const bundleProductOptions = products.filter((product) => product.isActive && product.id !== editingProductId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-pocket-charcoal/40 px-4 py-8">
@@ -108,11 +122,11 @@ function ProductEditor({
             <Input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value, slug: value.slug || slugify(event.target.value) })} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Slug</label>
+            <label className="text-sm font-semibold text-pocket-navy">Slug <span className="text-pocket-navy/40">(optional)</span></label>
             <Input value={value.slug} onChange={(event) => onChange({ ...value, slug: slugify(event.target.value) })} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">SKU</label>
+            <label className="text-sm font-semibold text-pocket-navy">SKU <span className="text-pocket-navy/40">(optional)</span></label>
             <Input value={value.sku} onChange={(event) => onChange({ ...value, sku: event.target.value.toUpperCase() })} />
           </div>
           <div className="space-y-2">
@@ -130,15 +144,15 @@ function ProductEditor({
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Image URL</label>
+            <label className="text-sm font-semibold text-pocket-navy">Image URL <span className="text-pocket-navy/40">(optional)</span></label>
             <Input value={value.imageUrl} onChange={(event) => onChange({ ...value, imageUrl: event.target.value })} />
           </div>
           <div className="space-y-2 md:col-span-2">
-            <label className="text-sm font-semibold text-pocket-navy">Description</label>
+            <label className="text-sm font-semibold text-pocket-navy">Description <span className="text-pocket-navy/40">(optional)</span></label>
             <Textarea value={value.description} onChange={(event) => onChange({ ...value, description: event.target.value })} />
           </div>
           <div className="space-y-2 md:col-span-2">
-            <label className="text-sm font-semibold text-pocket-navy">Ingredients</label>
+            <label className="text-sm font-semibold text-pocket-navy">Ingredients <span className="text-pocket-navy/40">(optional)</span></label>
             <Input value={value.ingredients} onChange={(event) => onChange({ ...value, ingredients: event.target.value })} placeholder="Chicken, Garlic sauce, Pickles" />
           </div>
           <div className="space-y-2">
@@ -146,11 +160,87 @@ function ProductEditor({
             <Input type="number" min="0" value={value.basePrice} onChange={(event) => onChange({ ...value, basePrice: event.target.value })} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Calories</label>
+            <label className="text-sm font-semibold text-pocket-navy">Calories <span className="text-pocket-navy/40">(optional)</span></label>
             <Input type="number" min="0" value={value.calories} onChange={(event) => onChange({ ...value, calories: event.target.value })} />
           </div>
+          <div className="space-y-3 md:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <label className="text-sm font-semibold text-pocket-navy">Bundle components <span className="text-pocket-navy/40">(optional)</span></label>
+                <p className="text-xs text-pocket-navy/50">Add products here to make this item a meal, deal, or combo.</p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  onChange({
+                    ...value,
+                    bundleComponents: [...value.bundleComponents, { componentProductId: "", quantity: "1" }]
+                  })
+                }
+              >
+                <Plus className="h-4 w-4" />
+                Add item
+              </Button>
+            </div>
+            <div className="space-y-3">
+              {value.bundleComponents.length ? (
+                value.bundleComponents.map((component, index) => (
+                  <div key={`${index}-${component.componentProductId}`} className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
+                    <select
+                      value={component.componentProductId}
+                      onChange={(event) =>
+                        onChange({
+                          ...value,
+                          bundleComponents: value.bundleComponents.map((entry, entryIndex) =>
+                            entryIndex === index ? { ...entry, componentProductId: event.target.value } : entry
+                          )
+                        })
+                      }
+                      className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
+                    >
+                      <option value="">Select product</option>
+                      {bundleProductOptions.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={component.quantity}
+                      onChange={(event) =>
+                        onChange({
+                          ...value,
+                          bundleComponents: value.bundleComponents.map((entry, entryIndex) =>
+                            entryIndex === index ? { ...entry, quantity: event.target.value } : entry
+                          )
+                        })
+                      }
+                    />
+                    <Button
+                      variant="ghost"
+                      onClick={() =>
+                        onChange({
+                          ...value,
+                          bundleComponents: value.bundleComponents.filter((_, entryIndex) => entryIndex !== index)
+                        })
+                      }
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-md border border-dashed border-pocket-navy/15 px-4 py-3 text-sm text-pocket-navy/50">
+                  Leave this empty for a normal product.
+                </div>
+              )}
+            </div>
+          </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Stock status</label>
+            <label className="text-sm font-semibold text-pocket-navy">Stock status <span className="text-pocket-navy/40">(optional)</span></label>
             <select
               value={value.stockStatus}
               onChange={(event) => onChange({ ...value, stockStatus: event.target.value })}
@@ -203,6 +293,7 @@ export function ProductManagement() {
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [actionProductId, setActionProductId] = useState("");
+  const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   async function loadProducts() {
     try {
@@ -220,6 +311,13 @@ export function ProductManagement() {
       setLoading(false);
       setRefreshing(false);
     }
+  }
+
+  function flashNotice(type: "success" | "error", message: string) {
+    setNotice({ type, message });
+    window.setTimeout(() => {
+      setNotice((current) => (current?.message === message ? null : current));
+    }, 3500);
   }
 
   useEffect(() => {
@@ -244,28 +342,41 @@ export function ProductManagement() {
   }
 
   async function submitForm() {
-    if (!form.categoryId) {
-      setError("Pick a category before saving.");
+    if (!form.categoryId || !form.name.trim() || !form.basePrice) {
+      setError("Category, name, and price are required.");
+      return;
+    }
+
+    const basePrice = Number(form.basePrice);
+    if (Number.isNaN(basePrice)) {
+      setError("Enter a valid price.");
       return;
     }
 
     const payload = {
       categoryId: form.categoryId,
-      slug: slugify(form.slug || form.name),
-      sku: form.sku.trim(),
+      slug: form.slug.trim() || undefined,
+      sku: form.sku.trim() || undefined,
       name: form.name.trim(),
-      description: form.description.trim(),
+      description: form.description.trim() || undefined,
       ingredients: form.ingredients
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean),
-      basePrice: Number(form.basePrice),
+      basePrice,
       calories: form.calories ? Number(form.calories) : undefined,
       featured: form.featured,
       bestSeller: form.bestSeller,
       isActive: form.isActive,
       stockStatus: form.stockStatus,
-      imageUrl: form.imageUrl.trim() || "/images/shawarma-pocket.svg"
+      imageUrl: form.imageUrl.trim() || undefined,
+      bundleComponents: form.bundleComponents
+        .map((component, index) => ({
+          componentProductId: component.componentProductId,
+          quantity: Number(component.quantity),
+          sortOrder: index
+        }))
+        .filter((component) => component.componentProductId && Number.isFinite(component.quantity) && component.quantity > 0)
     };
 
     setSaving(true);
@@ -273,8 +384,10 @@ export function ProductManagement() {
     try {
       if (editingProduct) {
         await updateAdminProduct(editingProduct.id, payload);
+        flashNotice("success", "Product updated.");
       } else {
         await createAdminProduct(payload);
+        flashNotice("success", "Product added.");
       }
       setEditorOpen(false);
       await loadProducts();
@@ -285,17 +398,20 @@ export function ProductManagement() {
     }
   }
 
-  async function disableProduct(product: AdminProduct) {
-    const confirmed = window.confirm(`Disable ${product.name}?`);
+  async function deleteProduct(product: AdminProduct) {
+    const confirmed = window.confirm(`Delete ${product.name}?`);
     if (!confirmed) return;
 
     setActionProductId(product.id);
     setError("");
     try {
-      await disableAdminProduct(product.id);
+      const result = await deleteAdminProduct(product.id);
+      flashNotice("success", result.message);
       await loadProducts();
     } catch (disableError) {
-      setError(disableError instanceof Error ? disableError.message : "Failed to disable product.");
+      const message = disableError instanceof Error ? disableError.message : "Failed to delete product.";
+      setError(message);
+      flashNotice("error", message);
     } finally {
       setActionProductId("");
     }
@@ -334,6 +450,18 @@ export function ProductManagement() {
         </Card>
       </div>
 
+      {notice ? (
+        <div
+          className={
+            notice.type === "success"
+              ? "rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"
+              : "rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+          }
+        >
+          {notice.message}
+        </div>
+      ) : null}
+
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
 
       <Card className="overflow-hidden">
@@ -354,21 +482,32 @@ export function ProductManagement() {
                 <p className="font-bold text-pocket-navy">{product.name}</p>
                 <p className="text-pocket-navy/60">{product.description}</p>
                 <p className="mt-2 text-xs font-medium uppercase tracking-wide text-pocket-navy/40">{product.sku}</p>
+                {product.bundleComponents.length ? (
+                  <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-pocket-orange">
+                    Bundle · {product.bundleComponents.length} component{product.bundleComponents.length === 1 ? "" : "s"}
+                  </p>
+                ) : null}
               </div>
               <span className="font-medium text-pocket-navy">{product.category.name}</span>
               <span className="font-bold text-pocket-orange">{formatCurrency(product.basePrice)}</span>
               <span className={product.isActive ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>{product.isActive ? "Active" : "Disabled"}</span>
               <span className="font-medium text-pocket-navy/70">
-                {[product.featured ? "Featured" : null, product.bestSeller ? "Best Seller" : null].filter(Boolean).join(", ") || "Base"}
+                {[product.featured ? "Featured" : null, product.bestSeller ? "Best Seller" : null, product.bundleComponents.length ? "Bundle" : null].filter(Boolean).join(", ") || "Base"}
               </span>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => openEdit(product)}>
                   <Pencil className="h-4 w-4" />
                   Edit
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => void disableProduct(product)} disabled={actionProductId === product.id || !product.isActive}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                  onClick={() => void deleteProduct(product)}
+                  disabled={actionProductId === product.id}
+                >
                   <Power className="h-4 w-4" />
-                  Disable
+                  Delete
                 </Button>
               </div>
             </div>
@@ -379,8 +518,10 @@ export function ProductManagement() {
       <ProductEditor
         open={editorOpen}
         categories={categories}
+        products={products}
         value={form}
         editingName={editingProduct?.name}
+        editingProductId={editingProduct?.id}
         saving={saving}
         onChange={setForm}
         onClose={() => setEditorOpen(false)}

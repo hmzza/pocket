@@ -12,7 +12,7 @@ const router = Router();
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
 
 const dashboardQueryBaseSchema = z.object({
-  preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("7d"),
+  preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
   start: z.string().datetime().optional(),
   end: z.string().datetime().optional(),
   monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional(),
@@ -113,13 +113,20 @@ function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
         label: "This year"
       };
     }
-    case "7d":
-    default:
+    case "7d": {
       return {
-        preset: "7d" as const,
+        preset: query.preset,
         start: startOfDay(addDays(now, -6)),
         end: now,
         label: "Last 7 days"
+      };
+    }
+    default:
+      return {
+        preset: "today" as const,
+        start: startOfDay(now),
+        end: now,
+        label: "Today"
       };
   }
 }
@@ -147,9 +154,40 @@ function normalizeSku(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function buildIngredientSku(name: string) {
   const base = normalizeSku(name).slice(0, 18) || "ITEM";
   return `ING-${base}-${Date.now().toString(36).toUpperCase()}`;
+}
+
+function buildProductSlug(name: string) {
+  const base = normalizeSlug(name).slice(0, 40) || "product";
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+function buildProductSku(name: string) {
+  const base = normalizeSku(name).slice(0, 18) || "ITEM";
+  return `PRD-${base}-${Date.now().toString(36).toUpperCase()}`;
+}
+
+function normalizeBundleComponents(
+  components: Array<{ componentProductId: string; quantity: number; sortOrder?: number }> | undefined
+) {
+  return (components ?? [])
+    .filter((component) => component.componentProductId)
+    .map((component, index) => ({
+      componentProductId: component.componentProductId,
+      quantity: Math.max(1, Math.floor(component.quantity)),
+      sortOrder: typeof component.sortOrder === "number" ? component.sortOrder : index + 1
+    }))
+    .filter((component, index, list) => list.findIndex((entry) => entry.componentProductId === component.componentProductId) === index);
 }
 
 function parseDecimal(value: Prisma.Decimal | number | string | null | undefined) {
@@ -187,6 +225,7 @@ function serializeOrderForOperations(order: any) {
     orderNumber: order.orderNumber,
     channel: order.channel,
     serviceType: order.serviceType,
+    foodpandaOrderNumber: order.foodpandaOrderNumber ?? null,
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
     status: order.status,
@@ -595,6 +634,18 @@ router.get("/products", async (_req, res) => {
     include: {
       category: true,
       images: { orderBy: { sortOrder: "asc" } },
+      bundleComponents: {
+        orderBy: { sortOrder: "asc" },
+        include: {
+          componentProduct: {
+            select: {
+              id: true,
+              name: true,
+              slug: true
+            }
+          }
+        }
+      },
       branchPricing: { include: { branch: true } }
     },
     orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
@@ -605,31 +656,61 @@ router.get("/products", async (_req, res) => {
 
 const productSchema = z.object({
   categoryId: z.string().cuid(),
-  slug: z.string().min(3),
-  sku: z.string().min(3),
+  slug: z.string().trim().min(1).optional(),
+  sku: z.string().trim().min(1).optional(),
   name: z.string().min(3),
-  description: z.string().min(10),
+  description: z.string().trim().min(1).optional(),
   ingredients: z.array(z.string()).default([]),
+  bundleComponents: z
+    .array(
+      z.object({
+        componentProductId: z.string().cuid(),
+        quantity: z.number().int().min(1).max(100),
+        sortOrder: z.number().int().min(0).optional()
+      })
+    )
+    .optional(),
   basePrice: z.number().nonnegative(),
   calories: z.number().int().nonnegative().optional(),
   featured: z.boolean().default(false),
   bestSeller: z.boolean().default(false),
   isActive: z.boolean().default(true),
   stockStatus: z.string().default("IN_STOCK"),
-  imageUrl: z.string().default("/images/shawarma-pocket.svg")
+  imageUrl: z.string().trim().min(1).optional()
 });
 
 router.post("/products", async (req, res, next) => {
   try {
     const payload = productSchema.parse(req.body);
+    const name = payload.name.trim();
+    const slug = payload.slug ? normalizeSlug(payload.slug) : buildProductSlug(name);
+    const sku = payload.sku ? normalizeSku(payload.sku) : buildProductSku(name);
+    const description = payload.description?.trim() || name;
+    const imageUrl = payload.imageUrl?.trim() || "/images/shawarma-pocket.svg";
+    const bundleComponents = normalizeBundleComponents(payload.bundleComponents);
+
+    const componentProducts = bundleComponents.length
+      ? await prisma.product.findMany({
+          where: {
+            id: { in: bundleComponents.map((component) => component.componentProductId) },
+            isActive: true
+          },
+          select: { id: true }
+        })
+      : [];
+
+    if (componentProducts.length !== bundleComponents.length) {
+      throw new Error("One or more bundle items are unavailable.");
+    }
+
     const product = await prisma.$transaction(async (transaction) => {
       const createdProduct = await transaction.product.create({
         data: {
           categoryId: payload.categoryId,
-          slug: payload.slug,
-          sku: payload.sku,
-          name: payload.name,
-          description: payload.description,
+          slug,
+          sku,
+          name,
+          description,
           ingredients: payload.ingredients,
           basePrice: payload.basePrice,
           calories: payload.calories,
@@ -640,16 +721,33 @@ router.post("/products", async (req, res, next) => {
           images: {
             create: [
               {
-                url: payload.imageUrl,
-                alt: payload.name,
+                url: imageUrl,
+                alt: name,
                 sortOrder: 1
               }
             ]
-          }
+          },
+          bundleComponents: bundleComponents.length
+            ? {
+                create: bundleComponents.map((component) => ({
+                  componentProductId: component.componentProductId,
+                  quantity: component.quantity,
+                  sortOrder: component.sortOrder ?? 0
+                }))
+              }
+            : undefined
         },
         include: {
           category: true,
-          images: true
+          images: true,
+          bundleComponents: {
+            orderBy: { sortOrder: "asc" },
+            include: {
+              componentProduct: {
+                select: { id: true, name: true, slug: true }
+              }
+            }
+          }
         }
       });
 
@@ -690,12 +788,60 @@ router.post("/products", async (req, res, next) => {
 router.patch("/products/:id", async (req, res, next) => {
   try {
     const payload = productSchema.partial().parse(req.body);
-    const { imageUrl, ...productPayload } = payload;
+    const { imageUrl, slug, sku, description, name, bundleComponents, ...productPayload } = payload;
+    const normalizedBundleComponents = bundleComponents ? normalizeBundleComponents(bundleComponents) : null;
+    if (normalizedBundleComponents?.some((component) => component.componentProductId === req.params.id)) {
+      throw new Error("Bundle cannot include itself.");
+    }
+
+    const bundleComponentProducts = normalizedBundleComponents?.length
+      ? await prisma.product.findMany({
+          where: {
+            id: { in: normalizedBundleComponents.map((component) => component.componentProductId) },
+            isActive: true
+          },
+          select: { id: true }
+        })
+      : [];
+
+    if (normalizedBundleComponents && bundleComponentProducts.length !== normalizedBundleComponents.length) {
+      throw new Error("One or more bundle items are unavailable.");
+    }
+
     const product = await prisma.$transaction(async (transaction) => {
       const updatedProduct = await transaction.product.update({
         where: { id: req.params.id },
-        data: productPayload,
-        include: { category: true, images: true }
+        data: {
+          ...productPayload,
+          ...(name ? { name: name.trim() } : {}),
+          ...(slug ? { slug: normalizeSlug(slug) } : {}),
+          ...(sku ? { sku: normalizeSku(sku) } : {}),
+          ...(description ? { description: description.trim() } : {}),
+          ...(normalizedBundleComponents !== null
+            ? {
+                bundleComponents: {
+                  deleteMany: {},
+                  create: normalizedBundleComponents.map((component) => ({
+                    componentProductId: component.componentProductId,
+                    quantity: component.quantity,
+                    sortOrder: component.sortOrder ?? 0
+                  }))
+                }
+              }
+            : {})
+        },
+        include: {
+          category: true,
+          images: true,
+          bundleComponents: {
+            orderBy: { sortOrder: "asc" },
+            include: {
+              componentProduct: {
+                select: { id: true, name: true, slug: true }
+              }
+            }
+          }
+        }
       });
 
       if (typeof payload.basePrice === "number" || typeof payload.isActive === "boolean" || typeof payload.stockStatus === "string") {
@@ -749,20 +895,49 @@ router.patch("/products/:id", async (req, res, next) => {
   }
 });
 
-router.delete("/products/:id", async (req, res) => {
-  await prisma.product.update({
-    where: { id: req.params.id },
-    data: { isActive: false }
-  });
+router.delete("/products/:id", async (req, res, next) => {
+  try {
+    const productId = req.params.id;
+    const orderItemCount = await prisma.orderItem.count({
+      where: { productId }
+    });
 
-  await writeAuditLog({
-    actorId: req.user!.id,
-    action: "product.disable",
-    entityType: "product",
-    entityId: req.params.id
-  });
+    if (orderItemCount === 0) {
+      await prisma.product.delete({
+        where: { id: productId }
+      });
 
-  return res.status(204).send();
+      await writeAuditLog({
+        actorId: req.user!.id,
+        action: "product.delete",
+        entityType: "product",
+        entityId: productId,
+        payload: { mode: "deleted" }
+      });
+
+      return res.json({ mode: "deleted", message: "Product deleted." });
+    }
+
+    await prisma.product.update({
+      where: { id: productId },
+      data: { isActive: false }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "product.disable",
+      entityType: "product",
+      entityId: productId,
+      payload: { mode: "disabled", reason: "product is referenced in existing orders" }
+    });
+
+    return res.json({
+      mode: "disabled",
+      message: "Product is used in orders, so it was disabled instead of deleted."
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 const categorySchema = z.object({
@@ -1221,12 +1396,63 @@ router.get("/orders", async (req, res, next) => {
       .object({
         status: z.nativeEnum(OrderStatus).optional(),
         search: z.string().optional(),
+        preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
+        start: z.string().datetime().optional(),
+        end: z.string().datetime().optional(),
         segment: z.enum(["all", "inshop", "foodpanda"]).default("all")
+      })
+      .superRefine((value, context) => {
+        if (value.preset === "custom" && (!value.start || !value.end)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Custom range requires start and end dates.",
+            path: ["start"]
+          });
+        }
       })
       .parse(req.query);
 
+    const now = new Date();
+    let rangeStart: Date;
+    let rangeEnd: Date;
+
+    switch (query.preset) {
+      case "today":
+        rangeStart = startOfDay(now);
+        rangeEnd = now;
+        break;
+      case "7d":
+        rangeStart = startOfDay(addDays(now, -6));
+        rangeEnd = now;
+        break;
+      case "30d":
+        rangeStart = startOfDay(addDays(now, -29));
+        rangeEnd = now;
+        break;
+      case "month":
+        rangeStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        rangeEnd = now;
+        break;
+      case "year":
+        rangeStart = new Date(now.getFullYear(), 0, 1);
+        rangeEnd = now;
+        break;
+      case "custom":
+        rangeStart = new Date(query.start!);
+        rangeEnd = new Date(query.end!);
+        break;
+      default:
+        rangeStart = startOfDay(now);
+        rangeEnd = now;
+        break;
+    }
+
     const orders = await prisma.order.findMany({
       where: {
+        placedAt: {
+          gte: rangeStart,
+          lte: rangeEnd
+        },
         ...(query.status ? { status: query.status } : {}),
         ...buildAdminSegmentWhere(query.segment),
         ...(query.search
@@ -1252,7 +1478,8 @@ router.get("/orders", async (req, res, next) => {
         address: true,
         items: {
           include: {
-            addOns: true
+            addOns: true,
+            bundleComponents: true
           }
         }
       },
@@ -1297,7 +1524,8 @@ router.delete("/orders/:id", async (req, res, next) => {
         include: {
           items: {
             include: {
-              addOns: true
+              addOns: true,
+              bundleComponents: true
             }
           }
         }
@@ -1350,7 +1578,8 @@ router.patch("/orders/:id/status", async (req, res, next) => {
         include: {
           items: {
             include: {
-              addOns: true
+              addOns: true,
+              bundleComponents: true
             }
           }
         }

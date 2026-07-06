@@ -72,6 +72,12 @@ export async function fetchAdminProducts() {
     isActive: Boolean(product.isActive),
     stockStatus: product.stockStatus,
     imageUrl: product.images?.[0]?.url ?? "/images/shawarma-pocket.svg",
+    bundleComponents: (product.bundleComponents ?? []).map((component: any) => ({
+      productId: component.componentProductId,
+      productName: component.componentProduct?.name ?? "Unknown product",
+      quantity: Number(component.quantity),
+      sortOrder: component.sortOrder ?? undefined
+    })),
     category: {
       id: product.category.id,
       slug: product.category.slug,
@@ -100,15 +106,24 @@ export async function updateAdminProduct(productId: string, payload: Record<stri
   return data.product;
 }
 
-export async function disableAdminProduct(productId: string) {
-  await adminFetch(`/api/admin/products/${productId}`, {
+export async function deleteAdminProduct(productId: string) {
+  const data = await adminFetch<{ mode: "deleted" | "disabled"; message: string }>(`/api/admin/products/${productId}`, {
     method: "DELETE"
   });
+  return data;
 }
 
-export async function fetchAdminOrders(params?: { segment?: AdminOrderSegment }) {
+export async function fetchAdminOrders(params?: {
+  segment?: AdminOrderSegment;
+  preset?: AdminRangePreset;
+  start?: string;
+  end?: string;
+}) {
   const searchParams = new URLSearchParams();
   if (params?.segment) searchParams.set("segment", params.segment);
+  if (params?.preset) searchParams.set("preset", params.preset);
+  if (params?.start) searchParams.set("start", params.start);
+  if (params?.end) searchParams.set("end", params.end);
   const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
   const data = await adminFetch<{ orders: any[] }>(`/api/admin/orders${suffix}`);
   const orders: AdminOrder[] = data.orders.map((order) => ({
@@ -116,6 +131,7 @@ export async function fetchAdminOrders(params?: { segment?: AdminOrderSegment })
     orderNumber: order.orderNumber,
     channel: order.channel,
     serviceType: order.serviceType,
+    foodpandaOrderNumber: order.foodpandaOrderNumber ?? null,
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
     status: order.status,
@@ -147,6 +163,12 @@ export async function fetchAdminOrders(params?: { segment?: AdminOrderSegment })
       quantity: item.quantity,
       unitPrice: Number(item.unitPrice),
       note: item.note ?? undefined,
+      bundleComponents: (item.bundleComponents ?? []).map((component: any) => ({
+        productId: component.productId ?? "",
+        productName: component.componentProductName,
+        quantity: Number(component.quantity),
+        sortOrder: component.sortOrder ?? undefined
+      })),
       addOns: item.addOns.map((addOn: any) => ({
         id: addOn.id,
         optionName: addOn.optionName,

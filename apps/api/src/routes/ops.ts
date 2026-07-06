@@ -10,8 +10,13 @@ const router = Router();
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF));
 
 const querySchema = z.object({
-  scope: z.enum(["active", "delivered", "all"]).default("active"),
+  scope: z.enum(["active", "watch_later", "delivered", "all"]).default("active"),
   search: z.string().optional()
+});
+
+const bulkStatusSchema = z.object({
+  status: z.nativeEnum(OrderStatus),
+  orderIds: z.array(z.string().min(1)).min(1)
 });
 
 function serializeOrder(order: any) {
@@ -20,6 +25,7 @@ function serializeOrder(order: any) {
     orderNumber: order.orderNumber,
     channel: order.channel,
     serviceType: order.serviceType,
+    foodpandaOrderNumber: order.foodpandaOrderNumber ?? null,
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
     status: order.status,
@@ -69,7 +75,9 @@ router.get("/orders", async (req, res, next) => {
     const query = querySchema.parse(req.query);
     const where =
       query.scope === "active"
-        ? { status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED] } }
+        ? { status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.WATCH_LATER] } }
+        : query.scope === "watch_later"
+          ? { status: OrderStatus.WATCH_LATER }
         : query.scope === "delivered"
           ? { status: OrderStatus.DELIVERED }
           : {};
@@ -82,6 +90,7 @@ router.get("/orders", async (req, res, next) => {
               OR: [
                 { orderNumber: { contains: query.search, mode: "insensitive" } },
                 { customerName: { contains: query.search, mode: "insensitive" } },
+                { foodpandaOrderNumber: { contains: query.search, mode: "insensitive" } },
                 { customer: { is: { name: { contains: query.search, mode: "insensitive" } } } }
               ]
             }
@@ -156,6 +165,58 @@ router.patch("/orders/:id/status", async (req, res, next) => {
     });
 
     return res.json({ order });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/orders/bulk-status", async (req, res, next) => {
+  try {
+    const payload = bulkStatusSchema.parse(req.body);
+    const updatedOrders = await prisma.$transaction(async (transaction) => {
+      const orders = await transaction.order.findMany({
+        where: { id: { in: payload.orderIds } }
+      });
+
+      if (orders.length !== payload.orderIds.length) {
+        throw Object.assign(new Error("One or more orders were not found."), { statusCode: 404 });
+      }
+
+      await transaction.order.updateMany({
+        where: { id: { in: payload.orderIds } },
+        data: { status: payload.status }
+      });
+
+      return orders;
+    });
+
+    await Promise.all(
+      updatedOrders.flatMap((order) =>
+        order.customerId
+          ? [
+              prisma.notification.create({
+                data: {
+                  userId: order.customerId,
+                  type: "ORDER",
+                  title: "Order status updated",
+                  message: `${order.orderNumber} is now ${payload.status.replaceAll("_", " ")}.`,
+                  metadata: { orderNumber: order.orderNumber, status: payload.status }
+                }
+              })
+            ]
+          : []
+      )
+    );
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "order.bulk_status_update",
+      entityType: "order",
+      entityId: "bulk",
+      payload
+    });
+
+    return res.json({ updatedCount: updatedOrders.length });
   } catch (error) {
     return next(error);
   }

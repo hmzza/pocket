@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, CalendarDays, Clock3, Package2, Receipt, Users2, Wallet } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ArrowRight, CalendarDays, Clock3, Package2, Receipt, Users2, Wallet } from "lucide-react";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard } from "@/lib/admin-client";
+import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns } from "@/lib/finance";
 import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
 import { cn, formatCompactNumber, formatCurrency } from "@/lib/utils";
 
@@ -27,7 +28,7 @@ const segments: Array<{ value: AdminOrderSegment; label: string }> = [
 
 export default function AdminPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [preset, setPreset] = useState<AdminRangePreset>("7d");
+  const [preset, setPreset] = useState<AdminRangePreset>("today");
   const [segment, setSegment] = useState<AdminOrderSegment>("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -81,6 +82,11 @@ export default function AdminPage() {
   const strongestChannel = useMemo(() => dashboard?.breakdowns.channels[0], [dashboard]);
   const strongestServiceType = useMemo(() => dashboard?.breakdowns.serviceTypes[0], [dashboard]);
   const strongestPayment = useMemo(() => dashboard?.breakdowns.payments[0], [dashboard]);
+  const foodpandaRevenue = useMemo(
+    () => getFoodpandaRevenueFromBreakdowns(dashboard?.breakdowns.serviceTypes ?? []),
+    [dashboard]
+  );
+  const foodpandaPayout = useMemo(() => estimateFoodpandaPayout(foodpandaRevenue), [foodpandaRevenue]);
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
@@ -222,6 +228,37 @@ export default function AdminPage() {
                 delta={null}
                 icon={Users2}
               />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+              <Card className="p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Foodpanda payout estimate</p>
+                <p className="mt-3 text-3xl font-black text-pocket-navy">{formatCurrency(foodpandaPayout.estimated)}</p>
+                <p className="mt-2 text-sm text-pocket-navy/60">
+                  Gross {formatCurrency(foodpandaPayout.gross)} · expected return after the 40-42% platform fee.
+                </p>
+                <div className="mt-4 rounded-2xl bg-pocket-cream px-4 py-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-semibold text-pocket-navy">Return range</span>
+                    <span className="font-bold text-pocket-navy">
+                      {formatCurrency(foodpandaPayout.minimum)} - {formatCurrency(foodpandaPayout.maximum)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-pocket-navy/60">This is the amount expected to land with Pocket after Foodpanda keeps its share.</p>
+                </div>
+              </Card>
+
+              <Card className="flex flex-col justify-between gap-4 p-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Finance page</p>
+                  <p className="mt-3 text-2xl font-black text-pocket-navy">Monthly breakeven</p>
+                  <p className="mt-2 text-sm text-pocket-navy/60">Track the Rs 530,000 monthly target and see when profit starts.</p>
+                </div>
+                <Button className="w-fit" onClick={() => window.location.assign("/admin/finances")}>
+                  Open Finances
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Card>
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">

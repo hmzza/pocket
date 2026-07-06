@@ -4,11 +4,13 @@ import { formatCompactNumber } from "@/lib/utils";
 export function SalesChart({
   sales,
   title = "Sales trend",
-  description = "Revenue across the selected period."
+  description = "Revenue across the selected period.",
+  barClassName = "bg-pocket-orange"
 }: {
   sales: Array<{ label: string; revenue: number; orders?: number }>;
   title?: string;
   description?: string;
+  barClassName?: string;
 }) {
   const peak = Math.max(...sales.map((entry) => entry.revenue), 1);
 
@@ -24,7 +26,7 @@ export function SalesChart({
             <div key={entry.label} className="flex w-12 shrink-0 flex-col items-center gap-2">
             <div className="flex h-52 w-full items-end">
               <div
-                className="w-full rounded-md bg-pocket-orange"
+                className={`w-full rounded-md ${barClassName}`}
                 style={{
                   height: `${Math.max(18, (entry.revenue / peak) * 100)}%`
                 }}

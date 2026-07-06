@@ -21,6 +21,13 @@ export type AddOnGroup = {
   options: AddOnOption[];
 };
 
+export type BundleComponent = {
+  productId: string;
+  productName: string;
+  quantity: number;
+  sortOrder?: number;
+};
+
 export type ProductReview = {
   id: string;
   author: string;
@@ -263,6 +270,7 @@ export type AdminProduct = {
   stockStatus: string;
   imageUrl: string;
   category: Category;
+  bundleComponents: BundleComponent[];
 };
 
 export type AdminOrder = {
@@ -270,6 +278,7 @@ export type AdminOrder = {
   orderNumber: string;
   channel: string;
   serviceType: string;
+  foodpandaOrderNumber?: string | null;
   customerName: string;
   customerPhone?: string;
   status: string;
@@ -299,6 +308,7 @@ export type AdminOrder = {
     quantity: number;
     unitPrice: number;
     note?: string;
+    bundleComponents: BundleComponent[];
     addOns: Array<{
       id: string;
       optionName: string;
@@ -314,6 +324,7 @@ export type PosCatalogProduct = {
   categoryName: string;
   price: number;
   addOnGroups: AddOnGroup[];
+  bundleComponents: BundleComponent[];
 };
 
 export type PosBranch = {
@@ -326,6 +337,7 @@ export type PosReceiptOrder = {
   id: string;
   receiptNumber: string;
   orderNumber: string;
+  foodpandaOrderNumber?: string | null;
   fbrReferenceNumber: string;
   posNo: string;
   userId: string;
@@ -367,6 +379,36 @@ export type PosReceiptOrder = {
     taxAmount: number;
     lineTotal: number;
     note?: string | null;
+    bundleComponents: BundleComponent[];
+    addOns: Array<{
+      id: string;
+      optionName: string;
+      priceDelta: number;
+    }>;
+  }>;
+};
+
+export type PosEditableOrder = {
+  id: string;
+  orderNumber: string;
+  branchId: string;
+  customerName: string;
+  customerPhone: string;
+  serviceType: string;
+  paymentMethod: string;
+  discountType: "NONE" | "PERCENTAGE" | "FIXED";
+  discountValue: number;
+  foodpandaOrderNumber: string;
+  items: Array<{
+    id: string;
+    productId: string | null;
+    productName: string;
+    categoryName: string;
+    quantity: number;
+    unitPrice: number;
+    customDescription?: string | null;
+    note?: string | null;
+    bundleComponents: BundleComponent[];
     addOns: Array<{
       id: string;
       optionName: string;

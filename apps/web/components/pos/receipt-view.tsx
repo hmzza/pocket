@@ -43,6 +43,10 @@ function money(value: number) {
   return formatCurrency(Number(value.toFixed(2)));
 }
 
+function formatBundleSummary(components: Array<{ productName: string; quantity: number }>) {
+  return components.map((component) => `${component.quantity}x ${component.productName}`).join(", ");
+}
+
 type ReceiptCopy = "customer" | "store";
 
 type ReceiptMode = ReceiptCopy | "chef" | "all" | "store-chef";
@@ -73,6 +77,7 @@ function ReceiptSlip({
         {[
           ["Receipt No", order.receiptNumber],
           ["Order ID", order.id],
+          ...(order.foodpandaOrderNumber ? [["Foodpanda Order No", order.foodpandaOrderNumber] as const] : []),
           ["FBR Reference No", order.fbrReferenceNumber],
           ["POS No", order.posNo],
           ["Payment Type", formatPaymentMethod(order.paymentMethod)],
@@ -115,6 +120,11 @@ function ReceiptSlip({
               <td className="py-2 pr-1">
                 <div className="break-words font-semibold">{item.productName}</div>
                 {item.customDescription ? <div className="mt-0.5 break-words text-[9px] font-medium text-black/75 print:font-semibold print:text-black">{item.customDescription}</div> : null}
+                {item.bundleComponents.length ? (
+                  <div className="mt-0.5 break-words text-[9px] font-medium text-black/65 print:font-semibold print:text-black">
+                    Contains: {formatBundleSummary(item.bundleComponents)}
+                  </div>
+                ) : null}
                 {item.addOns.length ? (
                   <div className="mt-0.5 break-words text-[9px] font-medium text-black/65 print:font-semibold print:text-black">
                     {item.addOns.map((addOn) => addOn.optionName).join(", ")}
@@ -177,6 +187,12 @@ function ChefSlip({
           <span className="font-semibold text-black print:font-bold">Order ID:</span>
           <span className="text-right font-semibold text-black print:font-bold">{order.id}</span>
         </div>
+        {order.foodpandaOrderNumber ? (
+          <div className="flex items-start justify-between gap-3">
+            <span className="font-semibold text-black print:font-bold">Foodpanda Order:</span>
+            <span className="text-right font-semibold text-black print:font-bold">{order.foodpandaOrderNumber}</span>
+          </div>
+        ) : null}
         <div className="flex items-start justify-between gap-3">
           <span className="font-semibold text-black print:font-bold">Receipt No:</span>
           <span className="text-right font-semibold text-black print:font-bold">{order.receiptNumber}</span>
@@ -190,15 +206,18 @@ function ChefSlip({
           <div key={`chef-${item.id}`} className="border-b border-dashed border-black/20 pb-3 text-[15px] leading-tight print:text-[16px]">
             <div className="flex items-start justify-between gap-3">
               <span className="font-bold">{index + 1}.</span>
-              <span className="ml-2 flex-1 font-bold">{item.productName}</span>
-              <span className="min-w-[40px] text-right font-bold">x{item.quantity}</span>
-            </div>
-            {item.customDescription ? (
-              <p className="mt-1 pl-7 text-[13px] font-semibold print:text-[14px]">{item.customDescription}</p>
-            ) : null}
-            {item.addOns.length ? (
-              <div className="mt-2 pl-7">
-                <p className="text-[11px] font-black uppercase tracking-[0.18em]">Selections</p>
+            <span className="ml-2 flex-1 font-bold">{item.productName}</span>
+            <span className="min-w-[40px] text-right font-bold">x{item.quantity}</span>
+          </div>
+          {item.customDescription ? (
+            <p className="mt-1 pl-7 text-[13px] font-semibold print:text-[14px]">{item.customDescription}</p>
+          ) : null}
+          {item.bundleComponents.length ? (
+            <p className="mt-1 pl-7 text-[13px] font-semibold print:text-[14px]">Contains: {formatBundleSummary(item.bundleComponents)}</p>
+          ) : null}
+          {item.addOns.length ? (
+            <div className="mt-2 pl-7">
+              <p className="text-[11px] font-black uppercase tracking-[0.18em]">Selections</p>
                 <ul className="mt-1 space-y-1">
                   {item.addOns.map((addOn) => (
                     <li key={addOn.id} className="text-[14px] font-semibold print:text-[15px]">
