@@ -1,7 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Clock3, ShieldCheck, Truck } from "lucide-react";
 import { ProductCard } from "@/components/site/product-card";
+import { HeroSlider } from "@/components/site/hero-slider";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,9 +49,7 @@ export default async function HomePage() {
               </div>
             </div>
           </div>
-          <div className="relative min-h-[420px] overflow-hidden rounded-lg border border-pocket-navy/10 bg-pocket-navy shadow-panel">
-            <Image src="/images/hero-pocket.svg" alt="Pocket hero graphic" fill className="object-cover" priority sizes="(max-width: 1024px) 100vw, 50vw" />
-          </div>
+          <HeroSlider images={data.heroImages} intervalMs={data.heroSliderIntervalMs} />
         </div>
       </section>
 

@@ -1,4 +1,5 @@
 import { categories } from "./mock-data";
+import { resolvePocketImagePath } from "./image-paths";
 import type { Product } from "./types";
 
 export const API_URL =
@@ -20,8 +21,8 @@ export function normalizeProducts(items: any[] | undefined): Product[] {
       price: Number(item.branchPricing?.[0]?.price ?? item.basePrice),
       calories: item.calories ?? undefined,
       category,
-      imageUrl: item.images?.[0]?.url ?? category.imageUrl,
-      gallery: item.images?.map((image: any) => image.url) ?? [category.imageUrl],
+      imageUrl: resolvePocketImagePath(item.images?.[0]?.url ?? category.imageUrl),
+      gallery: (item.images?.map((image: any) => resolvePocketImagePath(image.url)) ?? [resolvePocketImagePath(category.imageUrl)]),
       featured: Boolean(item.featured),
       bestSeller: Boolean(item.bestSeller),
       ingredients: item.ingredients ?? [],

@@ -11,6 +11,8 @@ import type {
   Category,
   DashboardData
 } from "@/lib/types";
+import { getPocketImageAltFromFilename, isSupportedPocketImageFile, readFileAsDataUrl } from "@/lib/image-upload";
+import { resolvePocketImagePath } from "@/lib/image-paths";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -54,7 +56,7 @@ export async function fetchAdminProducts() {
     slug: category.slug,
     name: category.name,
     description: category.description ?? "",
-    imageUrl: category.imageUrl ?? ""
+    imageUrl: resolvePocketImagePath(category.imageUrl ?? "")
   }));
 
   const products: AdminProduct[] = productResponse.products.map((product) => ({
@@ -71,7 +73,12 @@ export async function fetchAdminProducts() {
     bestSeller: Boolean(product.bestSeller),
     isActive: Boolean(product.isActive),
     stockStatus: product.stockStatus,
-    imageUrl: product.images?.[0]?.url ?? "/images/shawarma-pocket.svg",
+    imageUrl: resolvePocketImagePath(product.images?.[0]?.url ?? "/images/shawarma-pocket.svg"),
+    images: (product.images ?? []).map((image: any) => ({
+      url: resolvePocketImagePath(image.url),
+      alt: image.alt ?? product.name,
+      sortOrder: image.sortOrder ?? undefined
+    })),
     bundleComponents: (product.bundleComponents ?? []).map((component: any) => ({
       productId: component.componentProductId,
       productName: component.componentProduct?.name ?? "Unknown product",
@@ -88,6 +95,32 @@ export async function fetchAdminProducts() {
   }));
 
   return { products, categories };
+}
+
+export async function fetchAdminSettings() {
+  const data = await adminFetch<{ settings: Array<{ key: string; value: unknown }> }>("/api/admin/settings");
+  return data.settings;
+}
+
+export async function uploadAdminImage(file: File) {
+  if (!isSupportedPocketImageFile(file)) {
+    throw new Error("Only PNG and JPEG images are allowed.");
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const data = await adminFetch<{ url: string; filename: string }>("/api/admin/uploads/images", {
+    method: "POST",
+    body: JSON.stringify({
+      filename: file.name,
+      dataUrl
+    })
+  });
+
+  return {
+    url: data.url,
+    filename: data.filename,
+    alt: getPocketImageAltFromFilename(file.name)
+  };
 }
 
 export async function createAdminProduct(payload: Record<string, unknown>) {

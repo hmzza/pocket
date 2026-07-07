@@ -1,5 +1,6 @@
 import { branch, categories, dashboardData, homeContent, mockCustomers, products, trackedOrders } from "./mock-data";
 import { API_URL, normalizeProducts } from "./catalog";
+import { resolvePocketImagePath } from "./image-paths";
 import type { DashboardData, Product, TrackedOrder } from "./types";
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T | null> {
@@ -19,6 +20,28 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T | null>
   }
 }
 
+function normalizeLocalProduct(product: Product): Product {
+  return {
+    ...product,
+    imageUrl: resolvePocketImagePath(product.imageUrl),
+    gallery: product.gallery.map((imageUrl) => resolvePocketImagePath(imageUrl))
+  };
+}
+
+function normalizeHeroImages(images: Array<{ url: string; alt: string }> | undefined | null) {
+  return (
+    images?.map((image) => ({
+      url: resolvePocketImagePath(image.url),
+      alt: image.alt
+    })) ?? [
+      { url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket Mai Rocket" },
+      { url: "/images/classic-shawarma.png", alt: "Classic Pocket" },
+      { url: "/images/spicy-shawarma.png", alt: "Spicy Pocket" },
+      { url: "/images/loaded-fries.png", alt: "Loaded Fries" }
+    ]
+  );
+}
+
 export async function getHomeData() {
   const data = await fetchJson<any>("/api/content/home");
   if (!data) {
@@ -26,8 +49,8 @@ export async function getHomeData() {
       hero: homeContent.hero,
       whyPocket: homeContent.whyPocket,
       testimonials: homeContent.testimonials,
-      featured: products.filter((product) => product.featured).slice(0, 4),
-      bestSellers: products.filter((product) => product.bestSeller).slice(0, 4),
+      featured: products.filter((product) => product.featured).slice(0, 4).map(normalizeLocalProduct),
+      bestSellers: products.filter((product) => product.bestSeller).slice(0, 4).map(normalizeLocalProduct),
       categories,
       branch,
       contact: {
@@ -44,6 +67,8 @@ export async function getHomeData() {
     hero: data.hero?.content ?? homeContent.hero,
     whyPocket: data.whyPocket?.content ?? homeContent.whyPocket,
     testimonials: data.testimonials?.content ?? homeContent.testimonials,
+    heroImages: normalizeHeroImages(data.heroImages ?? homeContent.heroImages),
+    heroSliderIntervalMs: Number(data.heroSliderIntervalMs ?? homeContent.heroSliderIntervalMs ?? 4500),
     featured: normalizeProducts(data.featured),
     bestSellers: normalizeProducts(data.bestSellers),
     categories: data.categories ?? categories,
@@ -70,17 +95,20 @@ export async function getHomeData() {
 
 export async function getProducts() {
   const data = await fetchJson<any>("/api/products");
-  return data ? normalizeProducts(data.products) : products;
+  return data ? normalizeProducts(data.products) : products.map(normalizeLocalProduct);
 }
 
 export async function getProductBySlug(slug: string) {
   const data = await fetchJson<any>(`/api/products/${slug}`);
   if (!data) {
-    const product = products.find((entry) => entry.slug === slug) ?? null;
+    const product = (products.find((entry) => entry.slug === slug) ?? null);
     return product
       ? {
-          product,
-          related: products.filter((entry) => entry.category.slug === product.category.slug && entry.slug !== slug).slice(0, 4)
+          product: normalizeLocalProduct(product),
+          related: products
+            .filter((entry) => entry.category.slug === product.category.slug && entry.slug !== slug)
+            .slice(0, 4)
+            .map(normalizeLocalProduct)
         }
       : null;
   }
@@ -197,5 +225,5 @@ export async function getAdminOrders() {
 
 export async function getAdminProducts() {
   const data = await fetchJson<any>("/api/admin/products");
-  return data?.products ? normalizeProducts(data.products) : products;
+  return data?.products ? normalizeProducts(data.products) : products.map(normalizeLocalProduct);
 }

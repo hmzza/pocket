@@ -2,11 +2,12 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Minus, Plus, Search, Trash2, LogOut, Receipt, ShoppingBag, PencilLine, Send } from "lucide-react";
+import { LayoutGrid, Minus, Plus, Search, Trash2, LogOut, Receipt, ShoppingBag, PencilLine, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { PosOrderQueue } from "@/components/pos/order-queue";
 import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -294,6 +295,7 @@ export function PosTerminal() {
   const [orderLookupNumber, setOrderLookupNumber] = useState("");
   const [loadingLookup, setLoadingLookup] = useState(false);
   const [editPanelOpen, setEditPanelOpen] = useState(false);
+  const [splitView, setSplitView] = useState(false);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   async function loadCatalog(nextBranchId?: string) {
@@ -696,8 +698,8 @@ export function PosTerminal() {
       <div className="mx-auto max-w-[1680px] space-y-5">
         <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-300">Pocket POS</p>
-            <h1 className="mt-1.5 text-[2rem] font-black leading-none">Counter Terminal</h1>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-300">Pocket POS</p>
+            <h1 className="mt-1.5 text-[1.7rem] font-black leading-none">Counter Terminal</h1>
           </div>
           <div className="flex flex-wrap gap-3">
             <select
@@ -716,6 +718,14 @@ export function PosTerminal() {
                 </option>
               ))}
             </select>
+            <Button
+              variant="outline"
+              className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
+              onClick={() => setSplitView((current) => !current)}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              {splitView ? "Close Split" : "Split View"}
+            </Button>
             <Button
               variant="outline"
               className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
@@ -744,23 +754,29 @@ export function PosTerminal() {
           </div>
         ) : null}
 
-        <div className="grid gap-4 xl:grid-cols-[1.66fr_0.78fr]">
+        <div
+          className={
+            splitView
+              ? "grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.6fr)_minmax(0,1.2fr)]"
+              : "grid gap-4 xl:grid-cols-[1.66fr_0.78fr]"
+          }
+        >
           <div className="space-y-4">
-            <Card className="rounded-3xl border-white/10 bg-white/5 p-2.5 shadow-none">
-              <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_190px_160px]">
-                <label className="flex h-9 items-center gap-2.5 rounded-2xl border border-white/10 bg-slate-950/60 px-3.5">
-                  <Search className="h-3.5 w-3.5 text-white/60" />
+            <Card className={splitView ? "rounded-3xl border-white/10 bg-white/5 p-2 shadow-none" : "rounded-3xl border-white/10 bg-white/5 p-2.5 shadow-none"}>
+              <div className={splitView ? "grid gap-1.5 lg:grid-cols-[minmax(0,1fr)_170px_140px]" : "grid gap-2 lg:grid-cols-[minmax(0,1fr)_190px_160px]"}>
+                <label className={splitView ? "flex h-8 items-center gap-2 rounded-2xl border border-white/10 bg-slate-950/60 px-3" : "flex h-9 items-center gap-2.5 rounded-2xl border border-white/10 bg-slate-950/60 px-3.5"}>
+                  <Search className={splitView ? "h-3 w-3 text-white/60" : "h-3.5 w-3.5 text-white/60"} />
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder="Search menu"
-                    className="w-full bg-transparent text-xs outline-none placeholder:text-white/40"
+                    className={splitView ? "w-full bg-transparent text-[11px] outline-none placeholder:text-white/40" : "w-full bg-transparent text-xs outline-none placeholder:text-white/40"}
                   />
                 </label>
                 <select
                   value={categoryId}
                   onChange={(event) => setCategoryId(event.target.value)}
-                  className="h-9 rounded-2xl border border-white/10 bg-slate-950/60 px-3 text-xs"
+                  className={splitView ? "h-8 rounded-2xl border border-white/10 bg-slate-950/60 px-3 text-[11px]" : "h-9 rounded-2xl border border-white/10 bg-slate-950/60 px-3 text-xs"}
                 >
                   <option value="ALL">All categories</option>
                   {categories.map((category) => (
@@ -769,14 +785,14 @@ export function PosTerminal() {
                     </option>
                   ))}
                 </select>
-                <Button className="h-9 rounded-2xl text-xs" onClick={() => setManualDialogOpen(true)} disabled={ticketLocked}>
-                  <PencilLine className="h-3.5 w-3.5" />
+                <Button className={splitView ? "h-8 rounded-2xl text-[11px]" : "h-9 rounded-2xl text-xs"} onClick={() => setManualDialogOpen(true)} disabled={ticketLocked}>
+                  <PencilLine className={splitView ? "h-3 w-3" : "h-3.5 w-3.5"} />
                   Other Item
                 </Button>
               </div>
             </Card>
 
-            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            <div className={splitView ? "grid gap-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" : "grid gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"}>
               {visibleProducts.map((product) => {
                 const ticketQuantity = ticket
                   .filter((line) => line.type === "product" && line.productId === product.id)
@@ -788,110 +804,114 @@ export function PosTerminal() {
                     type="button"
                     onClick={() => addProductToTicket(product)}
                     disabled={ticketLocked}
-                    className="relative rounded-2xl border border-white/10 bg-white/5 p-2.5 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
+                    className={
+                      splitView
+                        ? "relative rounded-2xl border border-white/10 bg-white/5 p-2 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
+                        : "relative rounded-2xl border border-white/10 bg-white/5 p-2.5 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
+                    }
                   >
                     {ticketQuantity ? (
-                      <span className="absolute right-2 top-2 rounded-full bg-amber-300 px-2 py-0.5 text-xs font-black text-slate-950">
+                      <span className={splitView ? "absolute right-2 top-2 rounded-full bg-amber-300 px-2 py-0.5 text-[10px] font-black text-slate-950" : "absolute right-2 top-2 rounded-full bg-amber-300 px-2 py-0.5 text-xs font-black text-slate-950"}>
                         x{ticketQuantity}
                       </span>
                     ) : null}
-                    <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80">{product.categoryName}</p>
-                    <p className="mt-1 pr-8 text-[0.95rem] font-black leading-tight xl:text-[0.98rem]">{product.name}</p>
-                    <p className="mt-1.5 text-sm font-semibold text-amber-200">{formatCurrency(product.price)}</p>
-                    {product.bundleComponents.length ? <p className="mt-1 text-[0.72rem] text-amber-100/80">Bundle meal</p> : null}
-                    {product.addOnGroups.length ? <p className="mt-1 text-[0.72rem] text-white/60">Customization required</p> : null}
+                    <p className={splitView ? "text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-300/80" : "text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80"}>{product.categoryName}</p>
+                    <p className={splitView ? "mt-1 pr-8 text-[0.86rem] font-black leading-tight" : "mt-1 pr-8 text-[0.95rem] font-black leading-tight xl:text-[0.98rem]"}>{product.name}</p>
+                    <p className={splitView ? "mt-1 text-[0.78rem] font-semibold text-amber-200" : "mt-1.5 text-sm font-semibold text-amber-200"}>{formatCurrency(product.price)}</p>
+                    {product.bundleComponents.length ? <p className={splitView ? "mt-1 text-[0.64rem] text-amber-100/80" : "mt-1 text-[0.72rem] text-amber-100/80"}>Bundle meal</p> : null}
+                    {product.addOnGroups.length ? <p className={splitView ? "mt-1 text-[0.64rem] text-white/60" : "mt-1 text-[0.72rem] text-white/60"}>Customization required</p> : null}
                   </button>
                 );
               })}
             </div>
           </div>
 
-            <Card className="rounded-3xl border-white/10 bg-[#f8f5ef] p-2.5 text-slate-900 shadow-none xl:sticky xl:top-4 xl:max-h-[calc(100vh-4.75rem)] xl:overflow-y-auto">
+            <Card className={splitView ? "rounded-3xl border-white/10 bg-[#f8f5ef] p-2 text-slate-900 shadow-none xl:sticky xl:top-4 xl:max-h-[calc(100vh-4.75rem)] xl:overflow-y-auto" : "rounded-3xl border-white/10 bg-[#f8f5ef] p-2.5 text-slate-900 shadow-none xl:sticky xl:top-4 xl:max-h-[calc(100vh-4.75rem)] xl:overflow-y-auto"}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-orange-600">Live Ticket</p>
-                  <h2 className="mt-0.5 text-[0.98rem] font-black leading-none">Current Sale</h2>
+                  <p className={splitView ? "text-[9px] font-semibold uppercase tracking-[0.24em] text-orange-600" : "text-[10px] font-semibold uppercase tracking-[0.24em] text-orange-600"}>Live Ticket</p>
+                  <h2 className={splitView ? "mt-0.5 text-[0.88rem] font-black leading-none" : "mt-0.5 text-[0.98rem] font-black leading-none"}>Current Sale</h2>
                 </div>
-                <ShoppingBag className="h-4 w-4 text-orange-600" />
+                <ShoppingBag className={splitView ? "h-3.5 w-3.5 text-orange-600" : "h-4 w-4 text-orange-600"} />
               </div>
 
             {orderCompleted ? (
-              <div className="mt-1.5 rounded-2xl border border-amber-300/40 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-900">
+              <div className={splitView ? "mt-1.5 rounded-2xl border border-amber-300/40 bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-900" : "mt-1.5 rounded-2xl border border-amber-300/40 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-900"}>
                 {editingCompletedOrder ? "Editing order. Finish again to update the same receipt." : "Order completed. Print receipt, edit it, or start a new order when ready."}
               </div>
             ) : null}
 
-            <div className="mt-1.5 space-y-1">
+            <div className={splitView ? "mt-1.5 space-y-0.5" : "mt-1.5 space-y-1"}>
               {ticket.length ? (
                 ticket.map((item) => (
-                  <div key={item.id} className="rounded-xl border border-slate-200 bg-white px-2 py-1">
+                  <div key={item.id} className={splitView ? "rounded-xl border border-slate-200 bg-white px-1.5 py-1" : "rounded-xl border border-slate-200 bg-white px-2 py-1"}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start gap-1.5">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="mt-0.5 h-6 w-6 shrink-0 px-0"
+                            className={splitView ? "mt-0.5 h-5 w-5 shrink-0 px-0" : "mt-0.5 h-6 w-6 shrink-0 px-0"}
                             disabled={ticketLocked}
                             onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: Math.max(1, line.quantity - 1) } : line))}
                           >
-                            <Minus className="h-2.5 w-2.5" />
+                            <Minus className={splitView ? "h-2 w-2" : "h-2.5 w-2.5"} />
                           </Button>
-                          <span className="mt-0.5 min-w-4 shrink-0 text-center text-[11px] font-semibold">{item.quantity}</span>
+                          <span className={splitView ? "mt-0.5 min-w-4 shrink-0 text-center text-[10px] font-semibold" : "mt-0.5 min-w-4 shrink-0 text-center text-[11px] font-semibold"}>{item.quantity}</span>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="mt-0.5 h-6 w-6 shrink-0 px-0"
+                            className={splitView ? "mt-0.5 h-5 w-5 shrink-0 px-0" : "mt-0.5 h-6 w-6 shrink-0 px-0"}
                             disabled={ticketLocked}
                             onClick={() => setTicket((current) => current.map((line) => line.id === item.id ? { ...line, quantity: line.quantity + 1 } : line))}
                           >
-                            <Plus className="h-2.5 w-2.5" />
+                            <Plus className={splitView ? "h-2 w-2" : "h-2.5 w-2.5"} />
                           </Button>
                           <div className="min-w-0 flex-1">
-                          <p className="text-[0.72rem] font-bold leading-tight">{item.name}</p>
-                            <p className="text-[0.58rem] leading-tight text-slate-500">{item.categoryName}</p>
+                          <p className={splitView ? "text-[0.64rem] font-bold leading-tight" : "text-[0.72rem] font-bold leading-tight"}>{item.name}</p>
+                            <p className={splitView ? "text-[0.52rem] leading-tight text-slate-500" : "text-[0.58rem] leading-tight text-slate-500"}>{item.categoryName}</p>
                           </div>
                         </div>
-                        {item.customDescription ? <p className="mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-500">{item.customDescription}</p> : null}
+                        {item.customDescription ? <p className={splitView ? "mt-0.5 pl-[4.5rem] text-[0.52rem] leading-tight text-slate-500" : "mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-500"}>{item.customDescription}</p> : null}
                         {item.bundleComponents.length ? (
-                          <p className="mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600">
+                          <p className={splitView ? "mt-0.5 pl-[4.5rem] text-[0.52rem] leading-tight text-slate-600" : "mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600"}>
                             Contains: {formatBundleSummary(item.bundleComponents, item.quantity)}
                           </p>
                         ) : null}
                         {item.addOns.length ? (
-                          <p className="mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
+                          <p className={splitView ? "mt-0.5 pl-[4.5rem] text-[0.52rem] leading-tight text-slate-600" : "mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600"}>{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
                         ) : null}
                       </div>
                       <div className="flex shrink-0 items-start gap-1.5">
                         <div className="text-right">
-                          <p className="text-[0.68rem] font-bold leading-tight text-orange-600">{formatCurrency(item.unitPrice * item.quantity)}</p>
-                          <p className="text-[0.58rem] leading-tight text-slate-500">{formatCurrency(item.unitPrice)} each</p>
+                          <p className={splitView ? "text-[0.6rem] font-bold leading-tight text-orange-600" : "text-[0.68rem] font-bold leading-tight text-orange-600"}>{formatCurrency(item.unitPrice * item.quantity)}</p>
+                          <p className={splitView ? "text-[0.5rem] leading-tight text-slate-500" : "text-[0.58rem] leading-tight text-slate-500"}>{formatCurrency(item.unitPrice)} each</p>
                         </div>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="mt-0.5 h-5 w-5 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          className={splitView ? "mt-0.5 h-4 w-4 px-0 text-red-600 hover:bg-red-50 hover:text-red-700" : "mt-0.5 h-5 w-5 px-0 text-red-600 hover:bg-red-50 hover:text-red-700"}
                           disabled={ticketLocked}
                           onClick={() => setTicket((current) => current.filter((line) => line.id !== item.id))}
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className={splitView ? "h-2.5 w-2.5" : "h-3 w-3"} />
                         </Button>
                       </div>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-white/70 p-2 text-[11px] text-slate-500">No items on the ticket yet.</div>
+                <div className={splitView ? "rounded-xl border border-dashed border-slate-300 bg-white/70 p-1.5 text-[10px] text-slate-500" : "rounded-xl border border-dashed border-slate-300 bg-white/70 p-2 text-[11px] text-slate-500"}>No items on the ticket yet.</div>
               )}
             </div>
 
-            <div className="mt-2 space-y-1.5 border-t border-slate-200 pt-2">
+            <div className={splitView ? "mt-2 space-y-1 border-t border-slate-200 pt-1.5" : "mt-2 space-y-1.5 border-t border-slate-200 pt-2"}>
               <div className="grid gap-1.5 md:grid-cols-2">
-                <Input className="h-8 text-xs" value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" disabled={ticketLocked} />
-                <Input className="h-8 text-xs" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" disabled={ticketLocked} />
+                <Input className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"} value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer name (optional)" disabled={ticketLocked} />
+                <Input className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"} value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Phone (optional)" disabled={ticketLocked} />
               </div>
               {matchedCustomer ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-900">
+                <div className={splitView ? "rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-1 text-[10px] text-emerald-900" : "rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-900"}>
                   <p className="font-bold leading-tight">Repeat customer: {matchedCustomer.name ?? matchedCustomer.phone}</p>
                   <p className="mt-0.5 leading-tight">
                     {matchedCustomer.totalOrders} orders
@@ -899,19 +919,19 @@ export function PosTerminal() {
                   </p>
                 </div>
               ) : customerPhone.replace(/\D/g, "").length >= 7 ? (
-                <div className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600">
+                <div className={splitView ? "rounded-xl border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-600" : "rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600"}>
                   New customer phone. Receipt sharing will be available after checkout.
                 </div>
               ) : null}
               <div className="grid gap-1.5 md:grid-cols-2">
-                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number]["value"])} className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs" disabled={ticketLocked}>
+                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number]["value"])} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
                   {serviceTypes.map((entry) => (
                     <option key={entry.value} value={entry.value}>
                       {entry.label}
                     </option>
                   ))}
                 </select>
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs" disabled={ticketLocked}>
+                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
                   {paymentOptions.map((entry) => (
                     <option key={entry.value} value={entry.value}>
                       {entry.label}
@@ -921,7 +941,7 @@ export function PosTerminal() {
               </div>
               {serviceType === "FOODPANDA" ? (
                 <Input
-                  className="h-8 text-xs"
+                  className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"}
                   value={foodpandaOrderNumber}
                   onChange={(event) => setFoodpandaOrderNumber(event.target.value)}
                   placeholder="Foodpanda order number"
@@ -929,41 +949,41 @@ export function PosTerminal() {
                 />
               ) : null}
               <div className="grid gap-1.5 md:grid-cols-2">
-                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className="h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs" disabled={ticketLocked}>
+                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
                   <option value="NONE">No discount</option>
                   <option value="PERCENTAGE">Percentage</option>
                   <option value="FIXED">Fixed amount</option>
                 </select>
-                <Input className="h-8 text-xs" inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="Discount" disabled={ticketLocked} />
+                <Input className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"} inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="Discount" disabled={ticketLocked} />
               </div>
             </div>
 
-            <div className="mt-2 space-y-1 rounded-2xl bg-slate-950 px-2.5 py-1.5 text-[0.8rem] text-white">
+            <div className={splitView ? "mt-2 space-y-1 rounded-2xl bg-slate-950 px-2 py-1.5 text-[0.74rem] text-white" : "mt-2 space-y-1 rounded-2xl bg-slate-950 px-2.5 py-1.5 text-[0.8rem] text-white"}>
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
-              <div className="flex justify-between text-[0.88rem] font-bold"><span>Total</span><span>{formatCurrency(payableTotal)}</span></div>
+              <div className={splitView ? "flex justify-between text-[0.8rem] font-bold" : "flex justify-between text-[0.88rem] font-bold"}><span>Total</span><span>{formatCurrency(payableTotal)}</span></div>
             </div>
 
             {(!orderCompleted || editingCompletedOrder) ? (
-              <Button className="mt-2 h-8 w-full rounded-2xl text-xs" disabled={!ticket.length || submitting || ticketLocked} onClick={() => void submitOrder()}>
-                <Receipt className="h-3.5 w-3.5" />
+              <Button className={splitView ? "mt-2 h-7 w-full rounded-2xl text-[11px]" : "mt-2 h-8 w-full rounded-2xl text-xs"} disabled={!ticket.length || submitting || ticketLocked} onClick={() => void submitOrder()}>
+                <Receipt className={splitView ? "h-3 w-3" : "h-3.5 w-3.5"} />
                 {submitting ? "Processing..." : editingCompletedOrder ? "Update Order" : "Finish"}
               </Button>
             ) : null}
 
             {lastReceiptOrderId && (orderCompleted || editingCompletedOrder) ? (
               <div className="mt-2 grid grid-cols-2 gap-1.5">
-                <Button className="h-8 rounded-2xl text-[11px]" variant="outline" onClick={() => printReceipt("store-chef")} type="button">
+                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => printReceipt("store-chef")} type="button">
                   Print Receipt
                 </Button>
-                <Button className="h-8 rounded-2xl text-[11px]" variant="outline" onClick={() => printReceipt("chef")} type="button">
+                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => printReceipt("chef")} type="button">
                   Print Chef
                 </Button>
-                <Button className="h-8 rounded-2xl text-[11px]" variant="outline" onClick={() => printReceipt("store")} type="button">
+                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => printReceipt("store")} type="button">
                   Print Store
                 </Button>
-                <Button className="h-8 rounded-2xl text-[11px]" variant="outline" onClick={sendReceipt} type="button">
-                  <Send className="h-3.5 w-3.5" />
+                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={sendReceipt} type="button">
+                  <Send className={splitView ? "h-3 w-3" : "h-3.5 w-3.5"} />
                   Send Receipt
                 </Button>
               </div>
@@ -972,7 +992,7 @@ export function PosTerminal() {
             {!orderCompleted ? (
               <div className="mt-2 space-y-2">
                 <Button
-                  className="h-8 w-full rounded-2xl border border-slate-300 bg-white text-xs text-slate-900 hover:bg-slate-50"
+                  className={splitView ? "h-7 w-full rounded-2xl border border-slate-300 bg-white text-[10px] text-slate-900 hover:bg-slate-50" : "h-8 w-full rounded-2xl border border-slate-300 bg-white text-xs text-slate-900 hover:bg-slate-50"}
                   type="button"
                   onClick={() => {
                     setEditPanelOpen((current) => !current);
@@ -983,10 +1003,10 @@ export function PosTerminal() {
               </div>
             ) : (
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <Button className="h-8 rounded-2xl bg-amber-300 text-xs text-slate-950 hover:bg-amber-400" type="button" onClick={startNewOrder}>
+                <Button className={splitView ? "h-7 rounded-2xl bg-amber-300 text-[10px] text-slate-950 hover:bg-amber-400" : "h-8 rounded-2xl bg-amber-300 text-xs text-slate-950 hover:bg-amber-400"} type="button" onClick={startNewOrder}>
                   Start New Order
                 </Button>
-                <Button className="h-8 rounded-2xl bg-slate-950 text-xs text-white hover:bg-slate-800" type="button" onClick={editLastOrder} disabled={!lastReceiptOrderId}>
+                <Button className={splitView ? "h-7 rounded-2xl bg-slate-950 text-[10px] text-white hover:bg-slate-800" : "h-8 rounded-2xl bg-slate-950 text-xs text-white hover:bg-slate-800"} type="button" onClick={editLastOrder} disabled={!lastReceiptOrderId}>
                   Edit Current Order
                 </Button>
               </div>
@@ -1003,19 +1023,25 @@ export function PosTerminal() {
                 </div>
                 <div className="grid gap-1.5 md:grid-cols-[minmax(0,1fr)_160px]">
                   <Input
-                    className="h-8 text-xs"
+                    className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"}
                     value={orderLookupNumber}
                     onChange={(event) => setOrderLookupNumber(event.target.value)}
                     placeholder="Open existing order by number"
                     disabled={ticketLocked || loadingLookup}
                   />
-                  <Button className="h-8 rounded-2xl text-xs" type="button" variant="outline" onClick={() => void loadOrderForEditing()} disabled={ticketLocked || loadingLookup || !orderLookupNumber.trim()}>
+                  <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-xs"} type="button" variant="outline" onClick={() => void loadOrderForEditing()} disabled={ticketLocked || loadingLookup || !orderLookupNumber.trim()}>
                     {loadingLookup ? "Loading..." : "Open Order"}
                   </Button>
                 </div>
               </div>
             </div>
           </Card>
+
+          {splitView ? (
+            <div className="min-w-0 min-h-0 xl:sticky xl:top-4 xl:h-[calc(100vh-4.75rem)] xl:overflow-hidden">
+              <PosOrderQueue embedded />
+            </div>
+          ) : null}
         </div>
       </div>
 

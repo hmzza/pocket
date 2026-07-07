@@ -1,6 +1,7 @@
 "use client";
 
 import type { AdminOrder, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
+import { resolvePocketImagePath } from "@/lib/image-paths";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 const POS_RECEIPT_CACHE_PREFIX = "pocket-pos-receipt:";
@@ -70,7 +71,7 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
       slug: category.slug,
       name: category.name,
       description: category.description ?? undefined,
-      imageUrl: category.imageUrl ?? undefined
+      imageUrl: resolvePocketImagePath(category.imageUrl ?? undefined)
     })),
     products: data.products.map(
       (product): PosCatalogProduct => ({

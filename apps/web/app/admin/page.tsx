@@ -230,7 +230,7 @@ export default function AdminPage() {
               />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+            <div className="grid gap-4 xl:grid-cols-3">
               <Card className="p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Foodpanda payout estimate</p>
                 <p className="mt-3 text-3xl font-black text-pocket-navy">{formatCurrency(foodpandaPayout.estimated)}</p>
@@ -256,6 +256,18 @@ export default function AdminPage() {
                 </div>
                 <Button className="w-fit" onClick={() => window.location.assign("/admin/finances")}>
                   Open Finances
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Card>
+
+              <Card className="flex flex-col justify-between gap-4 p-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Website control</p>
+                  <p className="mt-3 text-2xl font-black text-pocket-navy">Website Control Panel</p>
+                  <p className="mt-2 text-sm text-pocket-navy/60">Manage homepage slider images, reorder media, and keep the website synced with live content.</p>
+                </div>
+                <Button className="w-fit" onClick={() => window.location.assign("/admin/website")}>
+                  Open Website Control
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Card>

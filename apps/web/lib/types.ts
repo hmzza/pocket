@@ -74,6 +74,11 @@ export type HomeContent = {
     subheadline: string;
     description: string;
   };
+  heroImages: Array<{
+    url: string;
+    alt: string;
+  }>;
+  heroSliderIntervalMs: number;
   whyPocket: Array<{
     title: string;
     description: string;
@@ -269,6 +274,11 @@ export type AdminProduct = {
   isActive: boolean;
   stockStatus: string;
   imageUrl: string;
+  images: Array<{
+    url: string;
+    alt: string;
+    sortOrder?: number;
+  }>;
   category: Category;
   bundleComponents: BundleComponent[];
 };

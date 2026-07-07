@@ -46,7 +46,7 @@ export function createApp() {
   );
   app.use(morgan("dev"));
   app.use(cookieParser());
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "20mb" }));
   app.use(csrfGuard);
 
   app.get("/health", (_req, res) => {
@@ -68,4 +68,3 @@ export function createApp() {
 
   return app;
 }
-

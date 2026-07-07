@@ -235,6 +235,32 @@ async function main() {
           description: "Pocket Shawarma Spot in Islamabad serving shawarmas, fries, chillers, shakes, and soft drinks."
         }
       }
+    }),
+    prisma.setting.upsert({
+      where: { key: "homepage.slider" },
+      update: {
+        value: {
+          intervalMs: 4500,
+          images: [
+            { url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket Mai Rocket" },
+            { url: "/images/classic-shawarma.png", alt: "Classic Pocket" },
+            { url: "/images/spicy-shawarma.png", alt: "Spicy Pocket" },
+            { url: "/images/loaded-fries.png", alt: "Loaded Fries" }
+          ]
+        }
+      },
+      create: {
+        key: "homepage.slider",
+        value: {
+          intervalMs: 4500,
+          images: [
+            { url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket Mai Rocket" },
+            { url: "/images/classic-shawarma.png", alt: "Classic Pocket" },
+            { url: "/images/spicy-shawarma.png", alt: "Spicy Pocket" },
+            { url: "/images/loaded-fries.png", alt: "Loaded Fries" }
+          ]
+        }
+      }
     })
   ]);
 
@@ -245,7 +271,7 @@ async function main() {
       name: "Shawarma",
       description: "Pocket signature wraps",
       sortOrder: 1,
-      imageUrl: "/images/shawarma-pocket.svg",
+      imageUrl: "/images/classic-shawarma.png",
       isActive: true
     },
     {
@@ -254,7 +280,7 @@ async function main() {
       name: "Fries",
       description: "Crispy sides and spice hits",
       sortOrder: 2,
-      imageUrl: "/images/loaded-fries.svg",
+      imageUrl: "/images/loaded-fries.png",
       isActive: true
     },
     {
@@ -262,7 +288,7 @@ async function main() {
       name: "Make It A Meal",
       description: "Pocket wraps bundled with fries and your drink pick",
       sortOrder: 4,
-      imageUrl: "/images/combo-meal.svg",
+      imageUrl: "/images/pocket-mai-rocket-shawarma.png",
       isActive: true
     },
     {
@@ -270,7 +296,7 @@ async function main() {
       name: "Add-ons",
       description: "Custom extras",
       sortOrder: 3,
-      imageUrl: "/images/brand-grid.svg",
+      imageUrl: "/images/loaded-fries.png",
       isActive: true
     },
     {
@@ -279,7 +305,7 @@ async function main() {
       name: "Chillers",
       description: "Fruit chillers",
       sortOrder: 5,
-      imageUrl: "/images/pocket-drink.svg",
+      imageUrl: "/images/kiwi-passion-chiller.png",
       isActive: true
     },
     {
@@ -288,7 +314,7 @@ async function main() {
       name: "Ice Cream Shakes",
       description: "Creamy shakes",
       sortOrder: 6,
-      imageUrl: "/images/pocket-combo.svg",
+      imageUrl: "/images/chocolate-shake.png",
       isActive: true
     },
     {
@@ -296,7 +322,7 @@ async function main() {
       name: "Soft Drinks",
       description: "Classic soft drinks",
       sortOrder: 7,
-      imageUrl: "/images/pocket-drink.svg",
+      imageUrl: "/images/kiwi-passion-chiller.png",
       isActive: true
     }
   ];
@@ -364,7 +390,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 1,
       nutritionInfo: nutrition(560, 29, 41, 24),
-      images: [{ url: "/images/shawarma-pocket.svg", alt: "Classic Pocket", sortOrder: 1 }]
+      images: [{ url: "/images/classic-shawarma.png", alt: "Classic Pocket", sortOrder: 1 }]
     },
     {
       legacySlug: "pocket-beef-shawarma",
@@ -380,7 +406,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 2,
       nutritionInfo: nutrition(590, 30, 42, 27),
-      images: [{ url: "/images/shawarma-beef.svg", alt: "Spicy Pocket", sortOrder: 1 }]
+      images: [{ url: "/images/spicy-shawarma.png", alt: "Spicy Pocket", sortOrder: 1 }]
     },
     {
       legacySlug: "pocket-special-shawarma",
@@ -396,7 +422,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 3,
       nutritionInfo: nutrition(760, 36, 45, 34),
-      images: [{ url: "/images/pocket-special.svg", alt: "Pocket Mai Rocket", sortOrder: 1 }]
+      images: [{ url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket Mai Rocket", sortOrder: 1 }]
     },
     {
       slug: "thela-fries",
@@ -411,7 +437,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 1,
       nutritionInfo: nutrition(360, 4, 44, 18),
-      images: [{ url: "/images/loaded-fries.svg", alt: "Thela Fries", sortOrder: 1 }]
+      images: [{ url: "/images/thela-fries.png", alt: "Thela Fries", sortOrder: 1 }]
     },
     {
       slug: "loaded-fries",
@@ -426,7 +452,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 2,
       nutritionInfo: nutrition(640, 17, 50, 30),
-      images: [{ url: "/images/loaded-fries.svg", alt: "Loaded Fries", sortOrder: 1 }]
+      images: [{ url: "/images/loaded-fries.png", alt: "Loaded Fries", sortOrder: 1 }]
     },
     {
       slug: "olives",
@@ -441,7 +467,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 1,
       nutritionInfo: nutrition(40, 0, 2, 4),
-      images: [{ url: "/images/brand-grid.svg", alt: "Olives", sortOrder: 1 }]
+      images: [{ url: "/images/loaded-fries.png", alt: "Olives", sortOrder: 1 }]
     },
     {
       slug: "mushrooms",
@@ -456,7 +482,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 2,
       nutritionInfo: nutrition(35, 1, 4, 0),
-      images: [{ url: "/images/brand-grid.svg", alt: "Mushrooms", sortOrder: 1 }]
+      images: [{ url: "/images/loaded-fries.png", alt: "Mushrooms", sortOrder: 1 }]
     },
     {
       slug: "chicken-add-on",
@@ -471,7 +497,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 3,
       nutritionInfo: nutrition(120, 14, 0, 5),
-      images: [{ url: "/images/brand-grid.svg", alt: "Chicken add-on", sortOrder: 1 }]
+      images: [{ url: "/images/loaded-fries.png", alt: "Chicken add-on", sortOrder: 1 }]
     },
     {
       slug: "cheese",
@@ -486,7 +512,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 4,
       nutritionInfo: nutrition(80, 4, 1, 6),
-      images: [{ url: "/images/brand-grid.svg", alt: "Cheese", sortOrder: 1 }]
+      images: [{ url: "/images/loaded-fries.png", alt: "Cheese", sortOrder: 1 }]
     },
     {
       slug: "classic-pocket-make-it-a-meal",
@@ -501,7 +527,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 1,
       nutritionInfo: nutrition(560, 29, 41, 24),
-      images: [{ url: "/images/combo-meal.svg", alt: "Classic Pocket meal", sortOrder: 1 }]
+      images: [{ url: "/images/classic-shawarma.png", alt: "Classic Pocket meal", sortOrder: 1 }]
     },
     {
       slug: "spicy-pocket-make-it-a-meal",
@@ -516,7 +542,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 2,
       nutritionInfo: nutrition(590, 30, 42, 27),
-      images: [{ url: "/images/combo-meal.svg", alt: "Spicy Pocket meal", sortOrder: 1 }]
+      images: [{ url: "/images/spicy-shawarma.png", alt: "Spicy Pocket meal", sortOrder: 1 }]
     },
     {
       slug: "pocket-mai-rocket-make-it-a-meal",
@@ -531,7 +557,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 3,
       nutritionInfo: nutrition(760, 36, 45, 34),
-      images: [{ url: "/images/combo-meal.svg", alt: "Pocket Mai Rocket meal", sortOrder: 1 }]
+      images: [{ url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket Mai Rocket meal", sortOrder: 1 }]
     },
     {
       legacySlug: "coke",
@@ -547,7 +573,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 1,
       nutritionInfo: nutrition(220, 1, 54, 0),
-      images: [{ url: "/images/pocket-drink.svg", alt: "Kiwi Passion", sortOrder: 1 }]
+      images: [{ url: "/images/kiwi-passion-chiller.png", alt: "Kiwi Passion", sortOrder: 1 }]
     },
     {
       legacySlug: "sprite",
@@ -563,7 +589,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 2,
       nutritionInfo: nutrition(230, 1, 56, 0),
-      images: [{ url: "/images/pocket-drink.svg", alt: "Strawberry Cherry", sortOrder: 1 }]
+      images: [{ url: "/images/strawberyy-cherry-chiller.png", alt: "Strawberry Cherry", sortOrder: 1 }]
     },
     {
       legacySlug: "mirinda",
@@ -579,7 +605,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 3,
       nutritionInfo: nutrition(240, 1, 58, 0),
-      images: [{ url: "/images/pocket-drink.svg", alt: "Watermelon Guava", sortOrder: 1 }]
+      images: [{ url: "/images/watermelon-guava-chiller.png", alt: "Watermelon Guava", sortOrder: 1 }]
     },
     {
       slug: "chocolate",
@@ -594,7 +620,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 1,
       nutritionInfo: nutrition(410, 8, 48, 18),
-      images: [{ url: "/images/pocket-combo.svg", alt: "Chocolate shake", sortOrder: 1 }]
+      images: [{ url: "/images/chocolate-shake.png", alt: "Chocolate shake", sortOrder: 1 }]
     },
     {
       slug: "vanilla",
@@ -609,7 +635,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 2,
       nutritionInfo: nutrition(390, 7, 46, 16),
-      images: [{ url: "/images/pocket-combo.svg", alt: "Vanilla shake", sortOrder: 1 }]
+      images: [{ url: "/images/vanilla-shake.png", alt: "Vanilla shake", sortOrder: 1 }]
     },
     {
       slug: "mango",
@@ -624,7 +650,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 3,
       nutritionInfo: nutrition(400, 7, 49, 15),
-      images: [{ url: "/images/pocket-combo.svg", alt: "Mango shake", sortOrder: 1 }]
+      images: [{ url: "/images/vanilla-shake.png", alt: "Mango shake", sortOrder: 1 }]
     },
     {
       slug: "oreo",
@@ -639,7 +665,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 4,
       nutritionInfo: nutrition(430, 8, 52, 18),
-      images: [{ url: "/images/pocket-combo.svg", alt: "Oreo shake", sortOrder: 1 }]
+      images: [{ url: "/images/oreo-shake-shake.png", alt: "Oreo shake", sortOrder: 1 }]
     },
     {
       slug: "strawberry",
@@ -654,7 +680,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 5,
       nutritionInfo: nutrition(395, 7, 47, 16),
-      images: [{ url: "/images/pocket-combo.svg", alt: "Strawberry shake", sortOrder: 1 }]
+      images: [{ url: "/images/strawberyy-cherry-chiller.png", alt: "Strawberry shake", sortOrder: 1 }]
     },
     {
       slug: "pepsi",
@@ -669,7 +695,7 @@ async function main() {
       bestSeller: true,
       sortOrder: 1,
       nutritionInfo: nutrition(140, 0, 39, 0),
-      images: [{ url: "/images/pocket-drink.svg", alt: "Pepsi", sortOrder: 1 }]
+      images: [{ url: "/images/kiwi-passion-chiller.png", alt: "Pepsi", sortOrder: 1 }]
     },
     {
       slug: "seven-up",
@@ -684,7 +710,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 2,
       nutritionInfo: nutrition(135, 0, 38, 0),
-      images: [{ url: "/images/pocket-drink.svg", alt: "7UP", sortOrder: 1 }]
+      images: [{ url: "/images/kiwi-passion-chiller.png", alt: "7UP", sortOrder: 1 }]
     },
     {
       slug: "fanta",
@@ -699,7 +725,7 @@ async function main() {
       bestSeller: false,
       sortOrder: 3,
       nutritionInfo: nutrition(145, 0, 40, 0),
-      images: [{ url: "/images/pocket-drink.svg", alt: "Fanta", sortOrder: 1 }]
+      images: [{ url: "/images/kiwi-passion-chiller.png", alt: "Fanta", sortOrder: 1 }]
     }
   ];
 

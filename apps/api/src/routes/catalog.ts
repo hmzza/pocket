@@ -36,10 +36,11 @@ const productInclude = {
 };
 
 router.get("/content/home", async (_req, res) => {
-  const [hero, whyPocket, testimonials, featured, bestSellers, categories, branch, contact] = await Promise.all([
+  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, branch, contact] = await Promise.all([
     prisma.cmsContent.findUnique({ where: { key: "homepage.hero" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.why-pocket" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.testimonials" } }),
+    prisma.setting.findUnique({ where: { key: "homepage.slider" } }),
     prisma.product.findMany({
       where: { featured: true, isActive: true, category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } } },
       include: {
@@ -74,6 +75,15 @@ router.get("/content/home", async (_req, res) => {
     hero,
     whyPocket,
     testimonials,
+    heroImages: Array.isArray((slider?.value as any)?.images)
+      ? (slider?.value as any).images
+      : [
+          { url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket Mai Rocket" },
+          { url: "/images/classic-shawarma.png", alt: "Classic Pocket" },
+          { url: "/images/spicy-shawarma.png", alt: "Spicy Pocket" },
+          { url: "/images/loaded-fries.png", alt: "Loaded Fries" }
+        ],
+    heroSliderIntervalMs: Number((slider?.value as any)?.intervalMs ?? 4500),
     featured,
     bestSellers,
     categories,

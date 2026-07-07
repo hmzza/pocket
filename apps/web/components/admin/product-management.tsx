@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Power, RefreshCcw } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, Plus, Power, RefreshCcw, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminProduct } from "@/lib/admin-client";
+import { createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminProduct, uploadAdminImage } from "@/lib/admin-client";
 import type { AdminProduct, Category } from "@/lib/types";
+import { getPocketImageAltFromFilename, isSupportedPocketImageFile } from "@/lib/image-upload";
 import { formatCurrency } from "@/lib/utils";
 
 type ProductFormState = {
@@ -23,11 +24,60 @@ type ProductFormState = {
   bestSeller: boolean;
   isActive: boolean;
   stockStatus: string;
-  imageUrl: string;
+  images: Array<{
+    url: string;
+    alt: string;
+  }>;
   bundleComponents: Array<{
     componentProductId: string;
     quantity: string;
   }>;
+};
+
+type ProductManagementMode = "catalog" | "website";
+
+const MODE_COPY: Record<
+  ProductManagementMode,
+  {
+    eyebrow: string;
+    title: string;
+    description: string;
+    totalLabel: string;
+    activeLabel: string;
+    actionsDescription: string;
+    addButtonLabel: string;
+    tableHeading: string;
+    tableDescription: string;
+    flagsLabel: string;
+    editorLabel: string;
+  }
+> = {
+  catalog: {
+    eyebrow: "Catalog",
+    title: "Product management",
+    description: "Add products, edit previous entries, switch best seller status, and manage product images.",
+    totalLabel: "Products in catalog",
+    activeLabel: "Currently sellable items",
+    actionsDescription: "Create, edit, disable, and refresh the live menu.",
+    addButtonLabel: "Add Product",
+    tableHeading: "Product",
+    tableDescription: "Catalog entries available across POS and the public menu.",
+    flagsLabel: "Flags",
+    editorLabel: "Product"
+  },
+  website: {
+    eyebrow: "Website",
+    title: "Website items",
+    description: "Manage the items shown on the public website, update images, and control featured and best seller placement.",
+    totalLabel: "Items on website",
+    activeLabel: "Visible on website",
+    actionsDescription: "Create, edit, hide, and refresh the public website menu.",
+    addButtonLabel: "Add Website Item",
+    tableHeading: "Website item",
+    tableDescription: "Public items that appear on the home page and menu.",
+    flagsLabel: "Website flags",
+    editorLabel: "Website item"
+  }
 };
 
 const EMPTY_FORM: ProductFormState = {
@@ -43,7 +93,7 @@ const EMPTY_FORM: ProductFormState = {
   bestSeller: false,
   isActive: true,
   stockStatus: "IN_STOCK",
-  imageUrl: "/images/shawarma-pocket.svg",
+  images: [{ url: "", alt: "" }],
   bundleComponents: []
 };
 
@@ -69,7 +119,7 @@ function mapProductToForm(product: AdminProduct): ProductFormState {
     bestSeller: product.bestSeller,
     isActive: product.isActive,
     stockStatus: product.stockStatus,
-    imageUrl: product.imageUrl,
+    images: product.images.length ? product.images.map((image) => ({ url: image.url, alt: image.alt })) : [{ url: product.imageUrl, alt: product.name }],
     bundleComponents: product.bundleComponents.map((component) => ({
       componentProductId: component.productId,
       quantity: String(component.quantity)
@@ -85,6 +135,8 @@ function ProductEditor({
   editingName,
   editingProductId,
   saving,
+  editorLabel,
+  onUploadError,
   onChange,
   onClose,
   onSubmit
@@ -96,20 +148,65 @@ function ProductEditor({
   editingName?: string;
   editingProductId?: string;
   saving: boolean;
+  editorLabel: string;
+  onUploadError: (message: string) => void;
   onChange: (next: ProductFormState) => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
-  if (!open) return null;
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const bundleProductOptions = products.filter((product) => product.isActive && product.id !== editingProductId);
+  const assetLibrary = [
+    "/images/classic-shawarma.png",
+    "/images/spicy-shawarma.png",
+    "/images/pocket-mai-rocket-shawarma.png",
+    "/images/thela-fries.png",
+    "/images/loaded-fries.png",
+    "/images/kiwi-passion-chiller.png",
+    "/images/strawberyy-cherry-chiller.png",
+    "/images/watermelon-guava-chiller.png",
+    "/images/chocolate-shake.png",
+    "/images/vanilla-shake.png",
+    "/images/oreo-shake-shake.png"
+  ];
+
+  async function handleUpload(index: number, file: File) {
+    if (!isSupportedPocketImageFile(file)) {
+      onUploadError("Only PNG and JPEG images are allowed.");
+      return;
+    }
+
+    setUploadingIndex(index);
+    try {
+      const uploaded = await uploadAdminImage(file);
+      onChange({
+        ...value,
+        images: value.images.map((entry, entryIndex) =>
+          entryIndex === index
+            ? {
+                ...entry,
+                url: uploaded.url,
+                alt: entry.alt.trim() || uploaded.alt || getPocketImageAltFromFilename(file.name)
+              }
+            : entry
+        )
+      });
+    } catch (uploadError) {
+      onUploadError(uploadError instanceof Error ? uploadError.message : "Failed to upload image.");
+    } finally {
+      setUploadingIndex(null);
+    }
+  }
+
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-pocket-charcoal/40 px-4 py-8">
       <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg border border-pocket-navy/10 bg-white p-6 shadow-panel">
         <div className="flex items-start justify-between gap-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Product Editor</p>
-            <h2 className="mt-2 text-3xl font-black text-pocket-navy">{editingName ? `Edit ${editingName}` : "Add product"}</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{editorLabel} Editor</p>
+            <h2 className="mt-2 text-3xl font-black text-pocket-navy">{editingName ? `Edit ${editingName}` : `Add ${editorLabel.toLowerCase()}`}</h2>
           </div>
           <Button variant="ghost" onClick={onClose}>
             Close
@@ -143,9 +240,148 @@ function ProductEditor({
               ))}
             </select>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Image URL <span className="text-pocket-navy/40">(optional)</span></label>
-            <Input value={value.imageUrl} onChange={(event) => onChange({ ...value, imageUrl: event.target.value })} />
+          <div className="space-y-3 md:col-span-2">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <label className="text-sm font-semibold text-pocket-navy">Images</label>
+                <p className="text-xs text-pocket-navy/50">Add multiple images. The first one is used on cards and product lists.</p>
+              </div>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() =>
+                  onChange({
+                    ...value,
+                    images: [...value.images, { url: "", alt: "" }]
+                  })
+                }
+              >
+                <Plus className="h-4 w-4" />
+                Add Image
+              </Button>
+            </div>
+            <div className="space-y-3">
+              {value.images.map((image, index) => (
+                <div key={`${index}-${image.url}`} className="rounded-lg border border-pocket-navy/10 bg-pocket-cream/40 p-3">
+                  <div className="grid gap-3 md:grid-cols-[1.35fr_1fr_auto]">
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/50">Image URL</label>
+                      <Input
+                        value={image.url}
+                        onChange={(event) =>
+                          onChange({
+                            ...value,
+                            images: value.images.map((entry, entryIndex) =>
+                              entryIndex === index ? { ...entry, url: event.target.value } : entry
+                            )
+                          })
+                        }
+                        placeholder="/images/classic-shawarma.png"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/50">Alt text</label>
+                      <Input
+                        value={image.alt}
+                        onChange={(event) =>
+                          onChange({
+                            ...value,
+                            images: value.images.map((entry, entryIndex) =>
+                              entryIndex === index ? { ...entry, alt: event.target.value } : entry
+                            )
+                          })
+                        }
+                        placeholder="Hero shot"
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <label className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/50">Upload image</label>
+                      <label className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-md border border-pocket-navy/15 bg-white px-4 text-sm font-semibold text-pocket-navy transition hover:bg-pocket-cream">
+                        <Upload className="h-4 w-4" />
+                        {uploadingIndex === index ? "Uploading..." : "Choose PNG/JPEG"}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg"
+                          className="sr-only"
+                          onChange={async (event) => {
+                            const file = event.target.files?.[0];
+                            event.target.value = "";
+                            if (!file) return;
+                            await handleUpload(index, file);
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <div className="flex items-end gap-2 md:col-span-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          if (index === 0) return;
+                          const nextImages = value.images.slice();
+                          const previous = nextImages[index - 1];
+                          nextImages[index - 1] = nextImages[index];
+                          nextImages[index] = previous;
+                          onChange({ ...value, images: nextImages });
+                        }}
+                        disabled={index === 0}
+                      >
+                        <ChevronUp className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          if (index === value.images.length - 1) return;
+                          const nextImages = value.images.slice();
+                          const next = nextImages[index + 1];
+                          nextImages[index + 1] = nextImages[index];
+                          nextImages[index] = next;
+                          onChange({ ...value, images: nextImages });
+                        }}
+                        disabled={index === value.images.length - 1}
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() =>
+                          onChange({
+                            ...value,
+                            images: value.images.length > 1 ? value.images.filter((_, entryIndex) => entryIndex !== index) : [{ url: "", alt: "" }]
+                          })
+                        }
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {assetLibrary.map((asset) => (
+                      <Button
+                        key={asset}
+                        type="button"
+                        variant="outline"
+                        className="h-8 rounded-full px-3 text-xs"
+                        onClick={() =>
+                          onChange({
+                            ...value,
+                            images: value.images.map((entry, entryIndex) =>
+                              entryIndex === index
+                                ? { ...entry, url: asset, alt: entry.alt || asset.split("/").pop()?.replace(/[-.]/g, " ") || "Website image" }
+                                : entry
+                            )
+                          })
+                        }
+                      >
+                        {asset.split("/").pop()?.replace(/\.png$/, "")}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-semibold text-pocket-navy">Description <span className="text-pocket-navy/40">(optional)</span></label>
@@ -282,7 +518,8 @@ function ProductEditor({
   );
 }
 
-export function ProductManagement() {
+export function ProductManagement({ mode = "catalog" }: { mode?: ProductManagementMode }) {
+  const copy = MODE_COPY[mode];
   const [products, setProducts] = useState<AdminProduct[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -353,6 +590,19 @@ export function ProductManagement() {
       return;
     }
 
+    const images = form.images
+      .map((image, index) => ({
+        url: image.url.trim(),
+        alt: image.alt.trim() || form.name.trim(),
+        sortOrder: index + 1
+      }))
+      .filter((image) => image.url.length > 0);
+
+    if (!images.length) {
+      setError("Add at least one image.");
+      return;
+    }
+
     const payload = {
       categoryId: form.categoryId,
       slug: form.slug.trim() || undefined,
@@ -369,7 +619,8 @@ export function ProductManagement() {
       bestSeller: form.bestSeller,
       isActive: form.isActive,
       stockStatus: form.stockStatus,
-      imageUrl: form.imageUrl.trim() || undefined,
+      imageUrl: images[0]?.url,
+      images,
       bundleComponents: form.bundleComponents
         .map((component, index) => ({
           componentProductId: component.componentProductId,
@@ -384,15 +635,15 @@ export function ProductManagement() {
     try {
       if (editingProduct) {
         await updateAdminProduct(editingProduct.id, payload);
-        flashNotice("success", "Product updated.");
+        flashNotice("success", `${copy.editorLabel} updated.`);
       } else {
         await createAdminProduct(payload);
-        flashNotice("success", "Product added.");
+        flashNotice("success", `${copy.editorLabel} added.`);
       }
       setEditorOpen(false);
       await loadProducts();
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Failed to save product.");
+      setError(submitError instanceof Error ? submitError.message : `Failed to save ${copy.editorLabel.toLowerCase()}.`);
     } finally {
       setSaving(false);
     }
@@ -419,36 +670,71 @@ export function ProductManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Total</p>
-          <p className="mt-3 text-3xl font-black text-pocket-navy">{products.length}</p>
-          <p className="mt-2 text-sm text-pocket-navy/60">Products in catalog</p>
-        </Card>
-        <Card className="p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Active</p>
-          <p className="mt-3 text-3xl font-black text-pocket-navy">{activeProducts}</p>
-          <p className="mt-2 text-sm text-pocket-navy/60">Currently sellable items</p>
-        </Card>
-        <Card className="flex items-center justify-between gap-4 p-5">
+      {mode === "website" ? (
+        <Card className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p>
-            <p className="mt-3 text-sm text-pocket-navy/60">Create, edit, disable, and refresh the live menu.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{copy.eyebrow}</p>
+            <h3 className="mt-2 text-2xl font-black text-pocket-navy">{copy.title}</h3>
+            <p className="mt-1 max-w-3xl text-sm text-pocket-navy/60">{copy.description}</p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+              <span className="rounded-full bg-pocket-cream px-3 py-1 text-pocket-navy">{products.length} total</span>
+              <span className="rounded-full bg-pocket-cream px-3 py-1 text-pocket-navy">{activeProducts} visible</span>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => {
-              setRefreshing(true);
-              void loadProducts();
-            }} disabled={refreshing}>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRefreshing(true);
+                void loadProducts();
+              }}
+              disabled={refreshing}
+            >
               <RefreshCcw className="h-4 w-4" />
+              Refresh
             </Button>
             <Button onClick={openCreate}>
               <Plus className="h-4 w-4" />
-              Add Product
+              {copy.addButtonLabel}
             </Button>
           </div>
         </Card>
-      </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Total</p>
+            <p className="mt-3 text-3xl font-black text-pocket-navy">{products.length}</p>
+            <p className="mt-2 text-sm text-pocket-navy/60">{copy.totalLabel}</p>
+          </Card>
+          <Card className="p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Active</p>
+            <p className="mt-3 text-3xl font-black text-pocket-navy">{activeProducts}</p>
+            <p className="mt-2 text-sm text-pocket-navy/60">{copy.activeLabel}</p>
+          </Card>
+          <Card className="flex items-center justify-between gap-4 p-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p>
+              <p className="mt-3 text-sm text-pocket-navy/60">{copy.actionsDescription}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setRefreshing(true);
+                  void loadProducts();
+                }}
+                disabled={refreshing}
+              >
+                <RefreshCcw className="h-4 w-4" />
+              </Button>
+              <Button onClick={openCreate}>
+                <Plus className="h-4 w-4" />
+                {copy.addButtonLabel}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {notice ? (
         <div
@@ -466,15 +752,15 @@ export function ProductManagement() {
 
       <Card className="overflow-hidden">
         <div className="grid grid-cols-[1.6fr_1fr_0.8fr_0.8fr_0.9fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
-          <span>Product</span>
+          <span>{copy.tableHeading}</span>
           <span>Category</span>
           <span>Price</span>
           <span>Status</span>
-          <span>Flags</span>
+          <span>{copy.flagsLabel}</span>
           <span>Actions</span>
         </div>
         {loading ? (
-          <div className="px-5 py-8 text-sm text-pocket-navy/60">Loading products...</div>
+          <div className="px-5 py-8 text-sm text-pocket-navy/60">Loading {copy.editorLabel.toLowerCase()}s...</div>
         ) : (
           products.map((product) => (
             <div key={product.id} className="grid grid-cols-[1.6fr_1fr_0.8fr_0.8fr_0.9fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
@@ -523,6 +809,8 @@ export function ProductManagement() {
         editingName={editingProduct?.name}
         editingProductId={editingProduct?.id}
         saving={saving}
+        editorLabel={copy.editorLabel}
+        onUploadError={setError}
         onChange={setForm}
         onClose={() => setEditorOpen(false)}
         onSubmit={() => void submitForm()}

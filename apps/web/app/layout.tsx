@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/site/app-shell";
+import { resolvePocketImagePath } from "@/lib/image-paths";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -18,13 +19,13 @@ export const metadata: Metadata = {
   openGraph: {
     title: "POCKET - The Shawarma Spot",
     description: "Real Shawarma, Served The Pocket Way",
-    images: ["/images/hero-pocket.svg"]
+    images: [resolvePocketImagePath("/images/hero-pocket.svg")]
   },
   twitter: {
     card: "summary_large_image",
     title: "POCKET - The Shawarma Spot",
     description: "Real Shawarma, Served The Pocket Way",
-    images: ["/images/hero-pocket.svg"]
+    images: [resolvePocketImagePath("/images/hero-pocket.svg")]
   }
 };
 

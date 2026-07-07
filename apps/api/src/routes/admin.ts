@@ -1,5 +1,9 @@
 import { Router } from "express";
 import { InventoryTransactionType, OrderStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { authenticate, authorize } from "../middleware/auth.js";
@@ -8,6 +12,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
 
 const router = Router();
+const WEB_PUBLIC_IMAGES_DIR = fileURLToPath(new URL("../../../web/public/images/", import.meta.url));
 
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
 
@@ -188,6 +193,47 @@ function normalizeBundleComponents(
       sortOrder: typeof component.sortOrder === "number" ? component.sortOrder : index + 1
     }))
     .filter((component, index, list) => list.findIndex((entry) => entry.componentProductId === component.componentProductId) === index);
+}
+
+const imageUploadSchema = z.object({
+  filename: z.string().min(1).optional(),
+  dataUrl: z.string().min(32)
+});
+
+function sanitizeImageFilename(filename: string | undefined, extension: "png" | "jpg") {
+  const base = filename ? normalizeSlug(filename.replace(/\.[^.]+$/, "")) : "image";
+  const name = base.slice(0, 40) || "image";
+  const suffix = randomUUID().slice(0, 8);
+  return `${name}-${Date.now().toString(36)}-${suffix}.${extension}`;
+}
+
+async function saveUploadedImage(filename: string | undefined, dataUrl: string) {
+  const match = dataUrl.match(/^data:(image\/png|image\/jpeg);base64,(.+)$/);
+  if (!match) {
+    throw new Error("Only PNG and JPEG images are allowed.");
+  }
+
+  const mimeType = match[1];
+  const extension = mimeType === "image/png" ? "png" : "jpg";
+  const buffer = Buffer.from(match[2], "base64");
+
+  if (!buffer.length) {
+    throw new Error("Image file is empty.");
+  }
+
+  if (buffer.length > 8 * 1024 * 1024) {
+    throw new Error("Image must be 8MB or smaller.");
+  }
+
+  await mkdir(WEB_PUBLIC_IMAGES_DIR, { recursive: true });
+
+  const safeFilename = sanitizeImageFilename(filename, extension);
+  await writeFile(path.join(WEB_PUBLIC_IMAGES_DIR, safeFilename), buffer);
+
+  return {
+    filename: safeFilename,
+    url: `/images/${safeFilename}`
+  };
 }
 
 function parseDecimal(value: Prisma.Decimal | number | string | null | undefined) {
@@ -676,8 +722,39 @@ const productSchema = z.object({
   bestSeller: z.boolean().default(false),
   isActive: z.boolean().default(true),
   stockStatus: z.string().default("IN_STOCK"),
-  imageUrl: z.string().trim().min(1).optional()
+  imageUrl: z.string().trim().min(1).optional(),
+  images: z
+    .array(
+      z.object({
+        url: z.string().trim().min(1),
+        alt: z.string().trim().optional(),
+        sortOrder: z.number().int().min(0).optional()
+      })
+    )
+    .optional()
 });
+
+function normalizeProductImages(
+  images: Array<{ url: string; alt?: string; sortOrder?: number }> | undefined,
+  fallbackUrl: string,
+  fallbackAlt: string
+) {
+  const source = images?.length
+    ? images
+    : [
+        {
+          url: fallbackUrl,
+          alt: fallbackAlt,
+          sortOrder: 1
+        }
+      ];
+
+  return source.map((image, index) => ({
+    url: image.url.trim(),
+    alt: image.alt?.trim() || fallbackAlt,
+    sortOrder: image.sortOrder ?? index + 1
+  }));
+}
 
 router.post("/products", async (req, res, next) => {
   try {
@@ -686,7 +763,7 @@ router.post("/products", async (req, res, next) => {
     const slug = payload.slug ? normalizeSlug(payload.slug) : buildProductSlug(name);
     const sku = payload.sku ? normalizeSku(payload.sku) : buildProductSku(name);
     const description = payload.description?.trim() || name;
-    const imageUrl = payload.imageUrl?.trim() || "/images/shawarma-pocket.svg";
+    const images = normalizeProductImages(payload.images, payload.imageUrl?.trim() || "/images/classic-shawarma.png", name);
     const bundleComponents = normalizeBundleComponents(payload.bundleComponents);
 
     const componentProducts = bundleComponents.length
@@ -719,13 +796,7 @@ router.post("/products", async (req, res, next) => {
           isActive: payload.isActive,
           stockStatus: payload.stockStatus,
           images: {
-            create: [
-              {
-                url: imageUrl,
-                alt: name,
-                sortOrder: 1
-              }
-            ]
+            create: images
           },
           bundleComponents: bundleComponents.length
             ? {
@@ -788,7 +859,7 @@ router.post("/products", async (req, res, next) => {
 router.patch("/products/:id", async (req, res, next) => {
   try {
     const payload = productSchema.partial().parse(req.body);
-    const { imageUrl, slug, sku, description, name, bundleComponents, ...productPayload } = payload;
+    const { imageUrl, images, slug, sku, description, name, bundleComponents, ...productPayload } = payload;
     const normalizedBundleComponents = bundleComponents ? normalizeBundleComponents(bundleComponents) : null;
     if (normalizedBundleComponents?.some((component) => component.componentProductId === req.params.id)) {
       throw new Error("Bundle cannot include itself.");
@@ -809,6 +880,12 @@ router.patch("/products/:id", async (req, res, next) => {
     }
 
     const product = await prisma.$transaction(async (transaction) => {
+      const nextImages = payload.images
+        ? normalizeProductImages(payload.images, payload.imageUrl?.trim() || "/images/classic-shawarma.png", payload.name?.trim() || "Product")
+        : payload.imageUrl
+          ? normalizeProductImages([{ url: payload.imageUrl, alt: payload.name?.trim(), sortOrder: 1 }], payload.imageUrl, payload.name?.trim() || "Product")
+          : null;
+
       const updatedProduct = await transaction.product.update({
         where: { id: req.params.id },
         data: {
@@ -826,6 +903,14 @@ router.patch("/products/:id", async (req, res, next) => {
                     quantity: component.quantity,
                     sortOrder: component.sortOrder ?? 0
                   }))
+                }
+              }
+            : {}),
+          ...(nextImages
+            ? {
+                images: {
+                  deleteMany: {},
+                  create: nextImages
                 }
               }
             : {})
@@ -858,35 +943,12 @@ router.patch("/products/:id", async (req, res, next) => {
       return updatedProduct;
     });
 
-    if (imageUrl) {
-      const currentImage = await prisma.productImage.findFirst({
-        where: { productId: product.id },
-        orderBy: { sortOrder: "asc" }
-      });
-
-      if (currentImage) {
-        await prisma.productImage.update({
-          where: { id: currentImage.id },
-          data: { url: imageUrl, alt: product.name }
-        });
-      } else {
-        await prisma.productImage.create({
-          data: {
-            productId: product.id,
-            url: imageUrl,
-            alt: product.name,
-            sortOrder: 1
-          }
-        });
-      }
-    }
-
     await writeAuditLog({
       actorId: req.user!.id,
       action: "product.update",
       entityType: "product",
       entityId: product.id,
-      payload: { ...productPayload, imageUrl }
+      payload: { ...productPayload, imageUrl: payload.imageUrl, images }
     });
 
     return res.json({ product });
@@ -2026,6 +2088,16 @@ router.post("/coupons", async (req, res, next) => {
       }
     });
     return res.status(201).json({ coupon });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/uploads/images", async (req, res, next) => {
+  try {
+    const payload = imageUploadSchema.parse(req.body);
+    const image = await saveUploadedImage(payload.filename, payload.dataUrl);
+    return res.status(201).json(image);
   } catch (error) {
     return next(error);
   }
