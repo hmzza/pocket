@@ -19,6 +19,10 @@ const bulkStatusSchema = z.object({
   orderIds: z.array(z.string().min(1)).min(1)
 });
 
+const paymentStatusSchema = z.object({
+  paymentStatus: z.enum(["PENDING", "PAID"])
+});
+
 function serializeOrder(order: any) {
   return {
     id: order.id,
@@ -159,6 +163,28 @@ router.patch("/orders/:id/status", async (req, res, next) => {
     await writeAuditLog({
       actorId: req.user!.id,
       action: "order.status_update",
+      entityType: "order",
+      entityId: order.id,
+      payload
+    });
+
+    return res.json({ order });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/orders/:id/payment-status", async (req, res, next) => {
+  try {
+    const payload = paymentStatusSchema.parse(req.body);
+    const order = await prisma.order.update({
+      where: { id: req.params.id },
+      data: { paymentStatus: payload.paymentStatus }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "order.payment_status_update",
       entityType: "order",
       entityId: order.id,
       payload

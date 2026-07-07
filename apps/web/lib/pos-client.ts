@@ -143,7 +143,7 @@ export async function fetchPosOrders(params?: { scope?: "active" | "watch_later"
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
       customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
       status: order.status,
-      branch: order.branch?.name ?? "Unknown branch",
+      branch: typeof order.branch === "string" ? order.branch : order.branch?.name ?? "Unknown branch",
       totalAmount: Number(order.totalAmount),
       subtotal: Number(order.subtotal),
       discountAmount: Number(order.discountAmount),
@@ -189,6 +189,13 @@ export async function updatePosOrderStatus(orderId: string, status: string) {
   return posFetch(`/api/ops/orders/${orderId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status })
+  });
+}
+
+export async function updatePosOrderPaymentStatus(orderId: string, paymentStatus: "PENDING" | "PAID") {
+  return posFetch(`/api/ops/orders/${orderId}/payment-status`, {
+    method: "PATCH",
+    body: JSON.stringify({ paymentStatus })
   });
 }
 

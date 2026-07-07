@@ -3,11 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { CheckCircle2, ChevronLeft, Clock3, RefreshCcw, Search, Trash2, Truck } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, ChevronLeft, Clock3, RefreshCcw, Search, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { bulkUpdatePosOrderStatus, fetchPosOrders, fetchPosSession, updatePosOrderStatus } from "@/lib/pos-client";
+import {
+  bulkUpdatePosOrderStatus,
+  fetchPosOrders,
+  fetchPosSession,
+  updatePosOrderPaymentStatus,
+  updatePosOrderStatus
+} from "@/lib/pos-client";
 import type { AdminOrder } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -56,13 +62,6 @@ function formatStatus(value: string) {
   return map[value] ?? value.replaceAll("_", " ");
 }
 
-function summarizeItems(items: AdminOrder["items"]) {
-  return items
-    .slice(0, 3)
-    .map((item) => `${item.quantity}x ${item.productName}`)
-    .join("  ");
-}
-
 function OrderActionButton({
   title,
   label,
@@ -86,7 +85,7 @@ function OrderActionButton({
       onClick={onClick}
       disabled={disabled}
       className={[
-        "grid h-9 w-9 place-items-center rounded-full border transition",
+        "grid h-10 w-10 place-items-center rounded-full border transition",
         "disabled:cursor-not-allowed disabled:opacity-40",
         className
       ].join(" ")}
@@ -100,6 +99,7 @@ function OrderActionButton({
 function CompactOrderCard({
   order,
   onChangeStatus,
+  onTogglePaymentStatus,
   busy,
   muted,
   exiting
@@ -109,14 +109,17 @@ function CompactOrderCard({
   muted?: boolean;
   exiting?: boolean;
   onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
+  onTogglePaymentStatus: (order: AdminOrder) => void;
 }) {
   const isTerminal = order.status === "DELIVERED" || order.status === "CANCELLED";
   const isWatchLater = order.status === "WATCH_LATER";
+  const isFoodpanda = order.serviceType === "FOODPANDA";
+  const isUnpaid = order.paymentStatus === "PENDING";
 
   return (
     <Card
       className={[
-        "flex h-full flex-col rounded-xl border border-slate-200 bg-white p-2 shadow-none transition-all duration-150 ease-out transform-gpu",
+        "flex h-full flex-col rounded-xl border border-slate-200 bg-white p-2.5 shadow-none transition-all duration-150 ease-out transform-gpu",
         muted ? "pointer-events-none opacity-30" : "",
         exiting ? "pointer-events-none scale-[0.98] translate-y-1 opacity-0" : "",
         busy ? "ring-1 ring-orange-200" : ""
@@ -124,33 +127,49 @@ function CompactOrderCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-orange-600">Order</p>
-          <h3 className="mt-0.5 truncate text-[13px] font-black leading-tight text-slate-900">{order.orderNumber}</h3>
-          <p className="mt-0.5 text-[9px] text-slate-500">
-            {order.channel.replaceAll("_", " ")} · {formatServiceType(order.serviceType)} · {formatDateTime(order.placedAt)}
+          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-orange-600">Order</p>
+          <h3 className="mt-0.5 truncate text-[15px] font-black leading-tight text-slate-900">{order.orderNumber}</h3>
+          <p className="mt-0.5 text-[10px] text-slate-500">
+            {order.channel.replaceAll("_", " ")} · {formatDateTime(order.placedAt)}
           </p>
+          {isFoodpanda ? (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-orange-700">
+                Foodpanda
+              </span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-700">
+                {formatServiceType(order.serviceType)}
+              </span>
+            </div>
+          ) : (
+            <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{formatServiceType(order.serviceType)}</p>
+          )}
         </div>
         <div className="text-right">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-400">Total</p>
-          <p className="mt-0.5 text-[13px] font-black text-orange-600">{formatCurrency(order.totalAmount)}</p>
-          <p className="text-[9px] text-slate-500">{order.items.length} items</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Total</p>
+          <p className="mt-0.5 text-[15px] font-black text-orange-600">{formatCurrency(order.totalAmount)}</p>
+          <p className="text-[10px] text-slate-500">{order.items.length} items</p>
         </div>
       </div>
 
       <div className="mt-1 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[12px] font-semibold leading-tight text-slate-900">{order.customerName}</p>
-          {order.customerPhone ? <p className="text-[9px] text-slate-500">{order.customerPhone}</p> : null}
-          <p className="mt-0.5 text-[9px] text-slate-500">{order.branch}</p>
+          <p className="text-[13px] font-semibold leading-tight text-slate-900">{order.customerName}</p>
+          {order.customerPhone ? <p className="text-[10px] text-slate-500">{order.customerPhone}</p> : null}
+          <p className="mt-0.5 text-[10px] text-slate-500">{order.branch}</p>
           {order.foodpandaOrderNumber ? (
-            <p className="mt-0.5 text-[9px] text-slate-500">FP: {order.foodpandaOrderNumber}</p>
+            <p className="mt-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold tracking-[0.14em] text-orange-700">
+              FP: {order.foodpandaOrderNumber}
+            </p>
           ) : order.serviceType === "FOODPANDA" ? (
-            <p className="mt-0.5 text-[9px] text-slate-500">FP: null</p>
+            <p className="mt-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold tracking-[0.14em] text-orange-700">
+              FP: null
+            </p>
           ) : null}
         </div>
         <span
           className={[
-            "shrink-0 rounded-full px-2 py-0.5 text-[8px] font-semibold uppercase tracking-[0.15em]",
+            "shrink-0 rounded-full px-2.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.15em]",
             order.status === "DELIVERED"
               ? "bg-emerald-100 text-emerald-700"
               : order.status === "CANCELLED"
@@ -164,16 +183,41 @@ function CompactOrderCard({
         </span>
       </div>
 
+      {isUnpaid ? (
+        <div className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] text-amber-800">
+          <BadgeDollarSign className="h-3 w-3" />
+          Unpaid
+        </div>
+      ) : null}
+
       {order.deliveryInstructions ? (
-        <div className="mt-1 rounded-lg bg-orange-50 px-2 py-1 text-[9px] leading-tight text-slate-700">
+        <div className="mt-1 rounded-lg bg-orange-50 px-2 py-1.5 text-[10px] leading-tight text-slate-700">
           <span className="font-semibold text-orange-700">Note:</span> {order.deliveryInstructions}
         </div>
       ) : null}
 
-      <div className="mt-1 rounded-lg bg-slate-50 px-2 py-1 text-[9px] text-slate-700">
+      <div className="mt-1 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] text-slate-700">
         <p className="font-semibold text-slate-900">Items</p>
-        <p className="mt-0.5 leading-4">{summarizeItems(order.items)}</p>
-        {order.items.length > 3 ? <p className="mt-0.5 text-[8px] text-slate-400">+{order.items.length - 3} more</p> : null}
+        <div className="mt-1 space-y-1">
+          {order.items.map((item, index) => (
+            <div key={item.id} className="rounded-md bg-white/80 px-2 py-1">
+              <div className="flex items-start justify-between gap-2">
+                <p className="min-w-0 flex-1 font-medium leading-tight text-slate-900">
+                  {index + 1}. {item.quantity}x {item.productName}
+                </p>
+                <p className="shrink-0 font-semibold text-slate-900">{formatCurrency(item.unitPrice * item.quantity)}</p>
+              </div>
+              {item.customDescription ? <p className="mt-0.5 leading-tight text-slate-600">{item.customDescription}</p> : null}
+              {item.bundleComponents.length ? (
+                <p className="mt-0.5 leading-tight text-slate-600">
+                  Contains: {item.bundleComponents.map((component) => `${component.quantity}x ${component.productName}`).join(", ")}
+                </p>
+              ) : null}
+              {item.addOns.length ? <p className="mt-0.5 leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.optionName).join(", ")}</p> : null}
+              {item.note ? <p className="mt-0.5 leading-tight text-slate-600">Note: {item.note}</p> : null}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="mt-auto pt-2">
@@ -183,7 +227,7 @@ function CompactOrderCard({
               title="Mark completed"
               label="Completed"
               className="border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
-              icon={<CheckCircle2 className="h-3 w-3" />}
+              icon={<CheckCircle2 className="h-4 w-4" />}
               disabled={busy}
               onClick={() => onChangeStatus(order, "DELIVERED")}
             />
@@ -191,7 +235,7 @@ function CompactOrderCard({
               title="Discard order"
               label="Discard"
               className="border-red-500 bg-red-500 text-white hover:bg-red-600"
-              icon={<Trash2 className="h-3 w-3" />}
+              icon={<Trash2 className="h-4 w-4" />}
               disabled={busy}
               onClick={() => onChangeStatus(order, "CANCELLED")}
             />
@@ -199,9 +243,17 @@ function CompactOrderCard({
               title="Check later"
               label="Check later"
               className="border-amber-400 bg-amber-400 text-slate-950 hover:bg-amber-500"
-              icon={<Clock3 className="h-3 w-3" />}
+              icon={<Clock3 className="h-4 w-4" />}
               disabled={busy || isWatchLater}
               onClick={() => onChangeStatus(order, "WATCH_LATER")}
+            />
+            <OrderActionButton
+              title={isUnpaid ? "Remove unpaid" : "Mark unpaid"}
+              label={isUnpaid ? "Remove unpaid" : "Mark unpaid"}
+              className="border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
+              icon={<BadgeDollarSign className="h-4 w-4" />}
+              disabled={busy}
+              onClick={() => onTogglePaymentStatus(order)}
             />
           </div>
         ) : (
@@ -217,6 +269,7 @@ function OrderSection({
   description,
   orders,
   onChangeStatus,
+  onTogglePaymentStatus,
   busy,
   mutedOrderId,
   exitingOrderIds,
@@ -230,6 +283,7 @@ function OrderSection({
   exitingOrderIds: string[];
   emptyText: string;
   onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
+  onTogglePaymentStatus: (order: AdminOrder) => void;
 }) {
   return (
     <Card className="rounded-3xl border-white/10 bg-white/90 p-3 shadow-sm">
@@ -248,6 +302,7 @@ function OrderSection({
               key={order.id}
               order={order}
               onChangeStatus={onChangeStatus}
+              onTogglePaymentStatus={onTogglePaymentStatus}
               busy={busy && order.id === mutedOrderId}
               muted={busy && order.id !== mutedOrderId}
               exiting={exitingOrderIds.includes(order.id)}
@@ -273,6 +328,7 @@ export function PosOrderQueue() {
   const [updatingOrderId, setUpdatingOrderId] = useState("");
   const [exitingOrderIds, setExitingOrderIds] = useState<string[]>([]);
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, AdminOrder["status"]>>({});
+  const [pendingPaymentStatuses, setPendingPaymentStatuses] = useState<Record<string, AdminOrder["paymentStatus"]>>({});
   const [refreshTimer, setRefreshTimer] = useState<number | null>(null);
 
   async function loadOrders(nextScope = scope) {
@@ -286,6 +342,18 @@ export function PosOrderQueue() {
         for (const [orderId, expectedStatus] of Object.entries(current)) {
           const serverOrder = data.orders.find((order) => order.id === orderId);
           if (!serverOrder || serverOrder.status === expectedStatus) {
+            delete next[orderId];
+          }
+        }
+
+        return next;
+      });
+      setPendingPaymentStatuses((current) => {
+        const next = { ...current };
+
+        for (const [orderId, expectedStatus] of Object.entries(current)) {
+          const serverOrder = data.orders.find((order) => order.id === orderId);
+          if (!serverOrder || serverOrder.paymentStatus === expectedStatus) {
             delete next[orderId];
           }
         }
@@ -369,11 +437,18 @@ export function PosOrderQueue() {
   const derived = useMemo(() => {
     const sourceOrders = orders.map((order) => {
       const pendingStatus = pendingStatuses[order.id];
-      return pendingStatus ? { ...order, status: pendingStatus } : order;
+      const pendingPaymentStatus = pendingPaymentStatuses[order.id];
+      if (!pendingStatus && !pendingPaymentStatus) return order;
+      return {
+        ...order,
+        ...(pendingStatus ? { status: pendingStatus } : {}),
+        ...(pendingPaymentStatus ? { paymentStatus: pendingPaymentStatus } : {})
+      };
     });
     const activeOrders = sourceOrders.filter(
       (order) =>
-        !(order.status === "DELIVERED" || order.status === "CANCELLED") || exitingOrderIds.includes(order.id)
+        (order.status !== "DELIVERED" && order.status !== "CANCELLED" && order.status !== "WATCH_LATER") ||
+        exitingOrderIds.includes(order.id)
     );
     const watchLaterOrders = sourceOrders.filter((order) => order.status === "WATCH_LATER");
     const deliveredOrders = sourceOrders.filter((order) => order.status === "DELIVERED");
@@ -387,7 +462,7 @@ export function PosOrderQueue() {
       cancelledOrders,
       queuedCount
     };
-  }, [orders, pendingStatuses, exitingOrderIds]);
+  }, [orders, pendingStatuses, pendingPaymentStatuses, exitingOrderIds]);
 
   async function changeStatus(order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") {
     setUpdatingOrderId(order.id);
@@ -417,6 +492,34 @@ export function PosOrderQueue() {
         setExitingOrderIds((current) => current.filter((entryId) => entryId !== order.id));
       }
       setError(updateError instanceof Error ? updateError.message : "Failed to update order status.");
+      setUpdatingOrderId("");
+      if (refreshTimer) {
+        window.clearTimeout(refreshTimer);
+        setRefreshTimer(null);
+      }
+    }
+  }
+
+  async function togglePaymentStatus(order: AdminOrder) {
+    const nextStatus = order.paymentStatus === "PAID" ? "PENDING" : "PAID";
+
+    setUpdatingOrderId(order.id);
+    setError("");
+    setPendingPaymentStatuses((current) => ({
+      ...current,
+      [order.id]: nextStatus
+    }));
+
+    try {
+      await updatePosOrderPaymentStatus(order.id, nextStatus);
+      scheduleRefresh(scope);
+    } catch (updateError) {
+      setPendingPaymentStatuses((current) => {
+        const next = { ...current };
+        delete next[order.id];
+        return next;
+      });
+      setError(updateError instanceof Error ? updateError.message : "Failed to update payment status.");
       setUpdatingOrderId("");
       if (refreshTimer) {
         window.clearTimeout(refreshTimer);
@@ -545,6 +648,7 @@ export function PosOrderQueue() {
             title="Active Queue"
             description="Orders waiting to be completed."
             orders={derived.activeOrders}
+            onTogglePaymentStatus={togglePaymentStatus}
             busy={!!updatingOrderId}
             mutedOrderId={updatingOrderId}
             exitingOrderIds={exitingOrderIds}
@@ -558,6 +662,7 @@ export function PosOrderQueue() {
             title="Watch Later"
             description="Orders you want to revisit after the rush."
             orders={derived.watchLaterOrders}
+            onTogglePaymentStatus={togglePaymentStatus}
             busy={!!updatingOrderId}
             mutedOrderId={updatingOrderId}
             exitingOrderIds={exitingOrderIds}
@@ -571,6 +676,7 @@ export function PosOrderQueue() {
             title="Completed"
             description="Delivered orders are read-only."
             orders={derived.deliveredOrders}
+            onTogglePaymentStatus={togglePaymentStatus}
             busy={!!updatingOrderId}
             mutedOrderId={updatingOrderId}
             exitingOrderIds={exitingOrderIds}

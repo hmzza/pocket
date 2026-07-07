@@ -135,7 +135,7 @@ export async function fetchAdminOrders(params?: {
     customerName: order.customerName ?? order.customer?.name ?? "Walk-in Customer",
     customerPhone: order.customerPhone ?? order.customer?.phone ?? undefined,
     status: order.status,
-    branch: order.branch?.name ?? "Unknown branch",
+    branch: typeof order.branch === "string" ? order.branch : order.branch?.name ?? "Unknown branch",
     totalAmount: Number(order.totalAmount),
     subtotal: Number(order.subtotal),
     discountAmount: Number(order.discountAmount),
