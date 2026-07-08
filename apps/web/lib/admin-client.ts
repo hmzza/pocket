@@ -11,7 +11,7 @@ import type {
   Category,
   DashboardData
 } from "@/lib/types";
-import { getPocketImageAltFromFilename, isSupportedPocketImageFile, readFileAsDataUrl } from "@/lib/image-upload";
+import { getPocketImageAltFromFilename, isSupportedPocketImageFile, preparePocketImageUpload, readFileAsDataUrl } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
@@ -31,6 +31,9 @@ async function adminFetch<T>(path: string, init?: RequestInit) {
 
   if (!response.ok) {
     let message = "Request failed.";
+    if (response.status === 413) {
+      message = "Image is too large. The app compresses uploads automatically, but this file still exceeds the server limit.";
+    }
     try {
       const payload = await response.json();
       message = payload.message ?? message;
@@ -107,11 +110,12 @@ export async function uploadAdminImage(file: File) {
     throw new Error("Only PNG and JPEG images are allowed.");
   }
 
-  const dataUrl = await readFileAsDataUrl(file);
+  const preparedFile = await preparePocketImageUpload(file);
+  const dataUrl = await readFileAsDataUrl(preparedFile);
   const data = await adminFetch<{ url: string; filename: string }>("/api/admin/uploads/images", {
     method: "POST",
     body: JSON.stringify({
-      filename: file.name,
+      filename: preparedFile.name,
       dataUrl
     })
   });

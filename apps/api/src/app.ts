@@ -50,7 +50,7 @@ export function createApp() {
   );
   app.use(morgan("dev"));
   app.use(cookieParser());
-  app.use(express.json({ limit: "20mb" }));
+  app.use(express.json({ limit: "35mb" }));
   app.use("/uploads", express.static(API_PUBLIC_UPLOADS_DIR));
   app.use("/uploads/images", express.static(LEGACY_WEB_PUBLIC_IMAGES_DIR));
   app.use(csrfGuard);
