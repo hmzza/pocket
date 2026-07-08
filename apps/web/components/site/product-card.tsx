@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { Star } from "lucide-react";
 import { AddToCartButton } from "@/components/store/add-to-cart-button";
-import { FavoriteButton } from "@/components/store/favorite-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { averageRating, formatCurrency } from "@/lib/utils";
@@ -29,7 +28,6 @@ export function ProductCard({ product }: { product: Product }) {
             </Link>
             <p className="text-sm leading-6 text-pocket-navy/70">{product.description}</p>
           </div>
-          <FavoriteButton productId={product.id} />
         </div>
 
         <div className="flex flex-wrap gap-4 text-xs font-medium uppercase tracking-wide text-pocket-navy/60">

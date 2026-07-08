@@ -2,7 +2,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddToCartButton } from "@/components/store/add-to-cart-button";
-import { FavoriteButton } from "@/components/store/favorite-button";
 import { RecentlyViewedTracker } from "@/components/store/recently-viewed-tracker";
 import { ProductCard } from "@/components/site/product-card";
 import { Badge } from "@/components/ui/badge";
@@ -49,10 +48,7 @@ export default async function ProductPage({ params }: { params: { slug: string }
             <div>
               <p className="text-4xl font-black text-pocket-orange">{formatCurrency(product.price)}</p>
             </div>
-            <div className="flex gap-3">
-              <FavoriteButton productId={product.id} />
-              <AddToCartButton product={product} />
-            </div>
+            <AddToCartButton product={product} />
           </div>
 
           <Card className="p-5">
