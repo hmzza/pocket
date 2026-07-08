@@ -121,7 +121,10 @@ function CompactOrderCard({
   return (
     <Card
       className={[
-        embedded ? "flex h-full flex-col rounded-xl border border-slate-200 bg-white p-2 shadow-none transition-all duration-150 ease-out transform-gpu" : "flex h-full flex-col rounded-xl border border-slate-200 bg-white p-2.5 shadow-none transition-all duration-150 ease-out transform-gpu",
+        embedded
+          ? "flex h-full flex-col rounded-xl border p-2 shadow-none transition-all duration-150 ease-out transform-gpu"
+          : "flex h-full flex-col rounded-xl border p-2.5 shadow-none transition-all duration-150 ease-out transform-gpu",
+        isUnpaid ? "border-red-200 bg-red-50/80" : "border-slate-200 bg-white",
         muted ? "pointer-events-none opacity-30" : "",
         exiting ? "pointer-events-none scale-[0.98] translate-y-1 opacity-0" : "",
         busy ? "ring-1 ring-orange-200" : ""
