@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Sparkles, Upload } from "lucide-react";
 import { HeroSlider } from "@/components/site/hero-slider";
+import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -184,6 +185,8 @@ export function WebsiteControlPanel() {
 
   return (
     <div className="space-y-6">
+      {notice ? <AdminToast message={notice} variant="success" onClose={() => setNotice("")} className="top-4" /> : null}
+      {error ? <AdminToast message={error} variant="error" onClose={() => setError("")} className="top-20" /> : null}
       <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,_#102a43,_#172554_48%,_#1f2937)] p-6 text-white shadow-[0_24px_64px_rgba(16,42,67,0.28)]">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
@@ -215,9 +218,6 @@ export function WebsiteControlPanel() {
           </span>
         </div>
       </Card>
-
-      {notice ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">{notice}</div> : null}
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div> : null}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card className="p-5">

@@ -25,7 +25,14 @@ function parseWebOrigins(webOrigins: string | undefined, webUrl: string) {
     .map((origin) => origin.trim())
     .filter(Boolean) ?? [];
 
-  return Array.from(new Set([webUrl, ...explicitOrigins]));
+  const defaultOrigins = [
+    "https://pocketpakistan.com",
+    "https://www.pocketpakistan.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+  ];
+
+  return Array.from(new Set([webUrl, ...explicitOrigins, ...defaultOrigins]));
 }
 
 export const env = {

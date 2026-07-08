@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { ChevronDown, ChevronUp, Pencil, Plus, Power, RefreshCcw, Upload } from "lucide-react";
+import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -666,7 +668,6 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
     } catch (disableError) {
       const message = disableError instanceof Error ? disableError.message : "Failed to delete product.";
       setError(message);
-      flashNotice("error", message);
     } finally {
       setActionProductId("");
     }
@@ -674,6 +675,15 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
 
   return (
     <div className="space-y-6">
+      {notice ? (
+        <AdminToast
+          message={notice.message}
+          variant={notice.type}
+          onClose={() => setNotice(null)}
+          className={notice.type === "success" ? "top-4" : "top-20"}
+        />
+      ) : null}
+      {error ? <AdminToast message={error} variant="error" onClose={() => setError("")} className={notice ? "top-36" : "top-4"} /> : null}
       {mode === "website" ? (
         <Card className="flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -740,22 +750,8 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
         </div>
       )}
 
-      {notice ? (
-        <div
-          className={
-            notice.type === "success"
-              ? "rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"
-              : "rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
-          }
-        >
-          {notice.message}
-        </div>
-      ) : null}
-
-      {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
-
       <Card className="overflow-hidden">
-        <div className="grid grid-cols-[1.6fr_1fr_0.8fr_0.8fr_0.9fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
+        <div className="grid grid-cols-[2.1fr_1fr_0.8fr_0.8fr_0.9fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
           <span>{copy.tableHeading}</span>
           <span>Category</span>
           <span>Price</span>
@@ -767,16 +763,27 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
           <div className="px-5 py-8 text-sm text-pocket-navy/60">Loading {copy.editorLabel.toLowerCase()}s...</div>
         ) : (
           products.map((product) => (
-            <div key={product.id} className="grid grid-cols-[1.6fr_1fr_0.8fr_0.8fr_0.9fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
-              <div>
-                <p className="font-bold text-pocket-navy">{product.name}</p>
-                <p className="text-pocket-navy/60">{product.description}</p>
-                <p className="mt-2 text-xs font-medium uppercase tracking-wide text-pocket-navy/40">{product.sku}</p>
-                {product.bundleComponents.length ? (
-                  <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-pocket-orange">
-                    Bundle · {product.bundleComponents.length} component{product.bundleComponents.length === 1 ? "" : "s"}
-                  </p>
-                ) : null}
+            <div key={product.id} className="grid grid-cols-[2.1fr_1fr_0.8fr_0.8fr_0.9fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
+              <div className="flex items-start gap-3">
+                <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-pocket-navy/10 bg-pocket-cream">
+                  <Image
+                    src={product.images[0]?.url ?? product.imageUrl}
+                    alt={product.name}
+                    fill
+                    className="object-cover"
+                    sizes="56px"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-pocket-navy">{product.name}</p>
+                  <p className="text-pocket-navy/60">{product.description}</p>
+                  <p className="mt-2 text-xs font-medium uppercase tracking-wide text-pocket-navy/40">{product.sku}</p>
+                  {product.bundleComponents.length ? (
+                    <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-pocket-orange">
+                      Bundle · {product.bundleComponents.length} component{product.bundleComponents.length === 1 ? "" : "s"}
+                    </p>
+                  ) : null}
+                </div>
               </div>
               <span className="font-medium text-pocket-navy">{product.category.name}</span>
               <span className="font-bold text-pocket-orange">{formatCurrency(product.basePrice)}</span>
