@@ -214,8 +214,12 @@ async function saveUploadedImage(filename: string | undefined, dataUrl: string) 
   }
 
   const mimeType = match[1];
+  const base64 = match[2];
+  if (!base64) {
+    throw new Error("Invalid image data.");
+  }
   const extension = mimeType === "image/png" ? "png" : "jpg";
-  const buffer = Buffer.from(match[2], "base64");
+  const buffer = Buffer.from(base64, "base64");
 
   if (!buffer.length) {
     throw new Error("Image file is empty.");
