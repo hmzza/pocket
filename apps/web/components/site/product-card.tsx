@@ -10,11 +10,12 @@ import type { Product } from "@/lib/types";
 
 export function ProductCard({ product }: { product: Product }) {
   const rating = averageRating(product.reviews.map((review) => review.rating));
+  const thumbnail = product.gallery[0] ?? product.imageUrl;
 
   return (
     <Card className="flex h-full flex-col overflow-hidden">
       <Link href={`/menu/${product.slug}`} className="relative block aspect-[4/3] overflow-hidden bg-pocket-cream">
-        <Image src={product.imageUrl} alt={product.name} fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
+        <Image src={thumbnail} alt={product.name} fill className="object-contain p-3" sizes="(max-width: 768px) 100vw, 33vw" />
       </Link>
       <div className="flex flex-1 flex-col gap-4 p-5">
         <div className="flex items-start justify-between gap-3">
@@ -48,4 +49,3 @@ export function ProductCard({ product }: { product: Product }) {
     </Card>
   );
 }
-

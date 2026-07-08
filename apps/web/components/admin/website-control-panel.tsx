@@ -63,12 +63,14 @@ function normalizeSetting(value: unknown): SliderSetting {
 
 export function WebsiteControlPanel() {
   const [images, setImages] = useState<SliderImage[]>(homeContent.heroImages.map((image) => createRow(image.url, image.alt)));
+  const [savedImages, setSavedImages] = useState<SliderImage[]>(homeContent.heroImages.map((image) => createRow(image.url, image.alt)));
   const [intervalMs, setIntervalMs] = useState(String(homeContent.heroSliderIntervalMs));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const activeImage = savedImages[0] ?? { url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket hero image" };
 
   useEffect(() => {
     let cancelled = false;
@@ -80,7 +82,9 @@ export function WebsiteControlPanel() {
         const normalized = normalizeSetting(sliderSetting?.value);
 
         if (!cancelled) {
-          setImages(normalized.images.map((image) => createRow(image.url, image.alt)));
+          const nextImages = normalized.images.map((image) => createRow(image.url, image.alt));
+          setImages(nextImages);
+          setSavedImages(nextImages);
           setIntervalMs(String(normalized.intervalMs));
         }
       } catch (loadError) {
@@ -157,10 +161,13 @@ export function WebsiteControlPanel() {
     setSaving(true);
     setError("");
     try {
+      const nextImages = cleaned.map((image) => createRow(image.url, image.alt));
       await updateAdminSetting("homepage.slider", {
         intervalMs: nextIntervalMs,
         images: cleaned
       });
+      setImages(nextImages);
+      setSavedImages(nextImages);
       setNotice("Homepage slider saved.");
       setTimeout(() => setNotice(""), 3500);
     } catch (saveError) {
@@ -348,7 +355,9 @@ export function WebsiteControlPanel() {
                         variant="ghost"
                         className="text-red-600 hover:bg-red-50 hover:text-red-700"
                         onClick={() =>
-                          setImages((current) => (current.length > 1 ? current.filter((_, entryIndex) => entryIndex !== index) : [createRow()]))
+                          setImages((current) =>
+                            current.length > 1 ? current.filter((_, entryIndex) => entryIndex !== index) : [{ id: "fallback", url: "", alt: "" }]
+                          )
                         }
                       >
                         Remove
@@ -364,6 +373,25 @@ export function WebsiteControlPanel() {
         <Card className="p-5">
           <p className="text-lg font-black text-pocket-navy">Live preview</p>
           <p className="text-sm text-pocket-navy/60">This is what customers will see on the public homepage.</p>
+          <div className="mt-4 rounded-2xl border border-pocket-navy/10 bg-pocket-cream/60 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Currently shown on website</p>
+                <p className="mt-1 text-sm font-semibold text-pocket-navy">{activeImage.alt || "Pocket hero image"}</p>
+                <p className="mt-1 max-w-full truncate text-xs text-pocket-navy/60">{resolvePocketImagePath(activeImage.url)}</p>
+              </div>
+              <div className="relative h-20 w-28 overflow-hidden rounded-xl border border-pocket-navy/10 bg-white">
+                <Image
+                  src={resolvePocketImagePath(activeImage.url)}
+                  alt={activeImage.alt || "Current homepage image"}
+                  fill
+                  className="object-cover"
+                  sizes="112px"
+                />
+              </div>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-pocket-navy/55">This preview reflects the last saved homepage slider. The first saved image is what the public site opens with.</p>
+          </div>
           <div className="mt-4">
             <HeroSlider images={images.map((image) => ({ url: image.url, alt: image.alt }))} intervalMs={Number(intervalMs) || 4500} />
           </div>

@@ -3,11 +3,17 @@ import { API_URL, normalizeProducts } from "./catalog";
 import { resolvePocketImagePath } from "./image-paths";
 import type { DashboardData, Product, TrackedOrder } from "./types";
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T | null> {
+type FetchJsonInit = RequestInit & {
+  next?: {
+    revalidate?: number;
+  };
+};
+
+async function fetchJson<T>(path: string, init?: FetchJsonInit): Promise<T | null> {
   try {
     const response = await fetch(`${API_URL}${path}`, {
       ...init,
-      next: { revalidate: 60 }
+      next: init?.next ?? { revalidate: 60 }
     });
 
     if (!response.ok) {
@@ -43,7 +49,7 @@ function normalizeHeroImages(images: Array<{ url: string; alt: string }> | undef
 }
 
 export async function getHomeData() {
-  const data = await fetchJson<any>("/api/content/home");
+  const data = await fetchJson<any>("/api/content/home", { next: { revalidate: 0 } });
   if (!data) {
     return {
       hero: homeContent.hero,
