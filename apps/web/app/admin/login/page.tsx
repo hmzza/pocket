@@ -17,7 +17,7 @@ export default function AdminLoginPage() {
     setError("");
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/auth/admin-login`, {
+      const response = await fetch(`/api/auth/admin-login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

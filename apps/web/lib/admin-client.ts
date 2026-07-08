@@ -14,7 +14,7 @@ import type {
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile, readFileAsDataUrl } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 
 async function adminFetch<T>(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);

@@ -3,7 +3,7 @@
 import type { AdminOrder, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
 import { resolvePocketImagePath } from "@/lib/image-paths";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 const POS_RECEIPT_CACHE_PREFIX = "pocket-pos-receipt:";
 
 async function posFetch<T>(path: string, init?: RequestInit) {

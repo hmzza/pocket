@@ -11,7 +11,7 @@ import { branch } from "@/lib/mock-data";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCurrency } from "@/lib/utils";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 const paymentMethods = [
   { label: "Cash on Delivery", value: "CASH_ON_DELIVERY" },
   { label: "Card Payment (future ready)", value: "CARD" },

@@ -17,7 +17,7 @@ export default function PosLoginPage() {
     setError("");
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"}/api/auth/pos-login`, {
+      const response = await fetch(`/api/auth/pos-login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
