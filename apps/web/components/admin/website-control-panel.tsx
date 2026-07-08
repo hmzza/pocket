@@ -310,7 +310,11 @@ export function WebsiteControlPanel() {
                           if (index === 0) return;
                           setImages((current) => {
                             const next = current.slice();
-                            [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                            const previous = next[index - 1];
+                            const active = next[index];
+                            if (!previous || !active) return current;
+                            next[index - 1] = active;
+                            next[index] = previous;
                             return next;
                           });
                         }}
@@ -326,7 +330,11 @@ export function WebsiteControlPanel() {
                           if (index === images.length - 1) return;
                           setImages((current) => {
                             const next = current.slice();
-                            [next[index + 1], next[index]] = [next[index], next[index + 1]];
+                            const following = next[index + 1];
+                            const active = next[index];
+                            if (!following || !active) return current;
+                            next[index + 1] = active;
+                            next[index] = following;
                             return next;
                           });
                         }}

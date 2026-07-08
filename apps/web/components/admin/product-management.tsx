@@ -320,7 +320,9 @@ function ProductEditor({
                           if (index === 0) return;
                           const nextImages = value.images.slice();
                           const previous = nextImages[index - 1];
-                          nextImages[index - 1] = nextImages[index];
+                          const current = nextImages[index];
+                          if (!previous || !current) return;
+                          nextImages[index - 1] = current;
                           nextImages[index] = previous;
                           onChange({ ...value, images: nextImages });
                         }}
@@ -335,7 +337,9 @@ function ProductEditor({
                           if (index === value.images.length - 1) return;
                           const nextImages = value.images.slice();
                           const next = nextImages[index + 1];
-                          nextImages[index + 1] = nextImages[index];
+                          const current = nextImages[index];
+                          if (!next || !current) return;
+                          nextImages[index + 1] = current;
                           nextImages[index] = next;
                           onChange({ ...value, images: nextImages });
                         }}
