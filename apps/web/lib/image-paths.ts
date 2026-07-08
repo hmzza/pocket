@@ -10,6 +10,8 @@ const imageMap: Record<string, string> = {
   "/images/pocket-combo.svg": "/images/chocolate-shake.png"
 };
 
+const uploadedImagePattern = /^\/images\/(.+-[0-9a-z]+-[0-9a-f]{8}\.(png|jpg|jpeg))$/i;
+
 export function resolvePocketImagePath(path?: string | null, fallback = "/images/classic-shawarma.png") {
   if (!path) {
     return fallback;
@@ -20,6 +22,10 @@ export function resolvePocketImagePath(path?: string | null, fallback = "/images
   }
 
   if (path.endsWith(".png") || path.endsWith(".webp") || path.endsWith(".jpg") || path.endsWith(".jpeg")) {
+    const uploadedMatch = path.match(uploadedImagePattern);
+    if (uploadedMatch) {
+      return `/uploads/images/${uploadedMatch[1]}`;
+    }
     return path;
   }
 

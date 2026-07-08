@@ -12,7 +12,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
 
 const router = Router();
-const WEB_PUBLIC_IMAGES_DIR = fileURLToPath(new URL("../../../web/public/images/", import.meta.url));
+const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/images/", import.meta.url));
 
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
 
@@ -229,14 +229,14 @@ async function saveUploadedImage(filename: string | undefined, dataUrl: string) 
     throw new Error("Image must be 8MB or smaller.");
   }
 
-  await mkdir(WEB_PUBLIC_IMAGES_DIR, { recursive: true });
+  await mkdir(API_UPLOADS_IMAGES_DIR, { recursive: true });
 
   const safeFilename = sanitizeImageFilename(filename, extension);
-  await writeFile(path.join(WEB_PUBLIC_IMAGES_DIR, safeFilename), buffer);
+  await writeFile(path.join(API_UPLOADS_IMAGES_DIR, safeFilename), buffer);
 
   return {
     filename: safeFilename,
-    url: `/images/${safeFilename}`
+    url: `/uploads/images/${safeFilename}`
   };
 }
 
