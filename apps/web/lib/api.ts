@@ -47,6 +47,8 @@ export async function getHomeData() {
   if (!data) {
     return {
       hero: homeContent.hero,
+      heroImages: homeContent.heroImages,
+      heroSliderIntervalMs: homeContent.heroSliderIntervalMs,
       whyPocket: homeContent.whyPocket,
       testimonials: homeContent.testimonials,
       featured: products.filter((product) => product.featured).slice(0, 4).map(normalizeLocalProduct),
