@@ -341,7 +341,10 @@ export function PosTerminal() {
     async function initialize() {
       try {
         const session = await fetchPosSession();
-        if (!["ADMIN", "SUPER_ADMIN", "POS_STAFF"].includes(session.user.role)) {
+        if (
+          !session.user.canAccessPos &&
+          !["ADMIN", "SUPER_ADMIN", "POS_STAFF"].includes(session.user.role)
+        ) {
           router.replace("/pos/login");
           return;
         }

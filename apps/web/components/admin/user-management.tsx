@@ -12,20 +12,24 @@ import { cn } from "@/lib/utils";
 
 type UserFormState = {
   name: string;
-  email: string;
+  username: string;
   phone: string;
   password: string;
   roleCode: AdminUser["roleCode"] | "";
   isActive: boolean;
+  canAccessAdmin: boolean;
+  canAccessPos: boolean;
 };
 
 const emptyForm: UserFormState = {
   name: "",
-  email: "",
+  username: "",
   phone: "",
   password: "",
   roleCode: "POS_STAFF",
-  isActive: true
+  isActive: true,
+  canAccessAdmin: false,
+  canAccessPos: true
 };
 
 const roleOptions: Array<{ value: UserFormState["roleCode"]; label: string; description: string }> = [
@@ -85,11 +89,13 @@ export function UserManagement() {
     setEditingUser(user);
     setForm({
       name: user.name,
-      email: user.email,
+      username: user.username,
       phone: user.phone ?? "",
       password: "",
       roleCode: user.roleCode,
-      isActive: user.isActive
+      isActive: user.isActive,
+      canAccessAdmin: user.canAccessAdmin,
+      canAccessPos: user.canAccessPos
     });
   }
 
@@ -97,32 +103,40 @@ export function UserManagement() {
     setSaving(true);
     setError("");
     try {
-      if (!form.name.trim() || !form.email.trim() || !form.roleCode) {
-        throw new Error("Name, email, and role are required.");
+      if (!form.name.trim() || !form.username.trim() || !form.roleCode) {
+        throw new Error("Name, username, and role are required.");
       }
 
       if (!editingUser && !form.password.trim()) {
         throw new Error("Password is required for new accounts.");
       }
 
+      if (!form.canAccessAdmin && !form.canAccessPos) {
+        throw new Error("Select at least one access option.");
+      }
+
       if (editingUser) {
         await updateAdminUser(editingUser.id, {
           name: form.name,
-          email: form.email,
+          username: form.username,
           phone: form.phone,
           roleCode: form.roleCode,
           isActive: form.isActive,
+          canAccessAdmin: form.canAccessAdmin,
+          canAccessPos: form.canAccessPos,
           ...(form.password.trim() ? { password: form.password } : {})
         });
         setNotice("User updated.");
       } else {
         await createAdminUser({
           name: form.name,
-          email: form.email,
+          username: form.username,
           phone: form.phone,
           password: form.password,
           roleCode: form.roleCode,
-          isActive: form.isActive
+          isActive: form.isActive,
+          canAccessAdmin: form.canAccessAdmin,
+          canAccessPos: form.canAccessPos
         });
         setNotice("User created.");
       }
@@ -188,7 +202,7 @@ export function UserManagement() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 className="pl-9"
-                placeholder="Search name, email, or phone"
+                placeholder="Search name, username, or phone"
               />
             </div>
             <Button type="button" onClick={openCreate}>
@@ -217,7 +231,13 @@ export function UserManagement() {
           <div className="mt-5 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Full name" />
-              <Input value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email" />
+              <Input
+                value={form.username}
+                onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
+                placeholder="Username"
+                autoComplete="off"
+                spellCheck={false}
+              />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="Phone" />
@@ -226,6 +246,7 @@ export function UserManagement() {
                 value={form.password}
                 onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))}
                 placeholder={editingUser ? "Leave blank to keep password" : "Password"}
+                autoComplete="new-password"
               />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -255,6 +276,24 @@ export function UserManagement() {
                 </label>
               </div>
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="flex items-center gap-2 rounded-xl border border-pocket-navy/10 bg-white px-3 py-3 text-sm font-semibold text-pocket-navy">
+                <input
+                  type="checkbox"
+                  checked={form.canAccessAdmin}
+                  onChange={(event) => setForm((current) => ({ ...current, canAccessAdmin: event.target.checked }))}
+                />
+                Admin dashboard access
+              </label>
+              <label className="flex items-center gap-2 rounded-xl border border-pocket-navy/10 bg-white px-3 py-3 text-sm font-semibold text-pocket-navy">
+                <input
+                  type="checkbox"
+                  checked={form.canAccessPos}
+                  onChange={(event) => setForm((current) => ({ ...current, canAccessPos: event.target.checked }))}
+                />
+                POS access
+              </label>
+            </div>
             <div className="flex flex-wrap gap-3">
               <Button type="button" onClick={() => void submitUser()} disabled={saving}>
                 <KeyRound className="h-4 w-4" />
@@ -280,12 +319,15 @@ export function UserManagement() {
                   <div key={user.id} className={cn("grid gap-4 px-5 py-4 md:grid-cols-[1.1fr_0.8fr_0.7fr_auto] md:items-center", !user.isActive && "bg-red-50/60")}>
                     <div>
                       <p className="font-semibold text-pocket-navy">{user.name}</p>
-                      <p className="text-sm text-pocket-navy/60">{user.email}</p>
+                      <p className="text-sm text-pocket-navy/60">@{user.username}</p>
                       {user.phone ? <p className="text-sm text-pocket-navy/60">{user.phone}</p> : null}
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-pocket-navy">{user.roleLabel}</p>
                       <p className="text-xs text-pocket-navy/60">{user.isActive ? "Active" : "Disabled"}</p>
+                      <p className="mt-1 text-xs text-pocket-navy/60">
+                        {user.canAccessAdmin ? "Admin" : "No admin"} · {user.canAccessPos ? "POS" : "No POS"}
+                      </p>
                     </div>
                     <div className="text-sm text-pocket-navy/60">
                       <p>{user.lastLoginAt ? formatRelativeDate(user.lastLoginAt) : "Never logged in"}</p>

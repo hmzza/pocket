@@ -40,7 +40,17 @@ export function getPosReceiptCacheKey(orderId: string) {
 }
 
 export async function fetchPosSession() {
-  return posFetch<{ user: { id: string; role: string; name: string; email: string } }>("/api/auth/me");
+  return posFetch<{
+    user: {
+      id: string;
+      role: string;
+      name: string;
+      username: string;
+      email: string;
+      canAccessAdmin: boolean;
+      canAccessPos: boolean;
+    };
+  }>("/api/auth/me");
 }
 
 export async function logoutPosSession() {

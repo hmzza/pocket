@@ -263,7 +263,17 @@ export async function fetchAdminOrders(params?: {
 }
 
 export async function fetchAdminSession() {
-  return adminFetch<{ user: { id: string; role: string; name: string; email: string } }>("/api/auth/me");
+  return adminFetch<{
+    user: {
+      id: string;
+      role: string;
+      name: string;
+      username: string;
+      email: string;
+      canAccessAdmin: boolean;
+      canAccessPos: boolean;
+    };
+  }>("/api/auth/me");
 }
 
 export async function logoutAdminSession() {

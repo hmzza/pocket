@@ -37,7 +37,11 @@ export function AdminShell({ title, description, children }: { title: string; de
     async function validateSession() {
       try {
         const session = await fetchAdminSession();
-        if (!cancelled && !["ADMIN", "SUPER_ADMIN"].includes(session.user.role)) {
+        if (
+          !cancelled &&
+          !session.user.canAccessAdmin &&
+          !["ADMIN", "SUPER_ADMIN"].includes(session.user.role)
+        ) {
           router.replace("/admin/login");
           return;
         }

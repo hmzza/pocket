@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 export default function PosLoginPage() {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -23,7 +23,7 @@ export default function PosLoginPage() {
           "Content-Type": "application/json"
         },
         credentials: "include",
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ username, password })
       });
 
       if (!response.ok) {
@@ -45,9 +45,16 @@ export default function PosLoginPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.35em] text-orange-600">Pocket POS</p>
         <h1 className="mt-3 text-3xl font-black text-slate-900">Counter Login</h1>
         <p className="mt-2 text-sm text-slate-500">Use a POS staff or admin account to open the terminal.</p>
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <Input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="counter@pocketshawarma.com" required />
-          <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" required />
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4" autoComplete="off">
+          <Input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Username"
+            required
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" required autoComplete="new-password" />
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <Button type="submit" className="h-11 w-full rounded-xl" disabled={loading}>
             {loading ? "Signing in..." : "Open POS"}

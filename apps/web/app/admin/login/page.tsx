@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 export default function AdminLoginPage() {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -23,7 +23,7 @@ export default function AdminLoginPage() {
           "Content-Type": "application/json"
         },
         credentials: "include",
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ username, password })
       });
 
       if (!response.ok) {
@@ -32,7 +32,7 @@ export default function AdminLoginPage() {
 
       window.location.replace("/admin");
     } catch {
-      setError("Login failed. Check the admin email and password.");
+      setError("Login failed. Check the username and password.");
     } finally {
       setLoading(false);
     }
@@ -44,9 +44,16 @@ export default function AdminLoginPage() {
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Admin Login</p>
         <h1 className="mt-3 text-3xl font-black text-pocket-navy">Secure operations access</h1>
         <p className="mt-2 text-sm text-pocket-navy/70">Use the private admin route and valid staff credentials to continue.</p>
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <Input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Admin email" required />
-          <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" required />
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4" autoComplete="off">
+          <Input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Username"
+            required
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" required autoComplete="new-password" />
           {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in..." : "Login"}
