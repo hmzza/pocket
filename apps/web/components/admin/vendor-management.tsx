@@ -11,6 +11,7 @@ import {
   createAdminVendor,
   deleteAdminVendor,
   fetchAdminVendors,
+  fetchAdminSession,
   updateAdminVendor
 } from "@/lib/admin-client";
 import type { AdminVendor } from "@/lib/types";
@@ -134,6 +135,7 @@ export function VendorManagement() {
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [canManage, setCanManage] = useState(false);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [error, setError] = useState("");
@@ -166,6 +168,29 @@ export function VendorManagement() {
     void loadVendors();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSession() {
+      try {
+        const session = await fetchAdminSession();
+        if (!cancelled) {
+          setCanManage(session.user.role !== "POS_STAFF");
+        }
+      } catch {
+        if (!cancelled) {
+          setCanManage(false);
+        }
+      }
+    }
+
+    void loadSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const filteredVendors = useMemo(() => {
     return vendors.filter((vendor) => {
       const matchesCategory = !categoryFilter || vendor.ingredientCategory === categoryFilter;
@@ -186,6 +211,7 @@ export function VendorManagement() {
   }
 
   function openCreate() {
+    if (!canManage) return;
     setEditingVendor(null);
     setForm({
       ...EMPTY_FORM,
@@ -195,12 +221,14 @@ export function VendorManagement() {
   }
 
   function openEdit(vendor: AdminVendor) {
+    if (!canManage) return;
     setEditingVendor(vendor);
     setForm(mapVendorToForm(vendor));
     setEditorOpen(true);
   }
 
   async function submitVendor() {
+    if (!canManage) return;
     if (!form.ingredientCategory.trim() || !form.vendorName.trim()) {
       setError("Category and vendor name are required.");
       return;
@@ -236,6 +264,7 @@ export function VendorManagement() {
   }
 
   async function deleteVendor(vendor: AdminVendor) {
+    if (!canManage) return;
     const confirmed = window.confirm(`Delete ${vendor.vendorName}?`);
     if (!confirmed) return;
 
@@ -264,16 +293,18 @@ export function VendorManagement() {
       ) : null}
       {error ? <AdminToast message={error} variant="error" onClose={() => setError("")} className={notice ? "top-36" : "top-4"} /> : null}
 
-      <VendorEditor
-        open={editorOpen}
-        categories={categories}
-        value={form}
-        editingVendor={editingVendor}
-        saving={saving}
-        onChange={setForm}
-        onClose={() => setEditorOpen(false)}
-        onSubmit={() => void submitVendor()}
-      />
+      {canManage ? (
+        <VendorEditor
+          open={editorOpen}
+          categories={categories}
+          value={form}
+          editingVendor={editingVendor}
+          saving={saving}
+          onChange={setForm}
+          onClose={() => setEditorOpen(false)}
+          onSubmit={() => void submitVendor()}
+        />
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="p-5">
@@ -289,7 +320,9 @@ export function VendorManagement() {
         <Card className="flex items-center justify-between gap-4 p-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p>
-            <p className="mt-3 text-sm text-pocket-navy/60">Create, edit, remove, or refresh vendor records.</p>
+            <p className="mt-3 text-sm text-pocket-navy/60">
+              {canManage ? "Create, edit, remove, or refresh vendor records." : "Read-only view for staff accounts."}
+            </p>
           </div>
           <div className="flex gap-2">
             <Button
@@ -302,10 +335,12 @@ export function VendorManagement() {
             >
               <RefreshCcw className="h-4 w-4" />
             </Button>
-            <Button onClick={openCreate}>
-              <Plus className="h-4 w-4" />
-              Add Vendor
-            </Button>
+            {canManage ? (
+              <Button onClick={openCreate}>
+                <Plus className="h-4 w-4" />
+                Add Vendor
+              </Button>
+            ) : null}
           </div>
         </Card>
       </div>
@@ -335,40 +370,55 @@ export function VendorManagement() {
       </Card>
 
       <Card className="overflow-hidden">
-        <div className="grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
+        <div
+          className={
+            canManage
+              ? "grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
+              : "grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
+          }
+        >
           <span>Category</span>
           <span>Vendor</span>
           <span>Contact</span>
           <span>Type</span>
           <span>Quoted Price</span>
-          <span>Actions</span>
+          {canManage ? <span>Actions</span> : null}
         </div>
         {loading ? (
           <div className="px-5 py-8 text-sm text-pocket-navy/60">Loading vendors...</div>
         ) : filteredVendors.length ? (
           filteredVendors.map((vendor) => (
-            <div key={vendor.id} className="grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
+            <div
+              key={vendor.id}
+              className={
+                canManage
+                  ? "grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
+                  : "grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
+              }
+            >
               <div className="font-semibold text-pocket-navy">{vendor.ingredientCategory}</div>
               <div className="font-bold text-pocket-navy">{vendor.vendorName}</div>
               <div className="text-pocket-navy/70">{vendor.contactNumber || "—"}</div>
               <div className="text-pocket-navy/70">{vendor.type || "Vendor"}</div>
               <div className="text-pocket-orange">{vendor.quotedPrice || "—"}</div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => openEdit(vendor)}>
-                  <Pencil className="h-4 w-4" />
-                  Edit
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                  onClick={() => void deleteVendor(vendor)}
-                  disabled={deletingId === vendor.id}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {deletingId === vendor.id ? "Deleting..." : "Delete"}
-                </Button>
-              </div>
+              {canManage ? (
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => openEdit(vendor)}>
+                    <Pencil className="h-4 w-4" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={() => void deleteVendor(vendor)}
+                    disabled={deletingId === vendor.id}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deletingId === vendor.id ? "Deleting..." : "Delete"}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ))
         ) : (

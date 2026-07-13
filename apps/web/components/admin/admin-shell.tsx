@@ -26,9 +26,14 @@ const links: Array<{
   { href: "/admin/finances", label: "Finances", icon: Banknote }
 ];
 
+const staffRestrictedRoutes = ["/admin/products", "/admin/website", "/admin/users", "/admin/finances"];
+
+type AdminSession = Awaited<ReturnType<typeof fetchAdminSession>>;
+
 export function AdminShell({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [session, setSession] = useState<AdminSession | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -36,17 +41,18 @@ export function AdminShell({ title, description, children }: { title: string; de
 
     async function validateSession() {
       try {
-        const session = await fetchAdminSession();
+        const nextSession = await fetchAdminSession();
         if (
           !cancelled &&
-          !session.user.canAccessAdmin &&
-          !["ADMIN", "SUPER_ADMIN"].includes(session.user.role)
+          !nextSession.user.canAccessAdmin &&
+          !["ADMIN", "SUPER_ADMIN"].includes(nextSession.user.role)
         ) {
           router.replace("/admin/login");
           return;
         }
 
         if (!cancelled) {
+          setSession(nextSession);
           setReady(true);
         }
       } catch {
@@ -63,9 +69,30 @@ export function AdminShell({ title, description, children }: { title: string; de
     };
   }, [router]);
 
+  const isStaff = session?.user.role === "POS_STAFF";
+  const restrictedForStaff = isStaff && staffRestrictedRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+
+  useEffect(() => {
+    if (ready && restrictedForStaff) {
+      router.replace("/admin");
+    }
+  }, [ready, restrictedForStaff, router]);
+
+  const visibleLinks = useMemo(() => {
+    if (!isStaff) {
+      return links;
+    }
+
+    return links.filter((link) => !staffRestrictedRoutes.some((route) => link.href === route || link.href.startsWith(`${route}/`)));
+  }, [isStaff]);
+
   const initial = useMemo(() => title.charAt(0), [title]);
 
   if (!ready) {
+    return <div className="min-h-[60vh]" />;
+  }
+
+  if (restrictedForStaff) {
     return <div className="min-h-[60vh]" />;
   }
 
@@ -80,7 +107,7 @@ export function AdminShell({ title, description, children }: { title: string; de
           </div>
         </div>
         <nav className="space-y-2">
-          {links.map((link) => (
+          {visibleLinks.map((link) => (
             <Link
               key={link.href}
               href={link.disabled ? "#" : link.href}

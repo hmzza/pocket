@@ -6,7 +6,7 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchAdminDashboard, fetchAdminSettings } from "@/lib/admin-client";
+import { fetchAdminDashboard, fetchAdminSettings, fetchAdminSession } from "@/lib/admin-client";
 import { MONTHLY_BREAKEVEN_TARGET, estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns } from "@/lib/finance";
 import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
 import { cn, formatCompactNumber, formatCurrency } from "@/lib/utils";
@@ -30,6 +30,7 @@ export default function AdminPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [preset, setPreset] = useState<AdminRangePreset>("today");
   const [segment, setSegment] = useState<AdminOrderSegment>("all");
+  const [isStaff, setIsStaff] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(true);
@@ -43,7 +44,7 @@ export default function AdminPage() {
       try {
         setLoading(true);
         setError("");
-        const [nextDashboard, settings] = await Promise.all([
+        const [nextDashboard, settings, session] = await Promise.all([
           fetchAdminDashboard(
             preset === "custom" && startDate && endDate
               ? {
@@ -54,7 +55,8 @@ export default function AdminPage() {
                 }
               : { preset, segment }
           ),
-          fetchAdminSettings().catch(() => [])
+          fetchAdminSettings().catch(() => []),
+          fetchAdminSession()
         ]);
 
         const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
@@ -62,6 +64,8 @@ export default function AdminPage() {
         if (Number.isFinite(targetValue) && targetValue > 0) {
           setMonthlyTarget(targetValue);
         }
+
+        setIsStaff(session.user.role === "POS_STAFF");
 
         if (!cancelled) {
           setDashboard(nextDashboard);
@@ -101,6 +105,8 @@ export default function AdminPage() {
     if (!dashboard) return 0;
     return Math.max(0, dashboard.summary.revenue - foodpandaRevenue + foodpandaPayout.estimated);
   }, [dashboard, foodpandaPayout.estimated, foodpandaRevenue]);
+  const visibleSegments = useMemo(() => (isStaff ? [] : segments), [isStaff]);
+  const visiblePresets = useMemo(() => (isStaff ? presets.filter((option) => option.value === "today") : presets), [isStaff]);
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
@@ -114,29 +120,33 @@ export default function AdminPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-300">Performance Window</p>
               <h2 className="mt-3 text-3xl font-black">Sales command center</h2>
               <p className="mt-2 max-w-2xl text-sm text-white/70">
-                Switch periods and filter sales between all orders, Inshop, and Foodpanda without opening separate reports.
+                {isStaff
+                  ? "Staff accounts only see today's sales snapshot."
+                  : "Switch periods and filter sales between all orders, Inshop, and Foodpanda without opening separate reports."}
               </p>
             </div>
             <div className="space-y-3">
+              {visibleSegments.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {visibleSegments.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setSegment(option.value)}
+                      className={cn(
+                        "rounded-full border px-4 py-2 text-sm font-semibold transition",
+                        segment === option.value
+                          ? "border-white bg-white text-slate-950"
+                          : "border-white/15 bg-white/5 text-white hover:bg-white/10"
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
-                {segments.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setSegment(option.value)}
-                    className={cn(
-                      "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                      segment === option.value
-                        ? "border-white bg-white text-slate-950"
-                        : "border-white/15 bg-white/5 text-white hover:bg-white/10"
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {presets.map((option) => (
+                {visiblePresets.map((option) => (
                   <button
                     key={option.value}
                     type="button"

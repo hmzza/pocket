@@ -23,7 +23,7 @@ export function AdminToast({ message, variant, onClose, className }: AdminToastP
       role="status"
       aria-live="polite"
     >
-      <p className="min-w-0 flex-1 text-sm font-medium leading-6">{message}</p>
+      <p className="min-w-0 flex-1 whitespace-pre-line text-sm font-medium leading-6">{message}</p>
       <button
         type="button"
         onClick={onClose}

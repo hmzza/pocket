@@ -40,7 +40,9 @@ async function adminFetch<T>(path: string, init?: RequestInit) {
     }
     try {
       const payload = await response.json();
-      message = payload.message ?? message;
+      const details = normalizeDetails(payload?.details ?? payload?.issues);
+      const responseMessage = payload.message ?? message;
+      message = details.length ? [responseMessage, ...details].filter(Boolean).join("\n") : responseMessage;
     } catch {}
     throw new Error(message);
   }
@@ -274,6 +276,34 @@ export async function fetchAdminSession() {
       canAccessPos: boolean;
     };
   }>("/api/auth/me");
+}
+
+function normalizeDetails(value: unknown, path = ""): string[] {
+  if (value == null) {
+    return [];
+  }
+
+  if (typeof value === "string") {
+    const text = value.trim();
+    return text ? [path ? `${path}: ${text}` : text] : [];
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return [path ? `${path}: ${String(value)}` : String(value)];
+  }
+
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => normalizeDetails(entry, path)).filter(Boolean);
+  }
+
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => {
+      const nextPath = path ? `${path}.${key}` : key;
+      return normalizeDetails(entry, nextPath);
+    });
+  }
+
+  return [path ? `${path}: ${String(value)}` : String(value)];
 }
 
 export async function logoutAdminSession() {
