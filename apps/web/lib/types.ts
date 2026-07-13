@@ -249,6 +249,40 @@ export type AdminExpenseData = {
   expenses: AdminExpense[];
 };
 
+export type AdminVendor = {
+  id: string;
+  ingredientCategory: string;
+  vendorName: string;
+  contactNumber?: string;
+  type?: string;
+  quotedPrice?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminVendorData = {
+  vendors: AdminVendor[];
+  categories: string[];
+};
+
+export type AdminUser = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  roleCode: "ADMIN" | "SUPER_ADMIN" | "POS_STAFF" | "CUSTOMER";
+  roleLabel: string;
+  isActive: boolean;
+  lastLoginAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminUserData = {
+  users: AdminUser[];
+};
+
 export type AdminCustomer = {
   id: string;
   name: string;

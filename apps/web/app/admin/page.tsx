@@ -6,8 +6,8 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchAdminDashboard } from "@/lib/admin-client";
-import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns } from "@/lib/finance";
+import { fetchAdminDashboard, fetchAdminSettings } from "@/lib/admin-client";
+import { MONTHLY_BREAKEVEN_TARGET, estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns } from "@/lib/finance";
 import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
 import { cn, formatCompactNumber, formatCurrency } from "@/lib/utils";
 
@@ -34,6 +34,7 @@ export default function AdminPage() {
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [monthlyTarget, setMonthlyTarget] = useState(MONTHLY_BREAKEVEN_TARGET);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,16 +43,25 @@ export default function AdminPage() {
       try {
         setLoading(true);
         setError("");
-        const nextDashboard = await fetchAdminDashboard(
-          preset === "custom" && startDate && endDate
-            ? {
-                preset,
-                start: new Date(`${startDate}T00:00:00`).toISOString(),
-                end: new Date(`${endDate}T23:59:59`).toISOString(),
-                segment
-              }
-            : { preset, segment }
-        );
+        const [nextDashboard, settings] = await Promise.all([
+          fetchAdminDashboard(
+            preset === "custom" && startDate && endDate
+              ? {
+                  preset,
+                  start: new Date(`${startDate}T00:00:00`).toISOString(),
+                  end: new Date(`${endDate}T23:59:59`).toISOString(),
+                  segment
+                }
+              : { preset, segment }
+          ),
+          fetchAdminSettings().catch(() => [])
+        ]);
+
+        const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
+        const targetValue = Number(targetSetting?.value ?? MONTHLY_BREAKEVEN_TARGET);
+        if (Number.isFinite(targetValue) && targetValue > 0) {
+          setMonthlyTarget(targetValue);
+        }
 
         if (!cancelled) {
           setDashboard(nextDashboard);
@@ -87,6 +97,10 @@ export default function AdminPage() {
     [dashboard]
   );
   const foodpandaPayout = useMemo(() => estimateFoodpandaPayout(foodpandaRevenue), [foodpandaRevenue]);
+  const netRevenueAfterFoodpandaCut = useMemo(() => {
+    if (!dashboard) return 0;
+    return Math.max(0, dashboard.summary.revenue - foodpandaRevenue + foodpandaPayout.estimated);
+  }, [dashboard, foodpandaPayout.estimated, foodpandaRevenue]);
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
@@ -199,13 +213,20 @@ export default function AdminPage() {
           <Card className="p-6 text-sm text-pocket-navy/60">Loading dashboard...</Card>
         ) : (
           <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <InsightCard
                 label="Revenue"
                 value={formatCurrency(dashboard.summary.revenue)}
                 helper={`Previous ${formatCurrency(dashboard.summary.previousRevenue)}`}
                 delta={dashboard.summary.revenueDelta}
                 icon={Wallet}
+              />
+              <InsightCard
+                label="Net after Foodpanda cut"
+                value={formatCurrency(netRevenueAfterFoodpandaCut)}
+                helper={`${formatCurrency(foodpandaRevenue)} Foodpanda gross · ${formatCurrency(foodpandaPayout.estimated)} expected net`}
+                delta={null}
+                icon={ArrowDownRight}
               />
               <InsightCard
                 label="Orders"
@@ -252,7 +273,9 @@ export default function AdminPage() {
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Finance page</p>
                   <p className="mt-3 text-2xl font-black text-pocket-navy">Monthly breakeven</p>
-                  <p className="mt-2 text-sm text-pocket-navy/60">Track the Rs 530,000 monthly target and see when profit starts.</p>
+                  <p className="mt-2 text-sm text-pocket-navy/60">
+                    Track the {formatCurrency(monthlyTarget)} monthly target and see when profit starts.
+                  </p>
                 </div>
                 <Button className="w-fit" onClick={() => window.location.assign("/admin/finances")}>
                   Open Finances

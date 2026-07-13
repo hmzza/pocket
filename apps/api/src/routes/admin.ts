@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { InventoryTransactionType, OrderStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import * as XLSX from "xlsx";
+import { hashPassword } from "../lib/auth.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
@@ -13,6 +14,7 @@ import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js"
 
 const router = Router();
 const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/images/", import.meta.url));
+const VENDORS_WORKBOOK_PATH = fileURLToPath(new URL("../../../../data/vendors.xlsx", import.meta.url));
 
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
 
@@ -193,6 +195,123 @@ function normalizeBundleComponents(
       sortOrder: typeof component.sortOrder === "number" ? component.sortOrder : index + 1
     }))
     .filter((component, index, list) => list.findIndex((entry) => entry.componentProductId === component.componentProductId) === index);
+}
+
+const vendorSchema = z.object({
+  ingredientCategory: z.string().min(1).max(120),
+  vendorName: z.string().min(1).max(120),
+  contactNumber: z.string().max(40).optional().or(z.literal("")),
+  type: z.string().max(40).optional().or(z.literal("")),
+  quotedPrice: z.string().max(120).optional().or(z.literal("")),
+  notes: z.string().max(500).optional().or(z.literal(""))
+});
+
+type VendorRecord = z.infer<typeof vendorSchema> & {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function readVendorSheetRows(): Promise<VendorRecord[]> {
+  return Promise.resolve().then(async () => {
+    try {
+      const buffer = await readFile(VENDORS_WORKBOOK_PATH);
+      const workbook = XLSX.read(buffer, { type: "buffer" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0] ?? "Vendors"];
+      if (!sheet) {
+        return [] as VendorRecord[];
+      }
+
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+      return rows
+        .map((row) => ({
+          id: String(row.id ?? row.ID ?? randomUUID()),
+          ingredientCategory: String(row.ingredientCategory ?? row["Ingredient / Category"] ?? "").trim(),
+          vendorName: String(row.vendorName ?? row["Vendor Name"] ?? "").trim(),
+          contactNumber: String(row.contactNumber ?? row["Contact Number"] ?? "").trim(),
+          type: String(row.type ?? row["Type"] ?? "Vendor").trim() || "Vendor",
+          quotedPrice: String(row.quotedPrice ?? row["Quoted Price"] ?? "").trim(),
+          notes: String(row.notes ?? row["Notes"] ?? "").trim(),
+          createdAt: String(row.createdAt ?? new Date().toISOString()),
+          updatedAt: String(row.updatedAt ?? new Date().toISOString())
+        }))
+        .filter((row) => row.ingredientCategory.length && row.vendorName.length);
+    } catch (readError) {
+      if ((readError as NodeJS.ErrnoException).code === "ENOENT") {
+        return [] as VendorRecord[];
+      }
+      throw readError;
+    }
+  });
+}
+
+async function writeVendorSheetRows(rows: VendorRecord[]) {
+  await mkdir(path.dirname(VENDORS_WORKBOOK_PATH), { recursive: true });
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(
+    rows.map((row) => ({
+      id: row.id,
+      ingredientCategory: row.ingredientCategory,
+      vendorName: row.vendorName,
+      contactNumber: row.contactNumber,
+      type: row.type,
+      quotedPrice: row.quotedPrice,
+      notes: row.notes,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    }))
+  );
+  XLSX.utils.book_append_sheet(workbook, sheet, "Vendors");
+  const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+  await writeFile(VENDORS_WORKBOOK_PATH, buffer);
+}
+
+const manageableUserRoleCodes = ["ADMIN", "SUPER_ADMIN", "POS_STAFF"] as const;
+type ManageableUserRoleCode = (typeof manageableUserRoleCodes)[number];
+
+const userQuerySchema = z.object({
+  search: z.string().trim().optional()
+});
+
+const userWriteSchema = z.object({
+  name: z.string().min(2).max(80),
+  email: z.string().email(),
+  phone: z.string().min(8).max(20).optional().or(z.literal("")),
+  password: z.string().min(8),
+  roleCode: z.enum(manageableUserRoleCodes),
+  isActive: z.boolean().optional()
+});
+
+const userPatchSchema = userWriteSchema.partial().extend({
+  password: z.string().min(8).optional()
+});
+
+function serializeManagedUser(user: {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  isActive: boolean;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  role: {
+    code: RoleCode;
+    label: string;
+  };
+}) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone ?? undefined,
+    roleCode: user.role.code as ManageableUserRoleCode,
+    roleLabel: user.role.label,
+    isActive: user.isActive,
+    lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+    createdAt: user.createdAt.toISOString(),
+    updatedAt: user.updatedAt.toISOString()
+  };
 }
 
 const imageUploadSchema = z.object({
@@ -1757,6 +1876,121 @@ router.get("/customers", async (_req, res) => {
   });
 });
 
+router.get("/vendors", async (_req, res, next) => {
+  try {
+    const vendors = (await readVendorSheetRows()).sort((left, right) => {
+      const categoryCompare = left.ingredientCategory.localeCompare(right.ingredientCategory);
+      return categoryCompare !== 0 ? categoryCompare : left.vendorName.localeCompare(right.vendorName);
+    });
+
+    const categories = [...new Set(vendors.map((vendor) => vendor.ingredientCategory))].sort((left, right) =>
+      left.localeCompare(right)
+    );
+
+    return res.json({ vendors, categories });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/vendors", async (req, res, next) => {
+  try {
+    const payload = vendorSchema.parse(req.body);
+    const vendors = await readVendorSheetRows();
+    const vendor: VendorRecord = {
+      id: randomUUID(),
+      ingredientCategory: payload.ingredientCategory.trim(),
+      vendorName: payload.vendorName.trim(),
+      contactNumber: payload.contactNumber?.trim() || "",
+      type: payload.type?.trim() || "Vendor",
+      quotedPrice: payload.quotedPrice?.trim() || "",
+      notes: payload.notes?.trim() || "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    vendors.push(vendor);
+    await writeVendorSheetRows(vendors);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "vendor.create",
+      entityType: "vendor",
+      entityId: vendor.id,
+      payload: vendor
+    });
+
+    return res.status(201).json({ vendor });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/vendors/:id", async (req, res, next) => {
+  try {
+    const payload = vendorSchema.partial().parse(req.body);
+    const vendors = await readVendorSheetRows();
+    const index = vendors.findIndex((vendor) => vendor.id === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ message: "Vendor not found." });
+    }
+
+    const current = vendors[index] as VendorRecord;
+    const nextVendor: VendorRecord = {
+      id: current.id,
+      ingredientCategory:
+        payload.ingredientCategory !== undefined ? payload.ingredientCategory.trim() : current.ingredientCategory,
+      vendorName: payload.vendorName !== undefined ? payload.vendorName.trim() : current.vendorName,
+      contactNumber:
+        payload.contactNumber !== undefined ? payload.contactNumber?.trim() || "" : current.contactNumber ?? "",
+      type: payload.type !== undefined ? payload.type?.trim() || "Vendor" : current.type ?? "Vendor",
+      quotedPrice:
+        payload.quotedPrice !== undefined ? payload.quotedPrice?.trim() || "" : current.quotedPrice ?? "",
+      notes: payload.notes !== undefined ? payload.notes?.trim() || "" : current.notes ?? "",
+      createdAt: current.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+
+    vendors[index] = nextVendor;
+    await writeVendorSheetRows(vendors);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "vendor.update",
+      entityType: "vendor",
+      entityId: nextVendor.id,
+      payload
+    });
+
+    return res.json({ vendor: nextVendor });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/vendors/:id", async (req, res, next) => {
+  try {
+    const vendors = await readVendorSheetRows();
+    const nextVendors = vendors.filter((vendor) => vendor.id !== req.params.id);
+    if (nextVendors.length === vendors.length) {
+      return res.status(404).json({ message: "Vendor not found." });
+    }
+
+    await writeVendorSheetRows(nextVendors);
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "vendor.delete",
+      entityType: "vendor",
+      entityId: req.params.id,
+      payload: { deleted: true }
+    });
+
+    return res.json({ deleted: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 const expenseQuerySchema = dashboardQueryBaseSchema
   .extend({
     branchId: z.string().cuid().optional(),
@@ -2059,6 +2293,144 @@ router.delete("/expenses/:id", async (req, res, next) => {
     });
 
     return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/users", async (req, res, next) => {
+  try {
+    const query = userQuerySchema.parse(req.query);
+    const users = await prisma.user.findMany({
+      where: {
+        role: {
+          is: {
+            code: { in: manageableUserRoleCodes as unknown as RoleCode[] }
+          }
+        },
+        ...(query.search
+          ? {
+              OR: [
+                { name: { contains: query.search, mode: "insensitive" } },
+                { email: { contains: query.search, mode: "insensitive" } },
+                { phone: { contains: query.search, mode: "insensitive" } }
+              ]
+            }
+          : {})
+      },
+      include: { role: true },
+      orderBy: [{ createdAt: "desc" }]
+    });
+
+    return res.json({ users: users.map(serializeManagedUser) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/users", async (req, res, next) => {
+  try {
+    const payload = userWriteSchema.parse(req.body);
+    const role = await prisma.role.findUniqueOrThrow({ where: { code: payload.roleCode as RoleCode } });
+    const passwordHash = await hashPassword(payload.password);
+    const user = await prisma.user.create({
+      data: {
+        roleId: role.id,
+        name: payload.name.trim(),
+        email: payload.email.trim().toLowerCase(),
+        phone: payload.phone?.trim() || null,
+        passwordHash,
+        isActive: payload.isActive ?? true
+      },
+      include: { role: true }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "user.create",
+      entityType: "user",
+      entityId: user.id,
+      payload: {
+        name: user.name,
+        email: user.email,
+        roleCode: user.role.code
+      }
+    });
+
+    return res.status(201).json({ user: serializeManagedUser(user) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/users/:id", async (req, res, next) => {
+  try {
+    const payload = userPatchSchema.parse(req.body);
+    const current = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: { role: true }
+    });
+
+    if (!current) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const role =
+      payload.roleCode !== undefined ? await prisma.role.findUniqueOrThrow({ where: { code: payload.roleCode as RoleCode } }) : null;
+
+    const user = await prisma.user.update({
+      where: { id: current.id },
+      data: {
+        ...(payload.name !== undefined ? { name: payload.name.trim() } : {}),
+        ...(payload.email !== undefined ? { email: payload.email.trim().toLowerCase() } : {}),
+        ...(payload.phone !== undefined ? { phone: payload.phone?.trim() || null } : {}),
+        ...(role ? { roleId: role.id } : {}),
+        ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
+        ...(payload.password !== undefined ? { passwordHash: await hashPassword(payload.password) } : {})
+      },
+      include: { role: true }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "user.update",
+      entityType: "user",
+      entityId: user.id,
+      payload
+    });
+
+    return res.json({ user: serializeManagedUser(user) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/users/:id", async (req, res, next) => {
+  try {
+    const current = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      include: { role: true }
+    });
+
+    if (!current) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    const user = await prisma.user.update({
+      where: { id: current.id },
+      data: { isActive: false },
+      include: { role: true }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "user.delete",
+      entityType: "user",
+      entityId: user.id,
+      payload: { email: user.email, roleCode: user.role.code }
+    });
+
+    return res.json({ deleted: true });
   } catch (error) {
     return next(error);
   }

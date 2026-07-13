@@ -1,8 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LayoutGrid, Minus, Plus, Search, Trash2, LogOut, Receipt, ShoppingBag, PencilLine, Send } from "lucide-react";
+import { CalendarDays, LayoutGrid, LogOut, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,16 +30,27 @@ type TicketLine = {
 type ProductSelection = { groupId: string; optionIds: string[] };
 
 const paymentOptions = [
-  { value: "CASH", label: "Cash" },
-  { value: "CARD", label: "Card" },
-  { value: "EASYPAISA", label: "EasyPaisa" },
-  { value: "JAZZCASH", label: "JazzCash" }
+  { value: "CASH", label: "Cash", logo: "/images/cash-logo.png" },
+  { value: "EASYPAISA", label: "Easypaisa", logo: "/images/easypaisa-logo.png" },
+  { value: "JAZZCASH", label: "JazzCash", logo: "/images/jazz-cash-logo.png" }
 ] as const;
 
 const serviceTypes = [
-  { value: "INSHOP", label: "Inshop" },
-  { value: "FOODPANDA", label: "Foodpanda" }
+  { value: "INSHOP", label: "In Store", logo: "/images/instore-logo.png" },
+  { value: "FOODPANDA", label: "Foodpanda", logo: "/images/foodpanda-logo.png" }
 ] as const;
+
+function getLocalDateInputValue(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function buildIsoFromDateInput(value: string) {
+  if (!value) return "";
+  return new Date(`${value}T12:00:00`).toISOString();
+}
 
 function buildDefaultSelections(groups: AddOnGroup[]) {
   return normalizeSelections(
@@ -274,9 +286,11 @@ export function PosTerminal() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [serviceType, setServiceType] = useState<(typeof serviceTypes)[number]["value"]>("INSHOP");
   const [foodpandaOrderNumber, setFoodpandaOrderNumber] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentOptions)[number]["value"]>("CASH");
-  const [discountType, setDiscountType] = useState<"NONE" | "PERCENTAGE" | "FIXED">("NONE");
-  const [discountValue, setDiscountValue] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentOptions)[number]["value"] | "">("");
+  const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED">("PERCENTAGE");
+  const [discountValue, setDiscountValue] = useState("0");
+  const [backdateEnabled, setBackdateEnabled] = useState(false);
+  const [orderDate, setOrderDate] = useState(getLocalDateInputValue());
   const [submitting, setSubmitting] = useState(false);
   const [productDialog, setProductDialog] = useState<PosCatalogProduct | null>(null);
   const [productSelections, setProductSelections] = useState<ProductSelection[]>([]);
@@ -502,8 +516,10 @@ export function PosTerminal() {
     setServiceType(order.serviceType as (typeof serviceTypes)[number]["value"]);
     setFoodpandaOrderNumber(order.foodpandaOrderNumber || "");
     setPaymentMethod(order.paymentMethod as (typeof paymentOptions)[number]["value"]);
-    setDiscountType(order.discountType);
-    setDiscountValue(order.discountValue > 0 ? String(order.discountValue) : "");
+    setDiscountType(order.discountType === "NONE" ? "PERCENTAGE" : order.discountType);
+    setDiscountValue(String(order.discountValue ?? 0));
+    setBackdateEnabled(true);
+    setOrderDate(getLocalDateInputValue(new Date(receiptOrder.placedAt)));
     setLastReceiptOrderId(receiptOrder.id);
     setLastReceiptOrder(receiptOrder);
     setLastReceiptPhone(receiptOrder.customerPhone ?? order.customerPhone ?? "");
@@ -546,6 +562,12 @@ export function PosTerminal() {
     const submittedCustomerPhone = customerPhone.trim();
     const submittedFoodpandaOrderNumber = foodpandaOrderNumber.trim();
 
+    if (!paymentMethod) {
+      setError("Pick a payment mode before finishing the order.");
+      setSubmitting(false);
+      return;
+    }
+
     if (serviceType === "FOODPANDA" && !submittedFoodpandaOrderNumber) {
       setError("Foodpanda order number is required for Foodpanda orders.");
       setSubmitting(false);
@@ -562,6 +584,7 @@ export function PosTerminal() {
         customerPhone: submittedCustomerPhone || undefined,
         discountType,
         discountValue: parseMoney(discountValue),
+        placedAt: backdateEnabled ? buildIsoFromDateInput(orderDate) : undefined,
         items: ticket.map((item) =>
           item.type === "manual"
             ? {
@@ -611,9 +634,11 @@ export function PosTerminal() {
     setCustomerPhone("");
     setServiceType("INSHOP");
     setFoodpandaOrderNumber("");
-    setPaymentMethod("CASH");
-    setDiscountType("NONE");
-    setDiscountValue("");
+    setPaymentMethod("");
+    setDiscountType("PERCENTAGE");
+    setDiscountValue("0");
+    setBackdateEnabled(false);
+    setOrderDate(getLocalDateInputValue());
     setLastReceiptOrderId("");
     setLastReceiptOrder(null);
     setLastReceiptPhone("");
@@ -923,21 +948,57 @@ export function PosTerminal() {
                   New customer phone. Receipt sharing will be available after checkout.
                 </div>
               ) : null}
-              <div className="grid gap-1.5 md:grid-cols-2">
-                <select value={serviceType} onChange={(event) => setServiceType(event.target.value as (typeof serviceTypes)[number]["value"])} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
-                  {serviceTypes.map((entry) => (
-                    <option key={entry.value} value={entry.value}>
-                      {entry.label}
-                    </option>
-                  ))}
-                </select>
-                <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as (typeof paymentOptions)[number]["value"])} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
-                  {paymentOptions.map((entry) => (
-                    <option key={entry.value} value={entry.value}>
-                      {entry.label}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <p className="text-[0.6rem] font-semibold uppercase tracking-[0.22em] text-slate-500">Order type</p>
+                  <div className="flex flex-wrap gap-2">
+                    {serviceTypes.map((entry) => {
+                      const selected = serviceType === entry.value;
+                      return (
+                        <button
+                          key={entry.value}
+                          type="button"
+                          onClick={() => setServiceType(entry.value)}
+                          disabled={ticketLocked}
+                          className={cn(
+                            "grid h-10 w-10 place-items-center rounded-full border transition",
+                            selected ? "border-orange-500 bg-orange-100 shadow-sm" : "border-slate-200 bg-white hover:border-orange-300",
+                            ticketLocked && "opacity-60"
+                          )}
+                          aria-label={entry.label}
+                          title={entry.label}
+                        >
+                          <Image src={entry.logo} alt={entry.label} width={28} height={28} className="h-7 w-7 object-contain" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <p className="text-[0.6rem] font-semibold uppercase tracking-[0.22em] text-slate-500">Payment mode</p>
+                  <div className="flex flex-wrap gap-2">
+                    {paymentOptions.map((entry) => {
+                      const selected = paymentMethod === entry.value;
+                      return (
+                        <button
+                          key={entry.value}
+                          type="button"
+                          onClick={() => setPaymentMethod(entry.value)}
+                          disabled={ticketLocked}
+                          className={cn(
+                            "grid h-10 w-10 place-items-center rounded-full border transition",
+                            selected ? "border-orange-500 bg-orange-100 shadow-sm" : "border-slate-200 bg-white hover:border-orange-300",
+                            ticketLocked && "opacity-60"
+                          )}
+                          aria-label={entry.label}
+                          title={entry.label}
+                        >
+                          <Image src={entry.logo} alt={entry.label} width={28} height={28} className="h-7 w-7 object-contain" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
               {serviceType === "FOODPANDA" ? (
                 <Input
@@ -949,12 +1010,35 @@ export function PosTerminal() {
                 />
               ) : null}
               <div className="grid gap-1.5 md:grid-cols-2">
-                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED")} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
-                  <option value="NONE">No discount</option>
+                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "PERCENTAGE" | "FIXED")} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
                   <option value="PERCENTAGE">Percentage</option>
                   <option value="FIXED">Fixed amount</option>
                 </select>
-                <Input className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"} inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="Discount" disabled={ticketLocked} />
+                <Input className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"} inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="0" disabled={ticketLocked} />
+              </div>
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBackdateEnabled((current) => !current)}
+                  disabled={ticketLocked}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[0.64rem] font-semibold transition",
+                    backdateEnabled ? "border-orange-400 bg-orange-50 text-orange-700" : "border-slate-200 bg-white text-slate-700 hover:border-orange-300",
+                    ticketLocked && "opacity-60"
+                  )}
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  Older Date
+                </button>
+                {backdateEnabled ? (
+                  <Input
+                    type="date"
+                    className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"}
+                    value={orderDate}
+                    onChange={(event) => setOrderDate(event.target.value)}
+                    disabled={ticketLocked}
+                  />
+                ) : null}
               </div>
             </div>
 

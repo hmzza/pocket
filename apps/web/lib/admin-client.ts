@@ -8,6 +8,10 @@ import type {
   AdminOrder,
   AdminProduct,
   AdminRangePreset,
+  AdminUser,
+  AdminUserData,
+  AdminVendor,
+  AdminVendorData,
   Category,
   DashboardData
 } from "@/lib/types";
@@ -103,6 +107,47 @@ export async function fetchAdminProducts() {
 export async function fetchAdminSettings() {
   const data = await adminFetch<{ settings: Array<{ key: string; value: unknown }> }>("/api/admin/settings");
   return data.settings;
+}
+
+export async function fetchAdminVendors(): Promise<AdminVendorData> {
+  const data = await adminFetch<{ vendors: any[]; categories: string[] }>("/api/admin/vendors");
+  return {
+    vendors: data.vendors.map((vendor) => ({
+      id: vendor.id,
+      ingredientCategory: vendor.ingredientCategory,
+      vendorName: vendor.vendorName,
+      contactNumber: vendor.contactNumber ?? "",
+      type: vendor.type ?? "",
+      quotedPrice: vendor.quotedPrice ?? "",
+      notes: vendor.notes ?? "",
+      createdAt: vendor.createdAt,
+      updatedAt: vendor.updatedAt
+    })),
+    categories: data.categories
+  };
+}
+
+export async function createAdminVendor(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ vendor: AdminVendor }>("/api/admin/vendors", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.vendor;
+}
+
+export async function updateAdminVendor(vendorId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ vendor: AdminVendor }>(`/api/admin/vendors/${vendorId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.vendor;
+}
+
+export async function deleteAdminVendor(vendorId: string) {
+  const data = await adminFetch<{ deleted: boolean }>(`/api/admin/vendors/${vendorId}`, {
+    method: "DELETE"
+  });
+  return data.deleted;
 }
 
 export async function uploadAdminImage(file: File) {
@@ -349,6 +394,37 @@ export async function fetchAdminCustomers(): Promise<AdminCustomer[]> {
     totalSpend: Number(customer.totalSpend),
     lastOrderDate: customer.lastOrderDate
   }));
+}
+
+export async function fetchAdminUsers(params?: { search?: string }) {
+  const searchParams = new URLSearchParams();
+  if (params?.search) searchParams.set("search", params.search);
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  const data = await adminFetch<AdminUserData>(`/api/admin/users${suffix}`);
+  return data.users;
+}
+
+export async function createAdminUser(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ user: AdminUser }>("/api/admin/users", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.user;
+}
+
+export async function updateAdminUser(userId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ user: AdminUser }>(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.user;
+}
+
+export async function deleteAdminUser(userId: string) {
+  const data = await adminFetch<{ deleted: boolean }>(`/api/admin/users/${userId}`, {
+    method: "DELETE"
+  });
+  return data.deleted;
 }
 
 export async function updateAdminSetting(key: string, value: unknown) {

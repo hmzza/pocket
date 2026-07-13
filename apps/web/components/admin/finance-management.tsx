@@ -5,8 +5,9 @@ import { ArrowRight, Wallet } from "lucide-react";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchAdminDashboard, fetchAdminExpenses } from "@/lib/admin-client";
+import { fetchAdminDashboard, fetchAdminExpenses, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
 import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
+import { Input } from "@/components/ui/input";
 import type { AdminExpenseData, DashboardData } from "@/lib/types";
 import { formatCurrency, formatCompactNumber } from "@/lib/utils";
 
@@ -136,6 +137,9 @@ export function FinanceManagement() {
   const [monthExpenses, setMonthExpenses] = useState<AdminExpenseData | null>(null);
   const [weekExpenses, setWeekExpenses] = useState<AdminExpenseData | null>(null);
   const [todayExpenses, setTodayExpenses] = useState<AdminExpenseData | null>(null);
+  const [monthlyTarget, setMonthlyTarget] = useState<number>(MONTHLY_BREAKEVEN_TARGET);
+  const [monthlyTargetInput, setMonthlyTargetInput] = useState(String(MONTHLY_BREAKEVEN_TARGET));
+  const [savingTarget, setSavingTarget] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -153,7 +157,8 @@ export function FinanceManagement() {
           monthFoodpandaData,
           monthExpenseData,
           weekExpenseData,
-          todayExpenseData
+          todayExpenseData,
+          settings
         ] = await Promise.all([
           fetchAdminDashboard({ preset: "month", segment: "all" }),
           fetchAdminDashboard({ preset: "7d", segment: "all" }),
@@ -161,7 +166,8 @@ export function FinanceManagement() {
           fetchAdminDashboard({ preset: "month", segment: "foodpanda" }),
           fetchAdminExpenses({ preset: "month" }),
           fetchAdminExpenses({ preset: "7d" }),
-          fetchAdminExpenses({ preset: "today" })
+          fetchAdminExpenses({ preset: "today" }),
+          fetchAdminSettings()
         ]);
 
         if (!cancelled) {
@@ -172,6 +178,13 @@ export function FinanceManagement() {
           setMonthExpenses(monthExpenseData);
           setWeekExpenses(weekExpenseData);
           setTodayExpenses(todayExpenseData);
+
+          const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
+          const targetValue = Number(targetSetting?.value ?? MONTHLY_BREAKEVEN_TARGET);
+          if (Number.isFinite(targetValue) && targetValue > 0) {
+            setMonthlyTarget(targetValue);
+            setMonthlyTargetInput(String(Math.round(targetValue)));
+          }
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -191,7 +204,27 @@ export function FinanceManagement() {
     };
   }, []);
 
+  async function saveMonthlyTarget() {
+    const nextTarget = Number(monthlyTargetInput.replace(/[^\d.]/g, ""));
+    if (!Number.isFinite(nextTarget) || nextTarget <= 0) {
+      setError("Enter a valid monthly target amount.");
+      return;
+    }
+
+    try {
+      setSavingTarget(true);
+      setError("");
+      await updateAdminSetting("finance.monthlyTarget", nextTarget);
+      setMonthlyTarget(nextTarget);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save monthly target.");
+    } finally {
+      setSavingTarget(false);
+    }
+  }
+
   const summary = useMemo(() => {
+    const breakevenTarget = monthlyTarget || MONTHLY_BREAKEVEN_TARGET;
     const monthRevenue = monthDashboard?.summary.revenue ?? 0;
     const monthExpensesTotal = monthExpenses?.summary.totalAmount ?? 0;
     const weekRevenue = weekDashboard?.summary.revenue ?? 0;
@@ -201,9 +234,9 @@ export function FinanceManagement() {
     const monthNet = monthRevenue - monthExpensesTotal;
     const weekNet = weekRevenue - weekExpensesTotal;
     const todayNet = todayRevenue - todayExpensesTotal;
-    const remainingToBreakeven = Math.max(0, MONTHLY_BREAKEVEN_TARGET - monthRevenue);
-    const breakevenProgress = Math.min(100, (monthRevenue / MONTHLY_BREAKEVEN_TARGET) * 100);
-    const surplusAfterBreakeven = monthRevenue - MONTHLY_BREAKEVEN_TARGET;
+    const remainingToBreakeven = Math.max(0, breakevenTarget - monthRevenue);
+    const breakevenProgress = Math.min(100, (monthRevenue / breakevenTarget) * 100);
+    const surplusAfterBreakeven = monthRevenue - breakevenTarget;
     const expenseRatio = monthRevenue > 0 ? (monthExpensesTotal / monthRevenue) * 100 : 0;
     const operatingMargin = monthRevenue > 0 ? (monthNet / monthRevenue) * 100 : 0;
     const foodpandaGross = getFoodpandaRevenueFromBreakdowns(monthFoodpandaDashboard?.breakdowns.serviceTypes ?? []);
@@ -231,9 +264,10 @@ export function FinanceManagement() {
       foodpandaPayout,
       paymentMix,
       branchPerformance,
-      topCategories
+      topCategories,
+      breakevenTarget
     };
-  }, [monthDashboard, monthExpenses, monthFoodpandaDashboard, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
+  }, [monthDashboard, monthExpenses, monthFoodpandaDashboard, monthlyTarget, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
 
   if (loading || !monthDashboard || !monthExpenses || !weekDashboard || !weekExpenses || !todayDashboard || !todayExpenses || !monthFoodpandaDashboard) {
     return <Card className="p-6 text-sm text-pocket-navy/60">Loading finance view...</Card>;
@@ -250,12 +284,24 @@ export function FinanceManagement() {
               This view combines revenue, expenses, Foodpanda payouts, and branch-level performance so you can read the business in one place.
             </p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80">
+          <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80">
             <div className="flex items-center gap-2">
               <Wallet className="h-4 w-4 text-amber-300" />
               Break-even target
             </div>
-            <p className="mt-1 text-xl font-black">{formatCurrency(MONTHLY_BREAKEVEN_TARGET)}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={monthlyTargetInput}
+                onChange={(event) => setMonthlyTargetInput(event.target.value)}
+                inputMode="decimal"
+                className="h-9 w-40 border-white/15 bg-white/10 text-white placeholder:text-white/45"
+                placeholder="530000"
+              />
+              <Button className="h-9 bg-amber-300 text-slate-950 hover:bg-amber-200" onClick={() => void saveMonthlyTarget()} disabled={savingTarget}>
+                {savingTarget ? "Saving..." : "Save target"}
+              </Button>
+            </div>
+            <p className="text-lg font-black">{formatCurrency(summary.breakevenTarget)}</p>
           </div>
         </div>
       </Card>
@@ -285,8 +331,8 @@ export function FinanceManagement() {
           </div>
           <div className="mt-3 flex items-center justify-between text-sm text-pocket-navy/70">
             <span>{formatCurrency(summary.monthRevenue)} collected</span>
-            <span>{formatCurrency(MONTHLY_BREAKEVEN_TARGET)} target</span>
-          </div>
+              <span>{formatCurrency(summary.breakevenTarget)} target</span>
+            </div>
           <p className="mt-3 text-sm text-pocket-navy/60">
             After the target is crossed, the surplus can be read as profit above base operating cost.
             {summary.surplusAfterBreakeven > 0 ? ` Current surplus: ${formatCurrency(summary.surplusAfterBreakeven)}` : ""}

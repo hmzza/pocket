@@ -19,8 +19,9 @@ export function readFileAsDataUrl(file: File) {
   });
 }
 
-const TARGET_UPLOAD_BYTES = 5.5 * 1024 * 1024;
-const MAX_DIMENSION = 2200;
+// Keep uploads small enough to survive base64 transport and proxy limits.
+const TARGET_UPLOAD_BYTES = 650 * 1024;
+const MAX_DIMENSION = 1400;
 
 function loadImageElement(file: File) {
   return new Promise<HTMLImageElement>((resolve, reject) => {

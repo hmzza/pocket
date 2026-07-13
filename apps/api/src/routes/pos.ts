@@ -82,6 +82,7 @@ const checkoutSchema = z
     customerName: z.string().max(80).optional(),
     customerPhone: z.string().max(20).optional(),
     foodpandaOrderNumber: z.string().max(40).optional(),
+    placedAt: z.string().datetime().optional(),
     discountType: z.enum(["NONE", "PERCENTAGE", "FIXED"]).default("NONE"),
     discountValue: z.number().min(0).max(100_000).default(0),
     items: z.array(cartItemSchema).min(1)
@@ -545,6 +546,7 @@ router.post("/checkout", async (req, res, next) => {
             paymentMethod: payload.paymentMethod as PaymentMethod,
             paymentStatus: PaymentStatus.PAID,
             cashierId: req.user!.id,
+            placedAt: payload.placedAt ? new Date(payload.placedAt) : undefined,
             subtotal: orderPayload.subtotal,
             taxRate: 0,
             taxAmount: 0,
@@ -689,6 +691,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           paymentMethod: payload.paymentMethod as PaymentMethod,
           paymentStatus: PaymentStatus.PAID,
           cashierId: req.user!.id,
+          placedAt: payload.placedAt ? new Date(payload.placedAt) : existingOrder.placedAt,
           subtotal: orderPayload.subtotal,
           taxRate: 0,
           taxAmount: 0,

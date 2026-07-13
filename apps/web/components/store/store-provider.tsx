@@ -41,6 +41,7 @@ const FAVORITES_KEY = "pocket-favorites";
 const RECENT_KEY = "pocket-recent";
 const legacyIdToSlug = new Map(legacyProducts.map((product) => [product.id, product.slug]));
 const storeAddress = `${branch.addressLine1}, ${branch.city}`;
+const foodpandaDeliveryUrl = "https://foodpanda.go.link/eLIh7";
 
 function createCartEntryId() {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -272,11 +273,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               <p className="text-xs font-semibold uppercase tracking-[0.3em] text-pocket-orange">Notice</p>
               <div className="space-y-3">
                 <h2 id="ordering-notice-title" className="text-3xl font-black text-pocket-navy">
-                  We are not taking online orders right now.
+                  Online orders are closed for now.
                 </h2>
                 <p className="text-base leading-7 text-pocket-navy/75">
-                  Please visit us physically to place your order. You can still browse the menu and view all items on the website.
+                  Please visit us physically to place your order. Foodpanda delivery is still available through the Foodpanda app only, and you can still browse the menu and view all items on the website.
                 </p>
+                <a
+                  href={foodpandaDeliveryUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center rounded-full bg-pocket-orange px-4 py-2 text-sm font-semibold text-white transition hover:bg-pocket-orange/90"
+                >
+                  Here’s Pocket - The Shawarma Spot on Foodpanda for deliveries!
+                </a>
               </div>
               <div className="rounded-2xl bg-pocket-cream p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Visit Us</p>

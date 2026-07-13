@@ -41,7 +41,7 @@ export default async function HomePage() {
               </div>
               <div className="rounded-lg border border-pocket-navy/10 bg-white p-4">
                 <Truck className="h-5 w-5 text-pocket-orange" />
-                <p className="mt-3 text-sm font-bold text-pocket-navy">Delivery ready</p>
+                <p className="mt-3 text-sm font-bold text-pocket-navy">Foodpanda delivery only</p>
               </div>
               <div className="rounded-lg border border-pocket-navy/10 bg-white p-4">
                 <ShieldCheck className="h-5 w-5 text-pocket-orange" />
@@ -49,7 +49,7 @@ export default async function HomePage() {
               </div>
             </div>
           </div>
-          <HeroSlider images={data.heroImages} intervalMs={data.heroSliderIntervalMs} />
+          <HeroSlider images={data.heroImages ?? []} intervalMs={data.heroSliderIntervalMs} />
         </div>
       </section>
 

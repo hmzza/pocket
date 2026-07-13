@@ -7,8 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createAdminExpense, deleteAdminExpense, downloadAdminExpenseExport, fetchAdminExpenses, updateAdminExpense } from "@/lib/admin-client";
-import type { AdminExpense, AdminExpenseData, AdminRangePreset } from "@/lib/types";
+import {
+  createAdminExpense,
+  deleteAdminExpense,
+  downloadAdminExpenseExport,
+  fetchAdminExpenses,
+  fetchAdminSettings,
+  fetchAdminVendors,
+  updateAdminExpense,
+  updateAdminSetting
+} from "@/lib/admin-client";
+import type { AdminExpense, AdminExpenseData, AdminRangePreset, AdminVendor } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
@@ -21,6 +30,7 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
 ];
 
 const COMMON_EXPENSE_CATEGORIES = ["Inventory", "Utilities", "Rent", "Salaries", "Maintenance", "Marketing", "Delivery", "Misc"];
+const EXPENSE_CATEGORY_SETTING_KEY = "expense.categories";
 
 function getCurrentMonthKey() {
   const now = new Date();
@@ -83,8 +93,13 @@ function ExpenseEditor({
   branches,
   value,
   editingExpense,
+  vendorOptions,
+  categoryOptions,
+  onAddCategory,
   saving,
   onChange,
+  onVendorChoiceChange,
+  vendorChoice,
   onClose,
   onSubmit
 }: {
@@ -92,8 +107,13 @@ function ExpenseEditor({
   branches: AdminExpenseData["branches"];
   value: ExpenseFormState;
   editingExpense: AdminExpense | null;
+  vendorOptions: string[];
+  categoryOptions: string[];
+  onAddCategory: (category: string) => void | Promise<void>;
   saving: boolean;
   onChange: (next: ExpenseFormState) => void;
+  onVendorChoiceChange: (next: string) => void;
+  vendorChoice: string;
   onClose: () => void;
   onSubmit: () => void;
 }) {
@@ -137,12 +157,30 @@ function ExpenseEditor({
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Category</label>
-            <Input list="expense-categories" value={value.category} onChange={(event) => onChange({ ...value, category: event.target.value })} />
-            <datalist id="expense-categories">
-              {COMMON_EXPENSE_CATEGORIES.map((category) => (
-                <option key={category} value={category} />
+            <select
+              value={value.category}
+              onChange={(event) => {
+                if (event.target.value === "__add_category__") {
+                  const nextCategory = window.prompt("Enter a new expense category:");
+                  if (nextCategory) {
+                    void onAddCategory(nextCategory);
+                  }
+                  return;
+                }
+                onChange({ ...value, category: event.target.value });
+              }}
+              className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
+            >
+              <option value="" disabled>
+                Select category
+              </option>
+              {categoryOptions.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
               ))}
-            </datalist>
+              <option value="__add_category__">+ Add category</option>
+            </select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Amount</label>
@@ -150,7 +188,22 @@ function ExpenseEditor({
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Vendor</label>
-            <Input value={value.vendor} onChange={(event) => onChange({ ...value, vendor: event.target.value })} placeholder="Capital Fresh Foods" />
+            <select
+              value={vendorChoice}
+              onChange={(event) => onVendorChoiceChange(event.target.value)}
+              className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
+            >
+              <option value="">Select vendor</option>
+              {vendorOptions.map((vendor) => (
+                <option key={vendor} value={vendor}>
+                  {vendor}
+                </option>
+              ))}
+              <option value="__custom__">Other / custom</option>
+            </select>
+            {vendorChoice === "__custom__" ? (
+              <Input value={value.vendor ?? ""} onChange={(event) => onChange({ ...value, vendor: event.target.value })} placeholder="Capital Fresh Foods" />
+            ) : null}
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Bill reference</label>
@@ -177,6 +230,8 @@ function ExpenseEditor({
 
 export function ExpenseManagement() {
   const [data, setData] = useState<AdminExpenseData | null>(null);
+  const [vendors, setVendors] = useState<AdminVendor[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
   const [preset, setPreset] = useState<AdminRangePreset>("today");
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey());
   const [customStart, setCustomStart] = useState(getTodayDateKey());
@@ -190,6 +245,7 @@ export function ExpenseManagement() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<AdminExpense | null>(null);
   const [form, setForm] = useState<ExpenseFormState>(EMPTY_EXPENSE_FORM);
+  const [vendorChoice, setVendorChoice] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [deletingId, setDeletingId] = useState("");
@@ -236,8 +292,32 @@ export function ExpenseManagement() {
   }
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function loadMetadata() {
+      try {
+        const [settings, vendorData] = await Promise.all([fetchAdminSettings(), fetchAdminVendors()]);
+        if (cancelled) return;
+
+        const savedCategorySetting = settings.find((setting) => setting.key === EXPENSE_CATEGORY_SETTING_KEY);
+        const savedCategories = Array.isArray(savedCategorySetting?.value) ? savedCategorySetting.value.map((entry) => String(entry).trim()).filter(Boolean) : [];
+        setExpenseCategories(savedCategories);
+        setVendors(vendorData.vendors);
+      } catch {
+        // Metadata is helpful but not required for the page to render.
+      }
+    }
+
+    void loadMetadata();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     void loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd);
-  }, [preset, categoryFilter, selectedMonth, customStart, customEnd]);
+  }, [preset, branchId, categoryFilter, selectedMonth, customStart, customEnd]);
 
   const filteredExpenses = useMemo(() => {
     if (!data) return [];
@@ -252,8 +332,14 @@ export function ExpenseManagement() {
 
   const categoryOptions = useMemo(() => {
     const fromData = data?.categories.map((entry) => entry.label) ?? [];
-    return [...new Set([...COMMON_EXPENSE_CATEGORIES, ...fromData])];
-  }, [data]);
+    return [...new Set([...COMMON_EXPENSE_CATEGORIES, ...expenseCategories, ...fromData, ...(form.category ? [form.category] : [])])];
+  }, [data, expenseCategories, form.category]);
+
+  const vendorOptions = useMemo(() => {
+    return [...new Set(vendors.map((vendor) => vendor.vendorName).filter(Boolean).concat(form.vendor && vendorChoice === "__custom__" ? [form.vendor] : []))].sort((left, right) =>
+      left.localeCompare(right)
+    );
+  }, [form.vendor, vendorChoice, vendors]);
 
   function openCreate() {
     setEditingExpense(null);
@@ -262,17 +348,37 @@ export function ExpenseManagement() {
       branchId: branchId || data?.branches[0]?.id || "",
       category: categoryOptions[0] ?? "Inventory"
     });
+    setVendorChoice("");
     setEditorOpen(true);
   }
 
   function openEdit(expense: AdminExpense) {
     setEditingExpense(expense);
     setForm(mapExpenseToForm(expense));
+    setVendorChoice(expense.vendor && vendorOptions.includes(expense.vendor) ? expense.vendor : expense.vendor ? "__custom__" : "");
     setEditorOpen(true);
   }
 
+  async function addExpenseCategory(nextCategory: string) {
+    const trimmed = nextCategory.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const nextCategories = [...new Set([...expenseCategories, trimmed])].sort((left, right) => left.localeCompare(right));
+    try {
+      await updateAdminSetting(EXPENSE_CATEGORY_SETTING_KEY, nextCategories);
+      setExpenseCategories(nextCategories);
+      setForm((current) => ({ ...current, category: trimmed }));
+    } catch (categoryError) {
+      setError(categoryError instanceof Error ? categoryError.message : "Failed to save category.");
+    }
+  }
+
   async function submitExpense() {
-    if (!form.branchId || !form.title.trim() || !form.category.trim() || !form.amount || !form.expenseDate) {
+    const nextCategory = form.category.trim();
+    const nextVendor = vendorChoice === "__custom__" ? form.vendor.trim() : vendorChoice.trim();
+    if (!form.branchId || !form.title.trim() || !nextCategory || !form.amount || !form.expenseDate) {
       setError("Branch, title, category, amount, and date are required.");
       return;
     }
@@ -283,10 +389,10 @@ export function ExpenseManagement() {
       const payload = {
         branchId: form.branchId,
         title: form.title.trim(),
-        category: form.category.trim(),
+        category: nextCategory,
         amount: Number(form.amount),
         expenseDate: new Date(`${form.expenseDate}T12:00:00`).toISOString(),
-        vendor: form.vendor.trim() || undefined,
+        vendor: nextVendor || undefined,
         billReference: form.billReference.trim() || undefined,
         notes: form.notes.trim() || undefined
       };
@@ -368,8 +474,13 @@ export function ExpenseManagement() {
         branches={data?.branches ?? []}
         value={form}
         editingExpense={editingExpense}
+        vendorOptions={vendorOptions}
+        categoryOptions={categoryOptions}
+        onAddCategory={(nextCategory) => void addExpenseCategory(nextCategory)}
         saving={saving}
         onChange={setForm}
+        onVendorChoiceChange={setVendorChoice}
+        vendorChoice={vendorChoice}
         onClose={() => setEditorOpen(false)}
         onSubmit={() => void submitExpense()}
       />

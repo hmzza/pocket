@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminProduct, uploadAdminImage } from "@/lib/admin-client";
 import type { AdminProduct, Category } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile } from "@/lib/image-upload";
+import { resolvePocketImagePath } from "@/lib/image-paths";
 import { formatCurrency } from "@/lib/utils";
 
 type ProductFormState = {
@@ -767,7 +768,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
               <div className="flex items-start gap-3">
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-pocket-navy/10 bg-pocket-cream">
                   <Image
-                    src={product.images[0]?.url ?? product.imageUrl}
+                    src={resolvePocketImagePath(product.images[0]?.url ?? product.imageUrl)}
                     alt={product.name}
                     fill
                     className="object-cover"
