@@ -531,6 +531,10 @@ router.get("/customers/lookup", async (req, res, next) => {
 router.post("/checkout", async (req, res, next) => {
   try {
     const payload = checkoutSchema.parse(req.body);
+    const paymentMethod =
+      payload.serviceType === "FOODPANDA"
+        ? PaymentMethod.FOODPANDA_PAYOUT
+        : (payload.paymentMethod as PaymentMethod);
     const orderPayload = await buildPosOrderPayload(payload);
 
     // Run every independent read in parallel instead of serially. On a remote
@@ -551,7 +555,7 @@ router.post("/checkout", async (req, res, next) => {
             channel: OrderChannel.POS,
             serviceType: payload.serviceType as ServiceType,
             status: "CONFIRMED",
-            paymentMethod: payload.paymentMethod as PaymentMethod,
+            paymentMethod,
             paymentStatus: PaymentStatus.PAID,
             cashierId: req.user!.id,
             placedAt: payload.placedAt ? new Date(payload.placedAt) : undefined,
@@ -593,13 +597,13 @@ router.post("/checkout", async (req, res, next) => {
       action: "pos.checkout",
       entityType: "order",
       entityId: order.id,
-      payload: {
-        orderNumber,
-        branchId: payload.branchId,
-        itemCount: payload.items.length,
-        paymentMethod: payload.paymentMethod
-      }
-    }).catch((auditError) => {
+        payload: {
+          orderNumber,
+          branchId: payload.branchId,
+          itemCount: payload.items.length,
+          paymentMethod
+        }
+      }).catch((auditError) => {
       console.error("Failed to write POS checkout audit log", auditError);
     });
 
@@ -614,6 +618,10 @@ router.post("/checkout", async (req, res, next) => {
 router.patch("/orders/:orderId", async (req, res, next) => {
   try {
     const payload = checkoutSchema.parse(req.body);
+    const paymentMethod =
+      payload.serviceType === "FOODPANDA"
+        ? PaymentMethod.FOODPANDA_PAYOUT
+        : (payload.paymentMethod as PaymentMethod);
     const existingOrder = await prisma.order.findUnique({
       where: { id: req.params.orderId },
       include: {
@@ -696,7 +704,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           foodpandaOrderNumber: payload.serviceType === "FOODPANDA" ? payload.foodpandaOrderNumber?.trim() || null : null,
           serviceType: payload.serviceType as ServiceType,
           status: OrderStatus.CONFIRMED,
-          paymentMethod: payload.paymentMethod as PaymentMethod,
+          paymentMethod,
           paymentStatus: PaymentStatus.PAID,
           cashierId: req.user!.id,
           placedAt: payload.placedAt ? new Date(payload.placedAt) : existingOrder.placedAt,
@@ -734,13 +742,13 @@ router.patch("/orders/:orderId", async (req, res, next) => {
       action: "pos.order_update",
       entityType: "order",
       entityId: updatedOrder.id,
-      payload: {
-        orderNumber: updatedOrder.orderNumber,
-        branchId: existingOrder.branchId,
-        itemCount: payload.items.length,
-        paymentMethod: payload.paymentMethod
-      }
-    }).catch((auditError) => {
+        payload: {
+          orderNumber: updatedOrder.orderNumber,
+          branchId: existingOrder.branchId,
+          itemCount: payload.items.length,
+          paymentMethod
+        }
+      }).catch((auditError) => {
       console.error("Failed to write POS order update audit log", auditError);
     });
 

@@ -152,7 +152,7 @@ function formatPaymentMethod(value: string) {
 }
 
 function getPaymentOptions(serviceType: ServiceTypeValue) {
-  return serviceType === "FOODPANDA" ? [...basePaymentOptions, foodpandaPaymentOption] : basePaymentOptions;
+  return serviceType === "FOODPANDA" ? [foodpandaPaymentOption] : basePaymentOptions;
 }
 
 function formatServiceType(value: string) {
@@ -399,7 +399,12 @@ export function PosTerminal() {
   const ticketLocked = orderCompleted && !editingCompletedOrder;
 
   useEffect(() => {
-    if (serviceType !== "FOODPANDA" && paymentMethod === "FOODPANDA_PAYOUT") {
+    if (serviceType === "FOODPANDA") {
+      setPaymentMethod("FOODPANDA_PAYOUT");
+      return;
+    }
+
+    if (paymentMethod === "FOODPANDA_PAYOUT") {
       setPaymentMethod("");
     }
   }, [paymentMethod, serviceType]);
