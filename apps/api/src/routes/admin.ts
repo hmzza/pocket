@@ -276,7 +276,7 @@ const userQuerySchema = z.object({
 
 const userWriteSchema = z.object({
   name: z.string().min(2).max(80),
-  username: z.string().min(2).max(80),
+  username: z.string().min(2).max(80).optional(),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().min(8).max(20).optional().or(z.literal("")),
   password: z.string().min(8),
@@ -2344,12 +2344,13 @@ router.post("/users", async (req, res, next) => {
     const payload = userWriteSchema.parse(req.body);
     const role = await prisma.role.findUniqueOrThrow({ where: { code: payload.roleCode as RoleCode } });
     const passwordHash = await hashPassword(payload.password);
-    const email = payload.email?.trim().toLowerCase() || `${payload.username.trim().toLowerCase()}@pocket.local`;
+    const username = (payload.username?.trim().toLowerCase() || buildUniqueUsername(payload.email || payload.name)).trim();
+    const email = payload.email?.trim().toLowerCase() || `${username}@pocket.local`;
     const user = await prisma.user.create({
       data: {
         roleId: role.id,
         name: payload.name.trim(),
-        username: payload.username.trim().toLowerCase(),
+        username,
         email,
         phone: payload.phone?.trim() || null,
         passwordHash,
@@ -2399,7 +2400,13 @@ router.patch("/users/:id", async (req, res, next) => {
       data: {
         ...(payload.name !== undefined ? { name: payload.name.trim() } : {}),
         ...(payload.username !== undefined ? { username: payload.username.trim().toLowerCase() } : {}),
-        ...(payload.email !== undefined ? { email: payload.email.trim().toLowerCase() || `${(payload.username ?? current.username).trim().toLowerCase()}@pocket.local` } : {}),
+        ...(payload.email !== undefined
+          ? {
+              email:
+                payload.email.trim().toLowerCase() ||
+                `${(payload.username ?? current.username).trim().toLowerCase()}@pocket.local`
+            }
+          : {}),
         ...(payload.phone !== undefined ? { phone: payload.phone?.trim() || null } : {}),
         ...(role ? { roleId: role.id } : {}),
         ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
