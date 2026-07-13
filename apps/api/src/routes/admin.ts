@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { hashPassword } from "../lib/auth.js";
+import { buildUniqueUsername } from "../lib/username.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
@@ -275,11 +276,14 @@ const userQuerySchema = z.object({
 
 const userWriteSchema = z.object({
   name: z.string().min(2).max(80),
-  email: z.string().email(),
+  username: z.string().min(2).max(80),
+  email: z.string().email().optional().or(z.literal("")),
   phone: z.string().min(8).max(20).optional().or(z.literal("")),
   password: z.string().min(8),
   roleCode: z.enum(manageableUserRoleCodes),
-  isActive: z.boolean().optional()
+  isActive: z.boolean().optional(),
+  canAccessAdmin: z.boolean().optional(),
+  canAccessPos: z.boolean().optional()
 });
 
 const userPatchSchema = userWriteSchema.partial().extend({
@@ -289,9 +293,12 @@ const userPatchSchema = userWriteSchema.partial().extend({
 function serializeManagedUser(user: {
   id: string;
   name: string;
+  username: string;
   email: string;
   phone: string | null;
   isActive: boolean;
+  canAccessAdmin: boolean;
+  canAccessPos: boolean;
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -303,11 +310,14 @@ function serializeManagedUser(user: {
   return {
     id: user.id,
     name: user.name,
+    username: user.username,
     email: user.email,
     phone: user.phone ?? undefined,
     roleCode: user.role.code as ManageableUserRoleCode,
     roleLabel: user.role.label,
     isActive: user.isActive,
+    canAccessAdmin: user.canAccessAdmin,
+    canAccessPos: user.canAccessPos,
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString()
@@ -2312,6 +2322,7 @@ router.get("/users", async (req, res, next) => {
           ? {
               OR: [
                 { name: { contains: query.search, mode: "insensitive" } },
+                { username: { contains: query.search, mode: "insensitive" } },
                 { email: { contains: query.search, mode: "insensitive" } },
                 { phone: { contains: query.search, mode: "insensitive" } }
               ]
@@ -2333,14 +2344,18 @@ router.post("/users", async (req, res, next) => {
     const payload = userWriteSchema.parse(req.body);
     const role = await prisma.role.findUniqueOrThrow({ where: { code: payload.roleCode as RoleCode } });
     const passwordHash = await hashPassword(payload.password);
+    const email = payload.email?.trim().toLowerCase() || `${payload.username.trim().toLowerCase()}@pocket.local`;
     const user = await prisma.user.create({
       data: {
         roleId: role.id,
         name: payload.name.trim(),
-        email: payload.email.trim().toLowerCase(),
+        username: payload.username.trim().toLowerCase(),
+        email,
         phone: payload.phone?.trim() || null,
         passwordHash,
-        isActive: payload.isActive ?? true
+        isActive: payload.isActive ?? true,
+        canAccessAdmin: payload.canAccessAdmin ?? true,
+        canAccessPos: payload.canAccessPos ?? true
       },
       include: { role: true }
     });
@@ -2352,6 +2367,7 @@ router.post("/users", async (req, res, next) => {
       entityId: user.id,
       payload: {
         name: user.name,
+        username: user.username,
         email: user.email,
         roleCode: user.role.code
       }
@@ -2382,10 +2398,13 @@ router.patch("/users/:id", async (req, res, next) => {
       where: { id: current.id },
       data: {
         ...(payload.name !== undefined ? { name: payload.name.trim() } : {}),
-        ...(payload.email !== undefined ? { email: payload.email.trim().toLowerCase() } : {}),
+        ...(payload.username !== undefined ? { username: payload.username.trim().toLowerCase() } : {}),
+        ...(payload.email !== undefined ? { email: payload.email.trim().toLowerCase() || `${(payload.username ?? current.username).trim().toLowerCase()}@pocket.local` } : {}),
         ...(payload.phone !== undefined ? { phone: payload.phone?.trim() || null } : {}),
         ...(role ? { roleId: role.id } : {}),
         ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
+        ...(payload.canAccessAdmin !== undefined ? { canAccessAdmin: payload.canAccessAdmin } : {}),
+        ...(payload.canAccessPos !== undefined ? { canAccessPos: payload.canAccessPos } : {}),
         ...(payload.password !== undefined ? { passwordHash: await hashPassword(payload.password) } : {})
       },
       include: { role: true }
@@ -2427,7 +2446,7 @@ router.delete("/users/:id", async (req, res, next) => {
       action: "user.delete",
       entityType: "user",
       entityId: user.id,
-      payload: { email: user.email, roleCode: user.role.code }
+      payload: { username: user.username, email: user.email, roleCode: user.role.code }
     });
 
     return res.json({ deleted: true });

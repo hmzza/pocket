@@ -13,7 +13,8 @@ function formatPaymentMethod(value: string) {
     CARD: "Card",
     ONLINE: "Online",
     JAZZCASH: "JazzCash",
-    EASYPAISA: "Easypaisa"
+    EASYPAISA: "Easypaisa",
+    FOODPANDA_PAYOUT: "Foodpanda payout"
   };
 
   return map[value] ?? value.replaceAll("_", " ");

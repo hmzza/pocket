@@ -54,16 +54,22 @@ async function main() {
     where: { email: process.env.INITIAL_ADMIN_EMAIL ?? "admin@pocketshawarma.com" },
     update: {
       name: "Pocket Admin",
+      username: "superadmin_pocket",
       phone: "+92-300-0000001",
       passwordHash: adminPasswordHash,
-      roleId: superAdminRole.id
+      roleId: superAdminRole.id,
+      canAccessAdmin: true,
+      canAccessPos: true
     },
     create: {
       name: "Pocket Admin",
+      username: "superadmin_pocket",
       email: process.env.INITIAL_ADMIN_EMAIL ?? "admin@pocketshawarma.com",
       phone: "+92-300-0000001",
       passwordHash: adminPasswordHash,
-      roleId: superAdminRole.id
+      roleId: superAdminRole.id,
+      canAccessAdmin: true,
+      canAccessPos: true
     }
   });
 
@@ -71,16 +77,22 @@ async function main() {
     where: { email: "customer@pocketshawarma.com" },
     update: {
       name: "Ayesha Khan",
+      username: "ayesha_khan",
       phone: "+92-300-0000022",
       passwordHash: customerPasswordHash,
-      roleId: customerRole.id
+      roleId: customerRole.id,
+      canAccessAdmin: false,
+      canAccessPos: false
     },
     create: {
       name: "Ayesha Khan",
+      username: "ayesha_khan",
       email: "customer@pocketshawarma.com",
       phone: "+92-300-0000022",
       passwordHash: customerPasswordHash,
-      roleId: customerRole.id
+      roleId: customerRole.id,
+      canAccessAdmin: false,
+      canAccessPos: false
     }
   });
 
@@ -88,16 +100,22 @@ async function main() {
     where: { email: process.env.INITIAL_POS_EMAIL ?? "counter@pocketshawarma.com" },
     update: {
       name: "Pocket Counter",
+      username: "pocket_counter",
       phone: "+92-300-0000033",
       passwordHash: posPasswordHash,
-      roleId: posStaffRole.id
+      roleId: posStaffRole.id,
+      canAccessAdmin: true,
+      canAccessPos: true
     },
     create: {
       name: "Pocket Counter",
+      username: "pocket_counter",
       email: process.env.INITIAL_POS_EMAIL ?? "counter@pocketshawarma.com",
       phone: "+92-300-0000033",
       passwordHash: posPasswordHash,
-      roleId: posStaffRole.id
+      roleId: posStaffRole.id,
+      canAccessAdmin: true,
+      canAccessPos: true
     }
   });
 

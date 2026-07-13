@@ -269,11 +269,14 @@ export type AdminVendorData = {
 export type AdminUser = {
   id: string;
   name: string;
+  username: string;
   email: string;
   phone?: string;
   roleCode: "ADMIN" | "SUPER_ADMIN" | "POS_STAFF" | "CUSTOMER";
   roleLabel: string;
   isActive: boolean;
+  canAccessAdmin: boolean;
+  canAccessPos: boolean;
   lastLoginAt?: string | null;
   createdAt: string;
   updatedAt: string;

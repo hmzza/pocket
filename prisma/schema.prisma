@@ -38,6 +38,7 @@ enum PaymentMethod {
   CARD
   JAZZCASH
   EASYPAISA
+  FOODPANDA_PAYOUT
 }
 
 enum OrderChannel {
@@ -93,11 +94,14 @@ model User {
   id            String         @id @default(cuid())
   roleId        String
   name          String
+  username      String         @unique
   email         String         @unique
   phone         String?        @unique
   passwordHash  String
   avatarUrl     String?
   isActive      Boolean        @default(true)
+  canAccessAdmin Boolean       @default(false)
+  canAccessPos   Boolean       @default(false)
   lastLoginAt   DateTime?
   marketingOptIn Boolean      @default(false)
   createdAt     DateTime       @default(now())

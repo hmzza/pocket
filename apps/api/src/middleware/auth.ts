@@ -3,7 +3,7 @@ import type { RoleCode, User } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { verifyToken } from "../lib/auth.js";
 
-export type RequestUser = Pick<User, "id" | "email" | "name"> & {
+export type RequestUser = Pick<User, "id" | "email" | "name" | "username" | "canAccessAdmin" | "canAccessPos"> & {
   role: RoleCode;
 };
 
@@ -39,6 +39,9 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
       id: user.id,
       email: user.email,
       name: user.name,
+      username: user.username,
+      canAccessAdmin: user.canAccessAdmin,
+      canAccessPos: user.canAccessPos,
       role: user.role.code
     };
 
@@ -57,4 +60,3 @@ export function authorize(...roles: RoleCode[]) {
     return next();
   };
 }
-

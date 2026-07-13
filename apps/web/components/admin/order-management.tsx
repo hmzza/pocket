@@ -37,6 +37,20 @@ function formatServiceType(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function formatPaymentMethod(value: string) {
+  const map: Record<string, string> = {
+    CASH: "Cash",
+    CASH_ON_DELIVERY: "Cash on Delivery",
+    CARD: "Card",
+    ONLINE: "Online",
+    JAZZCASH: "JazzCash",
+    EASYPAISA: "Easypaisa",
+    FOODPANDA_PAYOUT: "Foodpanda payout"
+  };
+
+  return map[value] ?? value.replaceAll("_", " ");
+}
+
 function formatBundleSummary(components: Array<{ productName: string; quantity: number }>) {
   return components.map((component) => `${component.quantity}x ${component.productName}`).join(", ");
 }
@@ -57,7 +71,7 @@ function OrderDetails({ order }: { order: AdminOrder }) {
         </div>
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Payment</p>
-          <p className="mt-2 text-sm font-medium text-pocket-navy">{order.paymentMethod.replaceAll("_", " ")}</p>
+          <p className="mt-2 text-sm font-medium text-pocket-navy">{formatPaymentMethod(order.paymentMethod)}</p>
           <p className="mt-2 text-sm text-pocket-navy/60">
             Foodpanda order: {order.foodpandaOrderNumber ?? "null"}
           </p>

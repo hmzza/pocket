@@ -3,6 +3,7 @@ import { DiscountType, OrderChannel, PaymentMethod, PaymentStatus, Prisma, RoleC
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
+import { buildUniqueUsername } from "../lib/username.js";
 import { withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
@@ -505,6 +506,7 @@ router.post("/checkout", async (req, res, next) => {
         data: {
           roleId: role.id,
           name: payload.name,
+          username: buildUniqueUsername(payload.email),
           email: payload.email,
           phone: payload.phone,
           passwordHash: guestPasswordHash

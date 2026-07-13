@@ -47,6 +47,20 @@ function formatServiceType(value: string) {
   return map[value] ?? value.replaceAll("_", " ");
 }
 
+function formatPaymentMethod(value: string) {
+  const map: Record<string, string> = {
+    CASH: "Cash",
+    CASH_ON_DELIVERY: "Cash on Delivery",
+    CARD: "Card",
+    ONLINE: "Online",
+    JAZZCASH: "JazzCash",
+    EASYPAISA: "Easypaisa",
+    FOODPANDA_PAYOUT: "Payout"
+  };
+
+  return map[value] ?? value.replaceAll("_", " ");
+}
+
 function formatStatus(value: string) {
   const map: Record<string, string> = {
     PENDING: "Pending",
@@ -139,11 +153,11 @@ function CompactOrderCard({
           </p>
           {isFoodpanda ? (
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <span className={embedded ? "rounded-full bg-orange-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.18em] text-orange-700" : "rounded-full bg-orange-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.18em] text-orange-700"}>
+              <span className={embedded ? "rounded-full bg-orange-100 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.18em] text-orange-700" : "rounded-full bg-orange-100 px-2 py-0.5 text-[12px] font-black uppercase tracking-[0.18em] text-orange-700"}>
                 Foodpanda
               </span>
-              <span className={embedded ? "rounded-full bg-slate-100 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.16em] text-slate-700" : "rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-700"}>
-                {formatServiceType(order.serviceType)}
+              <span className={embedded ? "rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-700" : "rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-bold uppercase tracking-[0.16em] text-slate-700"}>
+                {formatPaymentMethod(order.paymentMethod)}
               </span>
             </div>
           ) : (
@@ -163,11 +177,11 @@ function CompactOrderCard({
           {order.customerPhone ? <p className={embedded ? "text-[9px] text-slate-500" : "text-[10px] text-slate-500"}>{order.customerPhone}</p> : null}
           <p className={embedded ? "mt-0.5 text-[9px] text-slate-500" : "mt-0.5 text-[10px] text-slate-500"}>{order.branch}</p>
           {order.foodpandaOrderNumber ? (
-            <p className={embedded ? "mt-1 inline-flex rounded-full bg-orange-50 px-1.5 py-0.5 text-[8px] font-bold tracking-[0.14em] text-orange-700" : "mt-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold tracking-[0.14em] text-orange-700"}>
+            <p className={embedded ? "mt-1 inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-[11px] font-black tracking-[0.14em] text-orange-700" : "mt-1 inline-flex rounded-full bg-orange-50 px-3 py-0.5 text-[13px] font-black tracking-[0.14em] text-orange-700"}>
               FP: {order.foodpandaOrderNumber}
             </p>
           ) : order.serviceType === "FOODPANDA" ? (
-            <p className={embedded ? "mt-1 inline-flex rounded-full bg-orange-50 px-1.5 py-0.5 text-[8px] font-bold tracking-[0.14em] text-orange-700" : "mt-1 inline-flex rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-bold tracking-[0.14em] text-orange-700"}>
+            <p className={embedded ? "mt-1 inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-[11px] font-black tracking-[0.14em] text-orange-700" : "mt-1 inline-flex rounded-full bg-orange-50 px-3 py-0.5 text-[13px] font-black tracking-[0.14em] text-orange-700"}>
               FP: null
             </p>
           ) : null}
@@ -189,8 +203,8 @@ function CompactOrderCard({
       </div>
 
       {isUnpaid ? (
-        <div className={embedded ? "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.2em] text-amber-800" : "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-[0.2em] text-amber-800"}>
-          <BadgeDollarSign className={embedded ? "h-2.5 w-2.5" : "h-3 w-3"} />
+        <div className={embedded ? "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.2em] text-amber-800" : "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-black uppercase tracking-[0.2em] text-amber-800"}>
+          <BadgeDollarSign className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />
           Unpaid
         </div>
       ) : null}

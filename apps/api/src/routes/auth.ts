@@ -3,6 +3,7 @@ import { RoleCode } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { hashPassword, signToken, verifyPassword } from "../lib/auth.js";
+import { buildUniqueUsername } from "../lib/username.js";
 import { AUTH_COOKIE_NAME, authenticate } from "../middleware/auth.js";
 
 const router = Router();
@@ -23,6 +24,7 @@ router.post("/register", async (req, res, next) => {
       data: {
         roleId: role.id,
         name: payload.name,
+        username: buildUniqueUsername(payload.email),
         email: payload.email,
         phone: payload.phone,
         passwordHash
@@ -35,6 +37,7 @@ router.post("/register", async (req, res, next) => {
       user: {
         id: user.id,
         name: user.name,
+        username: user.username,
         email: user.email,
         role: user.role.code
       }
@@ -49,9 +52,39 @@ const loginSchema = z.object({
   password: z.string().min(8)
 });
 
-async function authenticateCredentials(email: string, password: string) {
+const staffLoginSchema = z.object({
+  username: z.string().min(2).max(80),
+  password: z.string().min(8)
+});
+
+type AuthenticatedUser = NonNullable<Awaited<ReturnType<typeof authenticateCredentialsByEmail>>>;
+
+async function authenticateCredentialsByEmail(email: string, password: string) {
   const user = await prisma.user.findUnique({
     where: { email },
+    include: { role: true }
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  const isValid = await verifyPassword(password, user.passwordHash);
+  if (!isValid || !user.isActive) {
+    return null;
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() }
+  });
+
+  return user;
+}
+
+async function authenticateCredentialsByUsername(username: string, password: string) {
+  const user = await prisma.user.findUnique({
+    where: { username },
     include: { role: true }
   });
 
@@ -81,19 +114,22 @@ function authCookieOptions() {
   };
 }
 
-function setAuthCookie(res: Response, user: NonNullable<Awaited<ReturnType<typeof authenticateCredentials>>>) {
+function setAuthCookie(res: Response, user: AuthenticatedUser) {
   const token = signToken({ sub: user.id, email: user.email, role: user.role.code });
   res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions());
 }
 
-function buildAuthResponse(user: NonNullable<Awaited<ReturnType<typeof authenticateCredentials>>>) {
+function buildAuthResponse(user: AuthenticatedUser) {
   return {
     user: {
       id: user.id,
       name: user.name,
+      username: user.username,
       email: user.email,
       phone: user.phone,
-      role: user.role.code
+      role: user.role.code,
+      canAccessAdmin: user.canAccessAdmin,
+      canAccessPos: user.canAccessPos
     }
   };
 }
@@ -101,7 +137,7 @@ function buildAuthResponse(user: NonNullable<Awaited<ReturnType<typeof authentic
 router.post("/login", async (req, res, next) => {
   try {
     const payload = loginSchema.parse(req.body);
-    const user = await authenticateCredentials(payload.email, payload.password);
+    const user = await authenticateCredentialsByEmail(payload.email, payload.password);
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials." });
@@ -120,14 +156,14 @@ router.post("/login", async (req, res, next) => {
 
 router.post("/admin-login", async (req, res, next) => {
   try {
-    const payload = loginSchema.parse(req.body);
-    const user = await authenticateCredentials(payload.email, payload.password);
+    const payload = staffLoginSchema.parse(req.body);
+    const user = await authenticateCredentialsByUsername(payload.username, payload.password);
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    if (user.role.code !== RoleCode.ADMIN && user.role.code !== RoleCode.SUPER_ADMIN) {
+    if (!user.canAccessAdmin && user.role.code !== RoleCode.ADMIN && user.role.code !== RoleCode.SUPER_ADMIN) {
       return res.status(403).json({ message: "Admin access is restricted to admin roles." });
     }
 
@@ -140,14 +176,19 @@ router.post("/admin-login", async (req, res, next) => {
 
 router.post("/pos-login", async (req, res, next) => {
   try {
-    const payload = loginSchema.parse(req.body);
-    const user = await authenticateCredentials(payload.email, payload.password);
+    const payload = staffLoginSchema.parse(req.body);
+    const user = await authenticateCredentialsByUsername(payload.username, payload.password);
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    if (user.role.code !== RoleCode.ADMIN && user.role.code !== RoleCode.SUPER_ADMIN && user.role.code !== RoleCode.POS_STAFF) {
+    if (
+      !user.canAccessPos &&
+      user.role.code !== RoleCode.ADMIN &&
+      user.role.code !== RoleCode.SUPER_ADMIN &&
+      user.role.code !== RoleCode.POS_STAFF
+    ) {
       return res.status(403).json({ message: "POS access is restricted to approved staff accounts." });
     }
 
@@ -176,13 +217,15 @@ router.get("/me", authenticate, async (req, res) => {
     user: {
       id: user!.id,
       name: user!.name,
+      username: user!.username,
       email: user!.email,
       phone: user!.phone,
       role: user!.role.code,
+      canAccessAdmin: user!.canAccessAdmin,
+      canAccessPos: user!.canAccessPos,
       addresses: user!.addresses
     }
   });
 });
 
 export default router;
-

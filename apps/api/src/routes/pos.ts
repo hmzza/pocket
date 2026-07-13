@@ -78,7 +78,7 @@ const checkoutSchema = z
   .object({
     branchId: z.string().cuid(),
     serviceType: z.enum(["INSHOP", "FOODPANDA"]),
-    paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH"]),
+    paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT"]),
     customerName: z.string().max(80).optional(),
     customerPhone: z.string().max(20).optional(),
     foodpandaOrderNumber: z.string().max(40).optional(),
@@ -93,6 +93,14 @@ const checkoutSchema = z
         code: z.ZodIssueCode.custom,
         path: ["foodpandaOrderNumber"],
         message: "Foodpanda order number is required for Foodpanda orders."
+      });
+    }
+
+    if (value.paymentMethod === "FOODPANDA_PAYOUT" && value.serviceType !== "FOODPANDA") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["paymentMethod"],
+        message: "Foodpanda payout can only be used for Foodpanda orders."
       });
     }
   });

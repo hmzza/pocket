@@ -29,11 +29,16 @@ type TicketLine = {
 
 type ProductSelection = { groupId: string; optionIds: string[] };
 
-const paymentOptions = [
+type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT";
+type ServiceTypeValue = "INSHOP" | "FOODPANDA";
+
+const basePaymentOptions = [
   { value: "CASH", label: "Cash", logo: "/images/cash-logo.png" },
   { value: "EASYPAISA", label: "Easypaisa", logo: "/images/easypaisa-logo.png" },
   { value: "JAZZCASH", label: "JazzCash", logo: "/images/jazz-cash-logo.png" }
 ] as const;
+
+const foodpandaPaymentOption = { value: "FOODPANDA_PAYOUT", label: "Foodpanda payout", logo: "/images/foodpanda-logo.png" } as const;
 
 const serviceTypes = [
   { value: "INSHOP", label: "In Store", logo: "/images/instore-logo.png" },
@@ -139,10 +144,15 @@ function formatPaymentMethod(value: string) {
     CARD: "Card",
     ONLINE: "Online",
     JAZZCASH: "JazzCash",
-    EASYPAISA: "Easypaisa"
+    EASYPAISA: "Easypaisa",
+    FOODPANDA_PAYOUT: "Foodpanda payout"
   };
 
   return map[value] ?? value.replaceAll("_", " ");
+}
+
+function getPaymentOptions(serviceType: ServiceTypeValue) {
+  return serviceType === "FOODPANDA" ? [...basePaymentOptions, foodpandaPaymentOption] : basePaymentOptions;
 }
 
 function formatServiceType(value: string) {
@@ -284,9 +294,9 @@ export function PosTerminal() {
   const [ticket, setTicket] = useState<TicketLine[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [serviceType, setServiceType] = useState<(typeof serviceTypes)[number]["value"]>("INSHOP");
+  const [serviceType, setServiceType] = useState<ServiceTypeValue>("INSHOP");
   const [foodpandaOrderNumber, setFoodpandaOrderNumber] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<(typeof paymentOptions)[number]["value"] | "">("");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentOptionValue | "">("");
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED">("PERCENTAGE");
   const [discountValue, setDiscountValue] = useState("0");
   const [backdateEnabled, setBackdateEnabled] = useState(false);
@@ -371,6 +381,8 @@ export function PosTerminal() {
     });
   }, [categoryId, deferredSearch, products]);
 
+  const paymentOptions = useMemo(() => getPaymentOptions(serviceType), [serviceType]);
+
   const subtotal = useMemo(() => ticket.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [ticket]);
   const discountAmount = useMemo(() => {
     if (discountType === "PERCENTAGE") {
@@ -385,6 +397,12 @@ export function PosTerminal() {
   const payableTotal = total;
   const editingCompletedOrder = Boolean(editingOrderId);
   const ticketLocked = orderCompleted && !editingCompletedOrder;
+
+  useEffect(() => {
+    if (serviceType !== "FOODPANDA" && paymentMethod === "FOODPANDA_PAYOUT") {
+      setPaymentMethod("");
+    }
+  }, [paymentMethod, serviceType]);
 
   useEffect(() => {
     const normalizedPhone = customerPhone.replace(/\D/g, "");
@@ -513,9 +531,9 @@ export function PosTerminal() {
     setTicket(mapEditableOrderToTicket(order));
     setCustomerName(order.customerName || "");
     setCustomerPhone(order.customerPhone || "");
-    setServiceType(order.serviceType as (typeof serviceTypes)[number]["value"]);
+    setServiceType(order.serviceType as ServiceTypeValue);
     setFoodpandaOrderNumber(order.foodpandaOrderNumber || "");
-    setPaymentMethod(order.paymentMethod as (typeof paymentOptions)[number]["value"]);
+    setPaymentMethod(order.paymentMethod as PaymentOptionValue);
     setDiscountType(order.discountType === "NONE" ? "PERCENTAGE" : order.discountType);
     setDiscountValue(String(order.discountValue ?? 0));
     setBackdateEnabled(true);
@@ -951,7 +969,7 @@ export function PosTerminal() {
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1.5">
                   <p className="text-[0.6rem] font-semibold uppercase tracking-[0.22em] text-slate-500">Order type</p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">
                     {serviceTypes.map((entry) => {
                       const selected = serviceType === entry.value;
                       return (
@@ -961,7 +979,7 @@ export function PosTerminal() {
                           onClick={() => setServiceType(entry.value)}
                           disabled={ticketLocked}
                           className={cn(
-                            "grid h-10 w-10 place-items-center rounded-full border transition",
+                            "grid h-10 w-10 shrink-0 place-items-center rounded-full border transition",
                             selected ? "border-orange-500 bg-orange-100 shadow-sm" : "border-slate-200 bg-white hover:border-orange-300",
                             ticketLocked && "opacity-60"
                           )}
@@ -976,7 +994,7 @@ export function PosTerminal() {
                 </div>
                 <div className="space-y-1.5">
                   <p className="text-[0.6rem] font-semibold uppercase tracking-[0.22em] text-slate-500">Payment mode</p>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">
                     {paymentOptions.map((entry) => {
                       const selected = paymentMethod === entry.value;
                       return (
@@ -986,7 +1004,7 @@ export function PosTerminal() {
                           onClick={() => setPaymentMethod(entry.value)}
                           disabled={ticketLocked}
                           className={cn(
-                            "grid h-10 w-10 place-items-center rounded-full border transition",
+                            "grid h-10 w-10 shrink-0 place-items-center rounded-full border transition",
                             selected ? "border-orange-500 bg-orange-100 shadow-sm" : "border-slate-200 bg-white hover:border-orange-300",
                             ticketLocked && "opacity-60"
                           )}
