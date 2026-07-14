@@ -440,11 +440,15 @@ model Ingredient {
   name          String
   sku           String              @unique
   unit          String
+  type          String              @default("RAW")
   reorderLevel  Decimal             @db.Decimal(10, 2)
   costPerUnit   Decimal             @db.Decimal(10, 2)
+  caloriesPerUnit Decimal            @db.Decimal(10, 2) @default(0)
   supplier      Supplier?           @relation(fields: [supplierId], references: [id])
   branchLevels  BranchInventory[]
   productUsage  ProductIngredient[]
+  preparedComponents IngredientComponent[] @relation("PreparedIngredient")
+  usedInPreparedItems IngredientComponent[] @relation("ComponentIngredient")
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 }
@@ -472,6 +476,13 @@ model InventoryTransaction {
   referenceType    String?
   referenceId      String?
   note             String?
+  vendorName       String?
+  purchaseDate     DateTime?
+  purchaseCost     Decimal?                 @db.Decimal(10, 2)
+  wastageReason    String?
+  editedAt         DateTime?
+  editedById       String?
+  editHistory      Json?
   createdAt        DateTime                 @default(now())
   branchInventory  BranchInventory          @relation(fields: [branchInventoryId], references: [id], onDelete: Cascade)
   actor            User?                    @relation("InventoryActor", fields: [actorId], references: [id], onDelete: SetNull)
@@ -485,6 +496,16 @@ model ProductIngredient {
   ingredient     Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@id([productId, ingredientId])
+}
+
+model IngredientComponent {
+  parentIngredientId    String
+  componentIngredientId String
+  quantityNeeded        Decimal    @db.Decimal(10, 2)
+  parentIngredient      Ingredient @relation("PreparedIngredient", fields: [parentIngredientId], references: [id], onDelete: Cascade)
+  componentIngredient   Ingredient @relation("ComponentIngredient", fields: [componentIngredientId], references: [id], onDelete: Cascade)
+
+  @@id([parentIngredientId, componentIngredientId])
 }
 
 model Expense {

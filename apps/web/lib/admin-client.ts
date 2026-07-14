@@ -3,6 +3,8 @@
 import type {
   AdminCustomer,
   AdminExpenseData,
+  AdminInventoryForecast,
+  AdminRecipeData,
   AdminInventoryData,
   AdminOrderSegment,
   AdminOrder,
@@ -94,6 +96,28 @@ export async function fetchAdminProducts() {
       quantity: Number(component.quantity),
       sortOrder: component.sortOrder ?? undefined
     })),
+    costSummary: product.costSummary
+      ? {
+          recipeCost: Number(product.costSummary.recipeCost),
+          packagingCost: Number(product.costSummary.packagingCost),
+          totalCost: Number(product.costSummary.totalCost),
+          salePrice: Number(product.costSummary.salePrice),
+          grossProfit: Number(product.costSummary.grossProfit),
+          marginPercent: Number(product.costSummary.marginPercent),
+          calories: Number(product.costSummary.calories),
+          linkedIngredients: Number(product.costSummary.linkedIngredients),
+          items: (product.costSummary.items ?? []).map((item: any) => ({
+            ingredientId: item.ingredientId,
+            ingredientName: item.ingredientName,
+            ingredientType: item.ingredientType,
+            unit: item.unit,
+            quantity: Number(item.quantity),
+            unitCost: Number(item.unitCost),
+            cost: Number(item.cost),
+            calories: Number(item.calories)
+          }))
+        }
+      : undefined,
     category: {
       id: product.category.id,
       slug: product.category.slug,
@@ -120,8 +144,11 @@ export async function fetchAdminVendors(): Promise<AdminVendorData> {
       vendorName: vendor.vendorName,
       contactNumber: vendor.contactNumber ?? "",
       type: vendor.type ?? "",
+      provides: vendor.provides ?? "",
       quotedPrice: vendor.quotedPrice ?? "",
+      rateListUrl: vendor.rateListUrl ?? "",
       notes: vendor.notes ?? "",
+      isActive: vendor.isActive ?? true,
       createdAt: vendor.createdAt,
       updatedAt: vendor.updatedAt
     })),
@@ -146,10 +173,34 @@ export async function updateAdminVendor(vendorId: string, payload: Record<string
 }
 
 export async function deleteAdminVendor(vendorId: string) {
-  const data = await adminFetch<{ deleted: boolean }>(`/api/admin/vendors/${vendorId}`, {
+  const data = await adminFetch<{ disabled: boolean }>(`/api/admin/vendors/${vendorId}`, {
     method: "DELETE"
   });
-  return data.deleted;
+  return data.disabled;
+}
+
+export async function uploadAdminVendorRateList(file: File) {
+  const allowedTypes = new Set([
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel"
+  ]);
+  if (!allowedTypes.has(file.type)) {
+    throw new Error("Only PDF, image, CSV, and Excel rate lists are allowed.");
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const data = await adminFetch<{ url: string; filename: string }>("/api/admin/vendors/rate-list", {
+    method: "POST",
+    body: JSON.stringify({
+      filename: file.name,
+      dataUrl
+    })
+  });
+  return data;
 }
 
 export async function uploadAdminImage(file: File) {
@@ -495,7 +546,9 @@ export async function fetchAdminInventory(branchId?: string): Promise<AdminInven
       totalItems: data.summary.totalItems,
       lowStockItems: data.summary.lowStockItems,
       totalStockValue: Number(data.summary.totalStockValue),
-      totalUnits: Number(data.summary.totalUnits)
+      totalUnits: Number(data.summary.totalUnits),
+      wastageCostToday: Number(data.summary.wastageCostToday ?? 0),
+      suggestedPurchaseCost: Number(data.summary.suggestedPurchaseCost ?? 0)
     },
     items: data.items.map((item: any) => ({
       id: item.id,
@@ -505,11 +558,18 @@ export async function fetchAdminInventory(branchId?: string): Promise<AdminInven
       name: item.name,
       sku: item.sku,
       unit: item.unit,
+      type: item.type ?? "RAW",
       reorderLevel: Number(item.reorderLevel),
       costPerUnit: Number(item.costPerUnit),
+      caloriesPerUnit: Number(item.caloriesPerUnit ?? 0),
       quantityOnHand: Number(item.quantityOnHand),
       stockValue: Number(item.stockValue),
       lowStockAlert: Boolean(item.lowStockAlert),
+      linkedProducts: (item.linkedProducts ?? []).map((usage: any) => ({
+        productId: usage.productId,
+        productName: usage.productName,
+        quantityNeeded: Number(usage.quantityNeeded)
+      })),
       updatedAt: item.updatedAt
     })),
     recentTransactions: data.recentTransactions.map((entry: any) => ({
@@ -524,6 +584,11 @@ export async function fetchAdminInventory(branchId?: string): Promise<AdminInven
       note: entry.note ?? undefined,
       referenceType: entry.referenceType ?? undefined,
       referenceId: entry.referenceId ?? undefined,
+      vendorName: entry.vendorName ?? undefined,
+      purchaseDate: entry.purchaseDate ?? undefined,
+      purchaseCost: entry.purchaseCost == null ? undefined : Number(entry.purchaseCost),
+      wastageReason: entry.wastageReason ?? undefined,
+      editedAt: entry.editedAt ?? undefined,
       actorName: entry.actorName ?? undefined,
       createdAt: entry.createdAt
     }))
@@ -552,6 +617,57 @@ export async function createAdminInventoryTransaction(payload: Record<string, un
     body: JSON.stringify(payload)
   });
   return data.inventory;
+}
+
+export async function updateAdminInventoryTransaction(transactionId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ ok: boolean }>(`/api/admin/inventory/transactions/${transactionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.ok;
+}
+
+export async function fetchAdminInventoryForecast(): Promise<AdminInventoryForecast> {
+  const data = await adminFetch<any>("/api/admin/inventory/forecast");
+  return {
+    branchId: data.branchId,
+    generatedAt: data.generatedAt,
+    horizons: (data.horizons ?? []).map((horizon: any) => ({
+      label: horizon.label,
+      days: Number(horizon.days),
+      suggestedPurchaseCost: Number(horizon.suggestedPurchaseCost),
+      items: (horizon.items ?? []).map((item: any) => ({
+        ingredientId: item.ingredientId,
+        name: item.name,
+        unit: item.unit,
+        currentStock: Number(item.currentStock),
+        expectedUsage: Number(item.expectedUsage),
+        suggestedBuy: Number(item.suggestedBuy),
+        estimatedCost: Number(item.estimatedCost),
+        confidence: item.confidence
+      }))
+    }))
+  };
+}
+
+export async function fetchAdminInventoryRecipes(): Promise<AdminRecipeData> {
+  return adminFetch<AdminRecipeData>("/api/admin/inventory/recipes");
+}
+
+export async function updateAdminProductRecipe(productId: string, components: Array<{ ingredientId: string; quantityNeeded: number }>) {
+  const data = await adminFetch<{ ok: boolean }>(`/api/admin/inventory/recipes/products/${productId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ components })
+  });
+  return data.ok;
+}
+
+export async function updateAdminPreparedRecipe(ingredientId: string, components: Array<{ ingredientId: string; quantityNeeded: number }>) {
+  const data = await adminFetch<{ ok: boolean }>(`/api/admin/inventory/recipes/prepared/${ingredientId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ components })
+  });
+  return data.ok;
 }
 
 export async function fetchAdminExpenses(params?: {

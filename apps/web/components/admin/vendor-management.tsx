@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { ExternalLink, Pencil, Plus, RefreshCcw, Search, Trash2, Upload } from "lucide-react";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import {
   deleteAdminVendor,
   fetchAdminVendors,
   fetchAdminSession,
+  uploadAdminVendorRateList,
   updateAdminVendor
 } from "@/lib/admin-client";
 import type { AdminVendor } from "@/lib/types";
@@ -21,7 +22,9 @@ type VendorFormState = {
   vendorName: string;
   contactNumber: string;
   type: string;
+  provides: string;
   quotedPrice: string;
+  rateListUrl: string;
   notes: string;
 };
 
@@ -30,7 +33,9 @@ const EMPTY_FORM: VendorFormState = {
   vendorName: "",
   contactNumber: "",
   type: "Vendor",
+  provides: "",
   quotedPrice: "",
+  rateListUrl: "",
   notes: ""
 };
 
@@ -40,7 +45,9 @@ function mapVendorToForm(vendor: AdminVendor): VendorFormState {
     vendorName: vendor.vendorName,
     contactNumber: vendor.contactNumber ?? "",
     type: vendor.type ?? "Vendor",
+    provides: vendor.provides ?? "",
     quotedPrice: vendor.quotedPrice ?? "",
+    rateListUrl: vendor.rateListUrl ?? "",
     notes: vendor.notes ?? ""
   };
 }
@@ -51,6 +58,7 @@ function VendorEditor({
   value,
   editingVendor,
   saving,
+  onUpload,
   onChange,
   onClose,
   onSubmit
@@ -60,10 +68,22 @@ function VendorEditor({
   value: VendorFormState;
   editingVendor: AdminVendor | null;
   saving: boolean;
+  onUpload: (file: File) => Promise<void>;
   onChange: (next: VendorFormState) => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const [uploading, setUploading] = useState(false);
+
+  async function handleUpload(file: File) {
+    setUploading(true);
+    try {
+      await onUpload(file);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   if (!open) return null;
 
   return (
@@ -107,9 +127,39 @@ function VendorEditor({
             <label className="text-sm font-semibold text-pocket-navy">Type</label>
             <Input value={value.type} onChange={(event) => onChange({ ...value, type: event.target.value })} placeholder="Vendor" />
           </div>
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-semibold text-pocket-navy">What they provide</label>
+            <Input value={value.provides} onChange={(event) => onChange({ ...value, provides: event.target.value })} placeholder="Chicken, sauces, packaging, vegetables..." />
+          </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Quoted price</label>
             <Input value={value.quotedPrice} onChange={(event) => onChange({ ...value, quotedPrice: event.target.value })} placeholder="660/kg - boneless" />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Rate list attachment</label>
+            <div className="flex flex-wrap gap-2">
+              <label className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-md border border-pocket-navy/15 bg-white px-4 text-sm font-semibold text-pocket-navy transition hover:bg-pocket-cream">
+                <Upload className="h-4 w-4" />
+                {uploading ? "Uploading..." : "Attach file"}
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.csv,.xlsx,.xls,application/pdf,image/png,image/jpeg,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                  className="sr-only"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    await handleUpload(file);
+                  }}
+                />
+              </label>
+              {value.rateListUrl ? (
+                <a href={value.rateListUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-md border border-pocket-navy/15 px-4 text-sm font-semibold text-pocket-orange">
+                  <ExternalLink className="h-4 w-4" />
+                  Open
+                </a>
+              ) : null}
+            </div>
           </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-semibold text-pocket-navy">Notes</label>
@@ -196,7 +246,7 @@ export function VendorManagement() {
       const matchesCategory = !categoryFilter || vendor.ingredientCategory === categoryFilter;
       const matchesSearch =
         !search ||
-        `${vendor.ingredientCategory} ${vendor.vendorName} ${vendor.contactNumber ?? ""} ${vendor.type ?? ""} ${vendor.notes ?? ""}`
+        `${vendor.ingredientCategory} ${vendor.vendorName} ${vendor.contactNumber ?? ""} ${vendor.type ?? ""} ${vendor.provides ?? ""} ${vendor.notes ?? ""}`
           .toLowerCase()
           .includes(search.toLowerCase());
       return matchesCategory && matchesSearch;
@@ -242,7 +292,9 @@ export function VendorManagement() {
         vendorName: form.vendorName.trim(),
         contactNumber: form.contactNumber.trim() || undefined,
         type: form.type.trim() || "Vendor",
+        provides: form.provides.trim() || undefined,
         quotedPrice: form.quotedPrice.trim() || undefined,
+        rateListUrl: form.rateListUrl.trim() || undefined,
         notes: form.notes.trim() || undefined
       };
 
@@ -265,17 +317,17 @@ export function VendorManagement() {
 
   async function deleteVendor(vendor: AdminVendor) {
     if (!canManage) return;
-    const confirmed = window.confirm(`Delete ${vendor.vendorName}?`);
+    const confirmed = window.confirm(`Disable ${vendor.vendorName}? The vendor record and attachments will stay stored.`);
     if (!confirmed) return;
 
     setDeletingId(vendor.id);
     setError("");
     try {
       await deleteAdminVendor(vendor.id);
-      flashNotice("success", "Vendor deleted.");
+      flashNotice("success", "Vendor disabled.");
       await loadVendors();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete vendor.");
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to disable vendor.");
     } finally {
       setDeletingId("");
     }
@@ -300,6 +352,10 @@ export function VendorManagement() {
           value={form}
           editingVendor={editingVendor}
           saving={saving}
+          onUpload={async (file) => {
+            const uploaded = await uploadAdminVendorRateList(file);
+            setForm((current) => ({ ...current, rateListUrl: uploaded.url }));
+          }}
           onChange={setForm}
           onClose={() => setEditorOpen(false)}
           onSubmit={() => void submitVendor()}
@@ -321,7 +377,7 @@ export function VendorManagement() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p>
             <p className="mt-3 text-sm text-pocket-navy/60">
-              {canManage ? "Create, edit, remove, or refresh vendor records." : "Read-only view for staff accounts."}
+              {canManage ? "Create, edit, disable, or refresh vendor records." : "Read-only view for staff accounts."}
             </p>
           </div>
           <div className="flex gap-2">
@@ -361,7 +417,7 @@ export function VendorManagement() {
           </select>
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pocket-navy/40" />
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search vendor, category, contact, or notes" className="pl-9" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search vendor, category, contact, provided items, or notes" className="pl-9" />
           </div>
           <div className="rounded-md border border-dashed border-pocket-navy/10 px-4 py-3 text-sm text-pocket-navy/60">
             Vendors are stored in <span className="font-semibold text-pocket-navy">data/vendors.xlsx</span>.
@@ -373,14 +429,14 @@ export function VendorManagement() {
         <div
           className={
             canManage
-              ? "grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
-              : "grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
+              ? "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
+              : "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
           }
         >
           <span>Category</span>
           <span>Vendor</span>
           <span>Contact</span>
-          <span>Type</span>
+          <span>Provides</span>
           <span>Quoted Price</span>
           {canManage ? <span>Actions</span> : null}
         </div>
@@ -392,15 +448,23 @@ export function VendorManagement() {
               key={vendor.id}
               className={
                 canManage
-                  ? "grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
-                  : "grid grid-cols-[1fr_1fr_1fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
+                  ? "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
+                  : "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
               }
             >
               <div className="font-semibold text-pocket-navy">{vendor.ingredientCategory}</div>
               <div className="font-bold text-pocket-navy">{vendor.vendorName}</div>
               <div className="text-pocket-navy/70">{vendor.contactNumber || "—"}</div>
-              <div className="text-pocket-navy/70">{vendor.type || "Vendor"}</div>
-              <div className="text-pocket-orange">{vendor.quotedPrice || "—"}</div>
+              <div className="text-pocket-navy/70">{vendor.provides || vendor.type || "Vendor"}</div>
+              <div>
+                <p className="text-pocket-orange">{vendor.quotedPrice || "—"}</p>
+                {vendor.rateListUrl ? (
+                  <a href={vendor.rateListUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-pocket-orange">
+                    <ExternalLink className="h-3 w-3" />
+                    Rate list
+                  </a>
+                ) : null}
+              </div>
               {canManage ? (
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => openEdit(vendor)}>
@@ -415,7 +479,7 @@ export function VendorManagement() {
                     disabled={deletingId === vendor.id}
                   >
                     <Trash2 className="h-4 w-4" />
-                    {deletingId === vendor.id ? "Deleting..." : "Delete"}
+                    {deletingId === vendor.id ? "Disabling..." : "Disable"}
                   </Button>
                 </div>
               ) : null}

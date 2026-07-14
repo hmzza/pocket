@@ -1,6 +1,6 @@
 import { PrismaClient, DiscountType, PaymentMethod, PaymentStatus, RoleCode } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { INVENTORY_ITEMS, PRODUCT_RECIPE_BY_SLUG } from "../apps/api/src/lib/inventory-config.js";
+import { INVENTORY_ITEMS, PREPARED_RECIPE_BY_SKU, PRODUCT_RECIPE_BY_SLUG } from "../apps/api/src/lib/inventory-config.js";
 
 const prisma = new PrismaClient();
 
@@ -953,16 +953,20 @@ async function main() {
         update: {
           name: item.name,
           unit: item.unit,
+          type: item.type,
           reorderLevel: item.reorderLevel,
           costPerUnit: item.costPerUnit,
+          caloriesPerUnit: item.caloriesPerUnit,
           supplierId: supplier.id
         },
         create: {
           sku: item.sku,
           name: item.name,
           unit: item.unit,
+          type: item.type,
           reorderLevel: item.reorderLevel,
           costPerUnit: item.costPerUnit,
+          caloriesPerUnit: item.caloriesPerUnit,
           supplierId: supplier.id
         }
       })
@@ -1011,13 +1015,11 @@ async function main() {
 
   for (const product of products) {
     const recipe = PRODUCT_RECIPE_BY_SLUG[product.slug] ?? [];
-    const recipeIngredientIds = new Set<string>();
 
     for (const component of recipe) {
       const ingredient = ingredientBySku.get(component.ingredientSku);
       if (!ingredient) continue;
 
-      recipeIngredientIds.add(ingredient.id);
       await prisma.productIngredient.upsert({
         where: {
           productId_ingredientId: {
@@ -1036,12 +1038,34 @@ async function main() {
       });
     }
 
-    await prisma.productIngredient.deleteMany({
-      where: {
-        productId: product.id,
-        ...(recipeIngredientIds.size ? { ingredientId: { notIn: Array.from(recipeIngredientIds) } } : {})
-      }
-    });
+  }
+
+  for (const [preparedSku, recipe] of Object.entries(PREPARED_RECIPE_BY_SKU)) {
+    const parent = ingredientBySku.get(preparedSku);
+    if (!parent) continue;
+
+    for (const component of recipe) {
+      const ingredient = ingredientBySku.get(component.ingredientSku);
+      if (!ingredient) continue;
+
+      await prisma.ingredientComponent.upsert({
+        where: {
+          parentIngredientId_componentIngredientId: {
+            parentIngredientId: parent.id,
+            componentIngredientId: ingredient.id
+          }
+        },
+        update: {
+          quantityNeeded: component.quantity
+        },
+        create: {
+          parentIngredientId: parent.id,
+          componentIngredientId: ingredient.id,
+          quantityNeeded: component.quantity
+        }
+      });
+    }
+
   }
 
   const classicPocket = products.find((product) => product.slug === "classic-pocket");

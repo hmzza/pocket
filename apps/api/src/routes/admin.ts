@@ -15,6 +15,7 @@ import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js"
 
 const router = Router();
 const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/images/", import.meta.url));
+const API_UPLOADS_VENDOR_RATE_LISTS_DIR = fileURLToPath(new URL("../../public/uploads/vendor-rate-lists/", import.meta.url));
 const VENDORS_WORKBOOK_PATH = fileURLToPath(new URL("../../../../data/vendors.xlsx", import.meta.url));
 
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
@@ -203,12 +204,15 @@ const vendorSchema = z.object({
   vendorName: z.string().min(1).max(120),
   contactNumber: z.string().max(40).optional().or(z.literal("")),
   type: z.string().max(40).optional().or(z.literal("")),
+  provides: z.string().max(240).optional().or(z.literal("")),
   quotedPrice: z.string().max(120).optional().or(z.literal("")),
+  rateListUrl: z.string().max(240).optional().or(z.literal("")),
   notes: z.string().max(500).optional().or(z.literal(""))
 });
 
 type VendorRecord = z.infer<typeof vendorSchema> & {
   id: string;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -231,8 +235,11 @@ function readVendorSheetRows(): Promise<VendorRecord[]> {
           vendorName: String(row.vendorName ?? row["Vendor Name"] ?? "").trim(),
           contactNumber: String(row.contactNumber ?? row["Contact Number"] ?? "").trim(),
           type: String(row.type ?? row["Type"] ?? "Vendor").trim() || "Vendor",
+          provides: String(row.provides ?? row["Provides"] ?? "").trim(),
           quotedPrice: String(row.quotedPrice ?? row["Quoted Price"] ?? "").trim(),
+          rateListUrl: String(row.rateListUrl ?? row["Rate List URL"] ?? "").trim(),
           notes: String(row.notes ?? row["Notes"] ?? "").trim(),
+          isActive: String(row.isActive ?? row["Active"] ?? "true").toLowerCase() !== "false",
           createdAt: String(row.createdAt ?? new Date().toISOString()),
           updatedAt: String(row.updatedAt ?? new Date().toISOString())
         }))
@@ -256,8 +263,11 @@ async function writeVendorSheetRows(rows: VendorRecord[]) {
       vendorName: row.vendorName,
       contactNumber: row.contactNumber,
       type: row.type,
+      provides: row.provides,
       quotedPrice: row.quotedPrice,
+      rateListUrl: row.rateListUrl,
       notes: row.notes,
+      isActive: row.isActive,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     }))
@@ -369,9 +379,136 @@ async function saveUploadedImage(filename: string | undefined, dataUrl: string) 
   };
 }
 
+function sanitizeUploadFilename(filename: string | undefined, fallback: string, extension: string) {
+  const base = filename ? normalizeSlug(filename.replace(/\.[^.]+$/, "")) : fallback;
+  const name = base.slice(0, 48) || fallback;
+  const suffix = randomUUID().slice(0, 8);
+  return `${name}-${Date.now().toString(36)}-${suffix}.${extension}`;
+}
+
+async function saveVendorRateList(filename: string | undefined, dataUrl: string) {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("Invalid attachment data.");
+  }
+
+  const mimeType = match[1];
+  const base64 = match[2];
+  const extensionByMime: Record<string, string> = {
+    "application/pdf": "pdf",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "text/csv": "csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-excel": "xls"
+  };
+  const extension = extensionByMime[mimeType ?? ""];
+  if (!extension || !base64) {
+    throw new Error("Only PDF, image, CSV, and Excel rate lists are allowed.");
+  }
+
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.length) {
+    throw new Error("Attachment file is empty.");
+  }
+  if (buffer.length > 8 * 1024 * 1024) {
+    throw new Error("Attachment must be 8MB or smaller.");
+  }
+
+  await mkdir(API_UPLOADS_VENDOR_RATE_LISTS_DIR, { recursive: true });
+  const safeFilename = sanitizeUploadFilename(filename, "rate-list", extension);
+  await writeFile(path.join(API_UPLOADS_VENDOR_RATE_LISTS_DIR, safeFilename), buffer);
+
+  return {
+    filename: safeFilename,
+    url: `/uploads/vendor-rate-lists/${safeFilename}`
+  };
+}
+
 function parseDecimal(value: Prisma.Decimal | number | string | null | undefined) {
   if (value == null) return 0;
   return Number(value);
+}
+
+function roundMoney(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function roundQuantity(value: number) {
+  return Number(value.toFixed(3));
+}
+
+function buildProductCostSummary(product: any) {
+  const recipeItems = (product.productIngredients ?? []).map((entry: any) => {
+    const quantity = parseDecimal(entry.quantityNeeded);
+    const unitCost = parseDecimal(entry.ingredient?.costPerUnit);
+    const caloriesPerUnit = parseDecimal(entry.ingredient?.caloriesPerUnit);
+    const cost = quantity * unitCost;
+    const calories = quantity * caloriesPerUnit;
+    return {
+      ingredientId: entry.ingredientId,
+      ingredientName: entry.ingredient?.name ?? "Unknown ingredient",
+      ingredientType: entry.ingredient?.type ?? "RAW",
+      unit: entry.ingredient?.unit ?? "",
+      quantity,
+      unitCost,
+      cost: roundMoney(cost),
+      calories: Math.round(calories)
+    };
+  });
+
+  const packagingCost = recipeItems
+    .filter((entry: any) => entry.ingredientType === "PACKAGING")
+    .reduce((sum: number, entry: any) => sum + entry.cost, 0);
+  const recipeCost = recipeItems.reduce((sum: number, entry: any) => sum + entry.cost, 0);
+  const calories = recipeItems.reduce((sum: number, entry: any) => sum + entry.calories, 0);
+  const salePrice = parseDecimal(product.branchPricing?.[0]?.price ?? product.basePrice);
+  const profit = salePrice - recipeCost;
+
+  return {
+    recipeCost: roundMoney(recipeCost),
+    packagingCost: roundMoney(packagingCost),
+    totalCost: roundMoney(recipeCost),
+    salePrice: roundMoney(salePrice),
+    grossProfit: roundMoney(profit),
+    marginPercent: salePrice ? Number(((profit / salePrice) * 100).toFixed(1)) : 0,
+    calories,
+    linkedIngredients: recipeItems.length,
+    items: recipeItems
+  };
+}
+
+async function recalculateInventoryBalances(branchInventoryId: string) {
+  const inventory = await prisma.branchInventory.findUnique({
+    where: { id: branchInventoryId },
+    include: { ingredient: true }
+  });
+
+  if (!inventory) {
+    throw new Error("Inventory item not found.");
+  }
+
+  const transactions = await prisma.inventoryTransaction.findMany({
+    where: { branchInventoryId },
+    orderBy: { createdAt: "asc" }
+  });
+
+  let balance = 0;
+  for (const entry of transactions) {
+    balance = roundQuantity(balance + parseDecimal(entry.quantity));
+    await prisma.inventoryTransaction.update({
+      where: { id: entry.id },
+      data: { balanceAfter: balance }
+    });
+  }
+
+  await prisma.branchInventory.update({
+    where: { id: branchInventoryId },
+    data: {
+      quantityOnHand: balance,
+      lowStockAlert: balance <= parseDecimal(inventory.ingredient.reorderLevel)
+    }
+  });
 }
 
 function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda"): Prisma.OrderWhereInput {
@@ -825,12 +962,21 @@ router.get("/products", async (_req, res) => {
           }
         }
       },
-      branchPricing: { include: { branch: true } }
+      branchPricing: { include: { branch: true } },
+      productIngredients: {
+        include: { ingredient: true },
+        orderBy: { ingredient: { name: "asc" } }
+      }
     },
     orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
   });
 
-  return res.json({ products });
+  return res.json({
+    products: products.map((product) => ({
+      ...product,
+      costSummary: buildProductCostSummary(product)
+    }))
+  });
 });
 
 const productSchema = z.object({
@@ -1027,22 +1173,9 @@ router.patch("/products/:id", async (req, res, next) => {
           ...(slug ? { slug: normalizeSlug(slug) } : {}),
           ...(sku ? { sku: normalizeSku(sku) } : {}),
           ...(description ? { description: description.trim() } : {}),
-          ...(normalizedBundleComponents !== null
-            ? {
-                bundleComponents: {
-                  deleteMany: {},
-                  create: normalizedBundleComponents.map((component) => ({
-                    componentProductId: component.componentProductId,
-                    quantity: component.quantity,
-                    sortOrder: component.sortOrder ?? 0
-                  }))
-                }
-              }
-            : {}),
           ...(nextImages
             ? {
                 images: {
-                  deleteMany: {},
                   create: nextImages
                 }
               }
@@ -1061,6 +1194,29 @@ router.patch("/products/:id", async (req, res, next) => {
           }
         }
       });
+
+      if (normalizedBundleComponents !== null) {
+        for (const component of normalizedBundleComponents) {
+          await transaction.productBundleComponent.upsert({
+            where: {
+              productId_componentProductId: {
+                productId: updatedProduct.id,
+                componentProductId: component.componentProductId
+              }
+            },
+            update: {
+              quantity: component.quantity,
+              sortOrder: component.sortOrder ?? 0
+            },
+            create: {
+              productId: updatedProduct.id,
+              componentProductId: component.componentProductId,
+              quantity: component.quantity,
+              sortOrder: component.sortOrder ?? 0
+            }
+          });
+        }
+      }
 
       if (typeof payload.basePrice === "number" || typeof payload.isActive === "boolean" || typeof payload.stockStatus === "string") {
         await transaction.branchProduct.updateMany({
@@ -1093,26 +1249,6 @@ router.patch("/products/:id", async (req, res, next) => {
 router.delete("/products/:id", async (req, res, next) => {
   try {
     const productId = req.params.id;
-    const orderItemCount = await prisma.orderItem.count({
-      where: { productId }
-    });
-
-    if (orderItemCount === 0) {
-      await prisma.product.delete({
-        where: { id: productId }
-      });
-
-      await writeAuditLog({
-        actorId: req.user!.id,
-        action: "product.delete",
-        entityType: "product",
-        entityId: productId,
-        payload: { mode: "deleted" }
-      });
-
-      return res.json({ mode: "deleted", message: "Product deleted." });
-    }
-
     await prisma.product.update({
       where: { id: productId },
       data: { isActive: false }
@@ -1123,12 +1259,12 @@ router.delete("/products/:id", async (req, res, next) => {
       action: "product.disable",
       entityType: "product",
       entityId: productId,
-      payload: { mode: "disabled", reason: "product is referenced in existing orders" }
+      payload: { mode: "disabled", reason: "products are soft-disabled to preserve database history" }
     });
 
     return res.json({
       mode: "disabled",
-      message: "Product is used in orders, so it was disabled instead of deleted."
+      message: "Product disabled. No product data was deleted."
     });
   } catch (error) {
     return next(error);
@@ -1194,8 +1330,10 @@ const inventoryItemSchema = z.object({
   name: z.string().min(2).max(80),
   sku: z.string().min(3).max(40).optional(),
   unit: z.string().min(1).max(20),
+  type: z.enum(["RAW", "PREPARED", "PACKAGING"]).default("RAW"),
   reorderLevel: z.number().nonnegative(),
   costPerUnit: z.number().nonnegative().default(0),
+  caloriesPerUnit: z.number().nonnegative().default(0),
   openingStock: z.number().nonnegative().default(0)
 });
 
@@ -1203,8 +1341,10 @@ const inventoryItemUpdateSchema = z.object({
   name: z.string().min(2).max(80).optional(),
   sku: z.string().min(3).max(40).optional(),
   unit: z.string().min(1).max(20).optional(),
+  type: z.enum(["RAW", "PREPARED", "PACKAGING"]).optional(),
   reorderLevel: z.number().nonnegative().optional(),
-  costPerUnit: z.number().nonnegative().optional()
+  costPerUnit: z.number().nonnegative().optional(),
+  caloriesPerUnit: z.number().nonnegative().optional()
 });
 
 const inventoryMovementSchema = z
@@ -1214,6 +1354,10 @@ const inventoryMovementSchema = z
     action: z.enum(["PURCHASE", "ADJUSTMENT", "WASTAGE", "RETURN", "CLOSING"]),
     quantity: z.number().optional(),
     countedQuantity: z.number().nonnegative().optional(),
+    vendorName: z.string().trim().max(120).optional(),
+    purchaseDate: z.string().datetime().optional(),
+    purchaseCost: z.number().nonnegative().optional(),
+    wastageReason: z.enum(["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"]).optional(),
     note: z.string().max(240).optional()
   })
   .superRefine((value, context) => {
@@ -1241,6 +1385,14 @@ const inventoryMovementSchema = z
         code: z.ZodIssueCode.custom,
         path: ["quantity"],
         message: "Use a positive quantity for this stock movement."
+      });
+    }
+
+    if (value.action === "WASTAGE" && !value.wastageReason) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["wastageReason"],
+        message: "Pick a wastage reason."
       });
     }
   });
@@ -1282,7 +1434,13 @@ router.get("/inventory", async (req, res, next) => {
         where: itemWhere,
         include: {
           branch: true,
-          ingredient: true
+          ingredient: {
+            include: {
+              productUsage: {
+                include: { product: { select: { id: true, name: true } } }
+              }
+            }
+          }
         },
         orderBy: [{ lowStockAlert: "desc" }, { ingredient: { name: "asc" } }]
       }),
@@ -1333,6 +1491,13 @@ router.get("/inventory", async (req, res, next) => {
         unit: item.ingredient.unit,
         reorderLevel: parseDecimal(item.ingredient.reorderLevel),
         costPerUnit: parseDecimal(item.ingredient.costPerUnit),
+        type: item.ingredient.type,
+        caloriesPerUnit: parseDecimal(item.ingredient.caloriesPerUnit),
+        linkedProducts: item.ingredient.productUsage.map((usage) => ({
+          productId: usage.productId,
+          productName: usage.product.name,
+          quantityNeeded: parseDecimal(usage.quantityNeeded)
+        })),
         quantityOnHand: parseDecimal(item.quantityOnHand),
         stockValue: Number((parseDecimal(item.quantityOnHand) * parseDecimal(item.ingredient.costPerUnit)).toFixed(2)),
         lowStockAlert: item.lowStockAlert,
@@ -1350,6 +1515,11 @@ router.get("/inventory", async (req, res, next) => {
         note: entry.note,
         referenceType: entry.referenceType,
         referenceId: entry.referenceId,
+        vendorName: entry.vendorName,
+        purchaseDate: entry.purchaseDate?.toISOString() ?? null,
+        purchaseCost: parseDecimal(entry.purchaseCost),
+        wastageReason: entry.wastageReason,
+        editedAt: entry.editedAt?.toISOString() ?? null,
         actorName: entry.actor?.name ?? null,
         createdAt: entry.createdAt.toISOString()
       }))
@@ -1378,8 +1548,10 @@ router.post("/inventory/items", async (req, res, next) => {
               name: trimmedName,
               sku: existingIngredient.sku,
               unit: payload.unit.trim(),
+              type: payload.type,
               reorderLevel: payload.reorderLevel,
-              costPerUnit: payload.costPerUnit
+              costPerUnit: payload.costPerUnit,
+              caloriesPerUnit: payload.caloriesPerUnit
             }
           })
         : await transaction.ingredient.create({
@@ -1387,8 +1559,10 @@ router.post("/inventory/items", async (req, res, next) => {
               name: trimmedName,
               sku: normalizedSku,
               unit: payload.unit.trim(),
+              type: payload.type,
               reorderLevel: payload.reorderLevel,
-              costPerUnit: payload.costPerUnit
+              costPerUnit: payload.costPerUnit,
+              caloriesPerUnit: payload.caloriesPerUnit
             }
           });
 
@@ -1461,8 +1635,10 @@ router.patch("/inventory/items/:id", async (req, res, next) => {
         ...(payload.name ? { name: payload.name.trim() } : {}),
         ...(payload.sku ? { sku: normalizeSku(payload.sku) } : {}),
         ...(payload.unit ? { unit: payload.unit.trim() } : {}),
+        ...(payload.type ? { type: payload.type } : {}),
         ...(typeof payload.reorderLevel === "number" ? { reorderLevel: payload.reorderLevel } : {}),
-        ...(typeof payload.costPerUnit === "number" ? { costPerUnit: payload.costPerUnit } : {})
+        ...(typeof payload.costPerUnit === "number" ? { costPerUnit: payload.costPerUnit } : {}),
+        ...(typeof payload.caloriesPerUnit === "number" ? { caloriesPerUnit: payload.caloriesPerUnit } : {})
       }
     });
 
@@ -1530,6 +1706,12 @@ router.post("/inventory/transactions", async (req, res, next) => {
     } else if (payload.action === "PURCHASE") {
       quantityDelta = Math.abs(payload.quantity ?? 0);
       type = InventoryTransactionType.PURCHASE;
+      if (payload.purchaseCost && quantityDelta > 0) {
+        await prisma.ingredient.update({
+          where: { id: payload.ingredientId },
+          data: { costPerUnit: Number((payload.purchaseCost / quantityDelta).toFixed(2)) }
+        });
+      }
     } else if (payload.action === "WASTAGE") {
       quantityDelta = -Math.abs(payload.quantity ?? 0);
       type = InventoryTransactionType.WASTAGE;
@@ -1550,7 +1732,11 @@ router.post("/inventory/transactions", async (req, res, next) => {
         type,
         actorId: req.user!.id,
         note,
-        referenceType: payload.action === "CLOSING" ? "DAILY_CLOSING" : "MANUAL"
+        referenceType: payload.action === "CLOSING" ? "DAILY_CLOSING" : "MANUAL",
+        vendorName: payload.action === "PURCHASE" ? payload.vendorName : undefined,
+        purchaseDate: payload.action === "PURCHASE" && payload.purchaseDate ? new Date(payload.purchaseDate) : undefined,
+        purchaseCost: payload.action === "PURCHASE" ? payload.purchaseCost : undefined,
+        wastageReason: payload.action === "WASTAGE" ? payload.wastageReason : undefined
       })
     );
 
@@ -1580,6 +1766,345 @@ router.post("/inventory/transactions", async (req, res, next) => {
         lowStockAlert: updatedInventory.lowStockAlert
       }
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const recipeUpdateSchema = z.object({
+  components: z.array(
+    z.object({
+      ingredientId: z.string().cuid(),
+      quantityNeeded: z.number().nonnegative()
+    })
+  )
+});
+
+const transactionUpdateSchema = z.object({
+  quantity: z.number().optional(),
+  note: z.string().max(240).optional(),
+  vendorName: z.string().trim().max(120).optional(),
+  purchaseDate: z.string().datetime().nullable().optional(),
+  purchaseCost: z.number().nonnegative().nullable().optional(),
+  wastageReason: z.enum(["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"]).nullable().optional()
+});
+
+router.get("/inventory/recipes", async (_req, res, next) => {
+  try {
+    const [ingredients, preparedItems, products] = await Promise.all([
+      prisma.ingredient.findMany({ orderBy: { name: "asc" } }),
+      prisma.ingredient.findMany({
+        where: { type: "PREPARED" },
+        include: {
+          preparedComponents: {
+            include: { componentIngredient: true },
+            orderBy: { componentIngredient: { name: "asc" } }
+          }
+        },
+        orderBy: { name: "asc" }
+      }),
+      prisma.product.findMany({
+        include: {
+          category: true,
+          branchPricing: true,
+          productIngredients: {
+            include: { ingredient: true },
+            orderBy: { ingredient: { name: "asc" } }
+          }
+        },
+        orderBy: { name: "asc" }
+      })
+    ]);
+
+    return res.json({
+      ingredients: ingredients.map((ingredient) => ({
+        id: ingredient.id,
+        name: ingredient.name,
+        sku: ingredient.sku,
+        unit: ingredient.unit,
+        type: ingredient.type,
+        costPerUnit: parseDecimal(ingredient.costPerUnit),
+        caloriesPerUnit: parseDecimal(ingredient.caloriesPerUnit)
+      })),
+      preparedItems: preparedItems.map((ingredient) => {
+        const components = ingredient.preparedComponents.map((component) => ({
+          ingredientId: component.componentIngredientId,
+          ingredientName: component.componentIngredient.name,
+          unit: component.componentIngredient.unit,
+          quantityNeeded: parseDecimal(component.quantityNeeded),
+          cost: roundMoney(parseDecimal(component.quantityNeeded) * parseDecimal(component.componentIngredient.costPerUnit)),
+          calories: Math.round(parseDecimal(component.quantityNeeded) * parseDecimal(component.componentIngredient.caloriesPerUnit))
+        }));
+        return {
+          id: ingredient.id,
+          name: ingredient.name,
+          unit: ingredient.unit,
+          costPerUnit: parseDecimal(ingredient.costPerUnit),
+          caloriesPerUnit: parseDecimal(ingredient.caloriesPerUnit),
+          totalCost: roundMoney(components.reduce((sum, component) => sum + component.cost, 0)),
+          totalCalories: components.reduce((sum, component) => sum + component.calories, 0),
+          components
+        };
+      }),
+      products: products.map((product) => ({
+        id: product.id,
+        name: product.name,
+        sku: product.sku,
+        categoryName: product.category.name,
+        basePrice: parseDecimal(product.basePrice),
+        calories: product.calories,
+        costSummary: buildProductCostSummary(product)
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/inventory/recipes/products/:id", async (req, res, next) => {
+  try {
+    const payload = recipeUpdateSchema.parse(req.body);
+    await prisma.$transaction(async (transaction) => {
+      for (const component of payload.components) {
+        await transaction.productIngredient.upsert({
+          where: {
+            productId_ingredientId: {
+              productId: req.params.id,
+              ingredientId: component.ingredientId
+            }
+          },
+          update: {
+            quantityNeeded: component.quantityNeeded
+          },
+          create: {
+            productId: req.params.id,
+            ingredientId: component.ingredientId,
+            quantityNeeded: component.quantityNeeded
+          }
+        });
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.recipe_product_update",
+      entityType: "product",
+      entityId: req.params.id,
+      payload
+    });
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/inventory/recipes/prepared/:id", async (req, res, next) => {
+  try {
+    const payload = recipeUpdateSchema.parse(req.body);
+    await prisma.$transaction(async (transaction) => {
+      for (const component of payload.components) {
+        await transaction.ingredientComponent.upsert({
+          where: {
+            parentIngredientId_componentIngredientId: {
+              parentIngredientId: req.params.id,
+              componentIngredientId: component.ingredientId
+            }
+          },
+          update: {
+            quantityNeeded: component.quantityNeeded
+          },
+          create: {
+            parentIngredientId: req.params.id,
+            componentIngredientId: component.ingredientId,
+            quantityNeeded: component.quantityNeeded
+          }
+        });
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.recipe_prepared_update",
+      entityType: "ingredient",
+      entityId: req.params.id,
+      payload
+    });
+
+    return res.json({ ok: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/inventory/forecast", async (_req, res, next) => {
+  try {
+    const branch = await prisma.branch.findFirst({ where: { isActive: true }, orderBy: { name: "asc" } });
+    if (!branch) {
+      return res.json({ horizons: [] });
+    }
+
+    const now = new Date();
+    const start30 = startOfDay(addDays(now, -29));
+    const [orders, productIngredients, inventories, wastageTransactions] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          branchId: branch.id,
+          status: { not: OrderStatus.CANCELLED },
+          placedAt: { gte: start30, lte: now }
+        },
+        include: {
+          items: {
+            include: { bundleComponents: true }
+          }
+        }
+      }),
+      prisma.productIngredient.findMany({ include: { ingredient: true } }),
+      prisma.branchInventory.findMany({
+        where: { branchId: branch.id },
+        include: { ingredient: true }
+      }),
+      prisma.inventoryTransaction.findMany({
+        where: {
+          type: InventoryTransactionType.WASTAGE,
+          createdAt: { gte: start30, lte: now },
+          branchInventory: { branchId: branch.id }
+        },
+        include: { branchInventory: true }
+      })
+    ]);
+
+    const soldByProduct = new Map<string, number>();
+    for (const order of orders) {
+      for (const item of order.items) {
+        if (item.productId) {
+          soldByProduct.set(item.productId, (soldByProduct.get(item.productId) ?? 0) + item.quantity);
+        }
+        for (const component of item.bundleComponents) {
+          if (!component.productId) continue;
+          soldByProduct.set(component.productId, (soldByProduct.get(component.productId) ?? 0) + component.quantity);
+        }
+      }
+    }
+
+    const recipeByProduct = new Map<string, typeof productIngredients>();
+    for (const entry of productIngredients) {
+      const existing = recipeByProduct.get(entry.productId) ?? [];
+      existing.push(entry);
+      recipeByProduct.set(entry.productId, existing);
+    }
+
+    const usage30ByIngredient = new Map<string, number>();
+    for (const [productId, soldQuantity] of soldByProduct.entries()) {
+      for (const recipe of recipeByProduct.get(productId) ?? []) {
+        usage30ByIngredient.set(
+          recipe.ingredientId,
+          roundQuantity((usage30ByIngredient.get(recipe.ingredientId) ?? 0) + parseDecimal(recipe.quantityNeeded) * soldQuantity)
+        );
+      }
+    }
+
+    const wastage30ByIngredient = new Map<string, number>();
+    for (const entry of wastageTransactions) {
+      const ingredientId = entry.branchInventory.ingredientId;
+      wastage30ByIngredient.set(ingredientId, (wastage30ByIngredient.get(ingredientId) ?? 0) + Math.abs(parseDecimal(entry.quantity)));
+    }
+
+    const buildHorizon = (label: string, days: number) => {
+      const items = inventories
+        .map((inventory) => {
+          const usage30 = usage30ByIngredient.get(inventory.ingredientId) ?? 0;
+          const wastage30 = wastage30ByIngredient.get(inventory.ingredientId) ?? 0;
+          const expectedUsage = (usage30 / 30) * days;
+          const expectedWastage = (wastage30 / 30) * days;
+          const buffer = expectedUsage * 0.15;
+          const currentStock = parseDecimal(inventory.quantityOnHand);
+          const suggestedBuy = Math.max(0, expectedUsage + expectedWastage + buffer - currentStock);
+          return {
+            ingredientId: inventory.ingredientId,
+            name: inventory.ingredient.name,
+            unit: inventory.ingredient.unit,
+            currentStock: roundQuantity(currentStock),
+            expectedUsage: roundQuantity(expectedUsage),
+            suggestedBuy: roundQuantity(suggestedBuy),
+            estimatedCost: roundMoney(suggestedBuy * parseDecimal(inventory.ingredient.costPerUnit)),
+            confidence: orders.length >= 30 ? "normal" : orders.length >= 10 ? "low" : "low"
+          };
+        })
+        .filter((item) => item.expectedUsage > 0 || item.suggestedBuy > 0)
+        .sort((left, right) => right.suggestedBuy - left.suggestedBuy);
+
+      return {
+        label,
+        days,
+        suggestedPurchaseCost: roundMoney(items.reduce((sum, item) => sum + item.estimatedCost, 0)),
+        items
+      };
+    };
+
+    return res.json({
+      branchId: branch.id,
+      generatedAt: now.toISOString(),
+      horizons: [buildHorizon("Tomorrow", 1), buildHorizon("Next 7 days", 7), buildHorizon("Next 30 days", 30)]
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/inventory/transactions/:id", async (req, res, next) => {
+  try {
+    const payload = transactionUpdateSchema.parse(req.body);
+    const current = await prisma.inventoryTransaction.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!current) {
+      return res.status(404).json({ message: "Stock log not found." });
+    }
+
+    const history = Array.isArray(current.editHistory) ? current.editHistory : [];
+    await prisma.inventoryTransaction.update({
+      where: { id: current.id },
+      data: {
+        ...(typeof payload.quantity === "number" ? { quantity: payload.quantity } : {}),
+        ...(typeof payload.note === "string" ? { note: payload.note.trim() || null } : {}),
+        ...(typeof payload.vendorName === "string" ? { vendorName: payload.vendorName.trim() || null } : {}),
+        ...(payload.purchaseDate !== undefined ? { purchaseDate: payload.purchaseDate ? new Date(payload.purchaseDate) : null } : {}),
+        ...(payload.purchaseCost !== undefined ? { purchaseCost: payload.purchaseCost } : {}),
+        ...(payload.wastageReason !== undefined ? { wastageReason: payload.wastageReason } : {}),
+        editedAt: new Date(),
+        editedById: req.user!.id,
+        editHistory: [
+          ...history,
+          {
+            editedAt: new Date().toISOString(),
+            editedById: req.user!.id,
+            previous: {
+              quantity: parseDecimal(current.quantity),
+              note: current.note,
+              vendorName: current.vendorName,
+              purchaseDate: current.purchaseDate?.toISOString() ?? null,
+              purchaseCost: parseDecimal(current.purchaseCost),
+              wastageReason: current.wastageReason
+            },
+            next: payload
+          }
+        ]
+      }
+    });
+
+    await recalculateInventoryBalances(current.branchInventoryId);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.transaction_update",
+      entityType: "inventory_transaction",
+      entityId: current.id,
+      payload
+    });
+
+    return res.json({ ok: true });
   } catch (error) {
     return next(error);
   }
@@ -1888,7 +2413,7 @@ router.get("/customers", async (_req, res) => {
 
 router.get("/vendors", async (_req, res, next) => {
   try {
-    const vendors = (await readVendorSheetRows()).sort((left, right) => {
+    const vendors = (await readVendorSheetRows()).filter((vendor) => vendor.isActive !== false).sort((left, right) => {
       const categoryCompare = left.ingredientCategory.localeCompare(right.ingredientCategory);
       return categoryCompare !== 0 ? categoryCompare : left.vendorName.localeCompare(right.vendorName);
     });
@@ -1913,8 +2438,11 @@ router.post("/vendors", async (req, res, next) => {
       vendorName: payload.vendorName.trim(),
       contactNumber: payload.contactNumber?.trim() || "",
       type: payload.type?.trim() || "Vendor",
+      provides: payload.provides?.trim() || "",
       quotedPrice: payload.quotedPrice?.trim() || "",
+      rateListUrl: payload.rateListUrl?.trim() || "",
       notes: payload.notes?.trim() || "",
+      isActive: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -1954,9 +2482,12 @@ router.patch("/vendors/:id", async (req, res, next) => {
       contactNumber:
         payload.contactNumber !== undefined ? payload.contactNumber?.trim() || "" : current.contactNumber ?? "",
       type: payload.type !== undefined ? payload.type?.trim() || "Vendor" : current.type ?? "Vendor",
+      provides: payload.provides !== undefined ? payload.provides?.trim() || "" : current.provides ?? "",
       quotedPrice:
         payload.quotedPrice !== undefined ? payload.quotedPrice?.trim() || "" : current.quotedPrice ?? "",
+      rateListUrl: payload.rateListUrl !== undefined ? payload.rateListUrl?.trim() || "" : current.rateListUrl ?? "",
       notes: payload.notes !== undefined ? payload.notes?.trim() || "" : current.notes ?? "",
+      isActive: current.isActive,
       createdAt: current.createdAt,
       updatedAt: new Date().toISOString()
     };
@@ -1981,21 +2512,38 @@ router.patch("/vendors/:id", async (req, res, next) => {
 router.delete("/vendors/:id", async (req, res, next) => {
   try {
     const vendors = await readVendorSheetRows();
-    const nextVendors = vendors.filter((vendor) => vendor.id !== req.params.id);
-    if (nextVendors.length === vendors.length) {
+    const index = vendors.findIndex((vendor) => vendor.id === req.params.id);
+    if (index === -1) {
       return res.status(404).json({ message: "Vendor not found." });
     }
 
-    await writeVendorSheetRows(nextVendors);
+    const current = vendors[index] as VendorRecord;
+    vendors[index] = {
+      ...current,
+      isActive: false,
+      updatedAt: new Date().toISOString()
+    };
+
+    await writeVendorSheetRows(vendors);
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "vendor.delete",
+      action: "vendor.disable",
       entityType: "vendor",
       entityId: req.params.id,
-      payload: { deleted: true }
+      payload: { mode: "disabled" }
     });
 
-    return res.json({ deleted: true });
+    return res.json({ disabled: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/vendors/rate-list", async (req, res, next) => {
+  try {
+    const payload = imageUploadSchema.parse(req.body);
+    const uploaded = await saveVendorRateList(payload.filename, payload.dataUrl);
+    return res.status(201).json(uploaded);
   } catch (error) {
     return next(error);
   }
