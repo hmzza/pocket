@@ -173,6 +173,8 @@ export type AdminInventorySummary = {
   lowStockItems: number;
   totalStockValue: number;
   totalUnits: number;
+  wastageCostToday?: number;
+  suggestedPurchaseCost?: number;
 };
 
 export type AdminInventoryItem = {
@@ -183,11 +185,18 @@ export type AdminInventoryItem = {
   name: string;
   sku: string;
   unit: string;
+  type: string;
   reorderLevel: number;
   costPerUnit: number;
+  caloriesPerUnit: number;
   quantityOnHand: number;
   stockValue: number;
   lowStockAlert: boolean;
+  linkedProducts: Array<{
+    productId: string;
+    productName: string;
+    quantityNeeded: number;
+  }>;
   updatedAt: string;
 };
 
@@ -203,6 +212,11 @@ export type AdminInventoryTransaction = {
   note?: string | null;
   referenceType?: string | null;
   referenceId?: string | null;
+  vendorName?: string | null;
+  purchaseDate?: string | null;
+  purchaseCost?: number | null;
+  wastageReason?: string | null;
+  editedAt?: string | null;
   actorName?: string | null;
   createdAt: string;
 };
@@ -212,6 +226,85 @@ export type AdminInventoryData = {
   summary: AdminInventorySummary;
   items: AdminInventoryItem[];
   recentTransactions: AdminInventoryTransaction[];
+};
+
+export type AdminInventoryForecast = {
+  branchId: string;
+  generatedAt: string;
+  horizons: Array<{
+    label: string;
+    days: number;
+    suggestedPurchaseCost: number;
+    items: Array<{
+      ingredientId: string;
+      name: string;
+      unit: string;
+      currentStock: number;
+      expectedUsage: number;
+      suggestedBuy: number;
+      estimatedCost: number;
+      confidence: string;
+    }>;
+  }>;
+};
+
+export type AdminRecipeData = {
+  ingredients: Array<{
+    id: string;
+    name: string;
+    sku: string;
+    unit: string;
+    type: string;
+    costPerUnit: number;
+    caloriesPerUnit: number;
+  }>;
+  preparedItems: Array<{
+    id: string;
+    name: string;
+    unit: string;
+    costPerUnit: number;
+    caloriesPerUnit: number;
+    totalCost: number;
+    totalCalories: number;
+    components: Array<{
+      ingredientId: string;
+      ingredientName: string;
+      unit: string;
+      quantityNeeded: number;
+      cost: number;
+      calories: number;
+    }>;
+  }>;
+  products: Array<{
+    id: string;
+    name: string;
+    sku: string;
+    categoryName: string;
+    basePrice: number;
+    calories?: number;
+    costSummary: AdminProductCostSummary;
+  }>;
+};
+
+export type AdminProductCostSummary = {
+  recipeCost: number;
+  packagingCost: number;
+  totalCost: number;
+  salePrice: number;
+  grossProfit: number;
+  marginPercent: number;
+  calories: number;
+  linkedIngredients: number;
+  items: Array<{
+    ingredientId: string;
+    ingredientName: string;
+    ingredientType: string;
+    unit: string;
+    quantity: number;
+    unitCost: number;
+    cost: number;
+    calories: number;
+  }>;
 };
 
 export type AdminExpense = {
@@ -318,6 +411,7 @@ export type AdminProduct = {
   }>;
   category: Category;
   bundleComponents: BundleComponent[];
+  costSummary?: AdminProductCostSummary;
 };
 
 export type AdminOrder = {

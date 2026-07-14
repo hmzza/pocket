@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { ChevronDown, ChevronUp, Pencil, Plus, Power, RefreshCcw, Upload } from "lucide-react";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
@@ -137,6 +138,7 @@ function ProductEditor({
   value,
   editingName,
   editingProductId,
+  recipeSummary,
   saving,
   editorLabel,
   onUploadError,
@@ -150,6 +152,7 @@ function ProductEditor({
   value: ProductFormState;
   editingName?: string;
   editingProductId?: string;
+  recipeSummary?: AdminProduct["costSummary"];
   saving: boolean;
   editorLabel: string;
   onUploadError: (message: string) => void;
@@ -217,6 +220,31 @@ function ProductEditor({
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
+          {recipeSummary ? (
+            <div className="md:col-span-2 rounded-lg border border-pocket-navy/10 bg-pocket-cream/50 p-4">
+              <div className="grid gap-3 sm:grid-cols-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Recipe cost</p>
+                  <p className="mt-1 text-lg font-black text-pocket-navy">{formatCurrency(recipeSummary.recipeCost)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Packaging</p>
+                  <p className="mt-1 text-lg font-black text-pocket-navy">{formatCurrency(recipeSummary.packagingCost)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Margin</p>
+                  <p className="mt-1 text-lg font-black text-pocket-navy">{recipeSummary.marginPercent}%</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Calories</p>
+                  <p className="mt-1 text-lg font-black text-pocket-navy">{recipeSummary.calories}</p>
+                </div>
+              </div>
+              <Link href="/admin/inventory" className="mt-3 inline-flex text-sm font-semibold text-pocket-orange hover:text-pocket-orangeDeep">
+                Edit full recipe in Inventory
+              </Link>
+            </div>
+          ) : null}
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-semibold text-pocket-navy">Name</label>
             <Input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value, slug: value.slug || slugify(event.target.value) })} />
@@ -657,7 +685,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
   }
 
   async function deleteProduct(product: AdminProduct) {
-    const confirmed = window.confirm(`Delete ${product.name}?`);
+    const confirmed = window.confirm(`Disable ${product.name}? It will stay in the database but no longer be active.`);
     if (!confirmed) return;
 
     setActionProductId(product.id);
@@ -787,7 +815,14 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
                 </div>
               </div>
               <span className="font-medium text-pocket-navy">{product.category.name}</span>
-              <span className="font-bold text-pocket-orange">{formatCurrency(product.basePrice)}</span>
+          <span>
+            <span className="block font-bold text-pocket-orange">{formatCurrency(product.basePrice)}</span>
+            {product.costSummary ? (
+              <span className="mt-1 block text-xs text-pocket-navy/60">
+                Cost {formatCurrency(product.costSummary.totalCost)} · {product.costSummary.marginPercent}% margin
+              </span>
+            ) : null}
+          </span>
               <span className={product.isActive ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>{product.isActive ? "Active" : "Disabled"}</span>
               <span className="font-medium text-pocket-navy/70">
                 {[product.featured ? "Featured" : null, product.bestSeller ? "Best Seller" : null, product.bundleComponents.length ? "Bundle" : null].filter(Boolean).join(", ") || "Base"}
@@ -797,6 +832,12 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
                   <Pencil className="h-4 w-4" />
                   Edit
                 </Button>
+                <Link
+                  href="/admin/inventory"
+                  className="inline-flex h-9 items-center justify-center rounded-md border border-pocket-navy/15 bg-white px-3 text-sm font-semibold text-pocket-navy transition hover:bg-pocket-cream"
+                >
+                  Recipe
+                </Link>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -805,7 +846,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
                   disabled={actionProductId === product.id}
                 >
                   <Power className="h-4 w-4" />
-                  Delete
+                  Disable
                 </Button>
               </div>
             </div>
@@ -820,6 +861,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
         value={form}
         editingName={editingProduct?.name}
         editingProductId={editingProduct?.id}
+        recipeSummary={editingProduct?.costSummary}
         saving={saving}
         editorLabel={copy.editorLabel}
         onUploadError={setError}

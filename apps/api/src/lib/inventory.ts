@@ -32,6 +32,10 @@ type RecordInventoryChangeArgs = {
   note?: string;
   referenceType?: string;
   referenceId?: string;
+  vendorName?: string;
+  purchaseDate?: Date;
+  purchaseCost?: number;
+  wastageReason?: string;
 };
 
 function roundQuantity(value: number) {
@@ -47,7 +51,11 @@ export async function recordInventoryChange({
   actorId,
   note,
   referenceType,
-  referenceId
+  referenceId,
+  vendorName,
+  purchaseDate,
+  purchaseCost,
+  wastageReason
 }: RecordInventoryChangeArgs) {
   const inventory = await transaction.branchInventory.findUnique({
     where: {
@@ -88,7 +96,11 @@ export async function recordInventoryChange({
       balanceAfter: nextQuantity,
       note,
       referenceType,
-      referenceId
+      referenceId,
+      vendorName,
+      purchaseDate,
+      purchaseCost,
+      wastageReason
     }
   });
 
