@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { z } from "zod";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+
 dotenv.config({ path: path.resolve(currentDirectory, "../../../.env") });
 dotenv.config();
 
