@@ -144,8 +144,11 @@ export async function fetchAdminVendors(): Promise<AdminVendorData> {
       vendorName: vendor.vendorName,
       contactNumber: vendor.contactNumber ?? "",
       type: vendor.type ?? "",
+      provides: vendor.provides ?? "",
       quotedPrice: vendor.quotedPrice ?? "",
+      rateListUrl: vendor.rateListUrl ?? "",
       notes: vendor.notes ?? "",
+      isActive: vendor.isActive ?? true,
       createdAt: vendor.createdAt,
       updatedAt: vendor.updatedAt
     })),
@@ -170,10 +173,34 @@ export async function updateAdminVendor(vendorId: string, payload: Record<string
 }
 
 export async function deleteAdminVendor(vendorId: string) {
-  const data = await adminFetch<{ deleted: boolean }>(`/api/admin/vendors/${vendorId}`, {
+  const data = await adminFetch<{ disabled: boolean }>(`/api/admin/vendors/${vendorId}`, {
     method: "DELETE"
   });
-  return data.deleted;
+  return data.disabled;
+}
+
+export async function uploadAdminVendorRateList(file: File) {
+  const allowedTypes = new Set([
+    "application/pdf",
+    "image/png",
+    "image/jpeg",
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel"
+  ]);
+  if (!allowedTypes.has(file.type)) {
+    throw new Error("Only PDF, image, CSV, and Excel rate lists are allowed.");
+  }
+
+  const dataUrl = await readFileAsDataUrl(file);
+  const data = await adminFetch<{ url: string; filename: string }>("/api/admin/vendors/rate-list", {
+    method: "POST",
+    body: JSON.stringify({
+      filename: file.name,
+      dataUrl
+    })
+  });
+  return data;
 }
 
 export async function uploadAdminImage(file: File) {

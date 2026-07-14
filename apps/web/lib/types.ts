@@ -348,8 +348,11 @@ export type AdminVendor = {
   vendorName: string;
   contactNumber?: string;
   type?: string;
+  provides?: string;
   quotedPrice?: string;
+  rateListUrl?: string;
   notes?: string;
+  isActive?: boolean;
   createdAt: string;
   updatedAt: string;
 };

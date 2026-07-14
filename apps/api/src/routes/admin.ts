@@ -15,6 +15,7 @@ import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js"
 
 const router = Router();
 const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/images/", import.meta.url));
+const API_UPLOADS_VENDOR_RATE_LISTS_DIR = fileURLToPath(new URL("../../public/uploads/vendor-rate-lists/", import.meta.url));
 const VENDORS_WORKBOOK_PATH = fileURLToPath(new URL("../../../../data/vendors.xlsx", import.meta.url));
 
 router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
@@ -203,12 +204,15 @@ const vendorSchema = z.object({
   vendorName: z.string().min(1).max(120),
   contactNumber: z.string().max(40).optional().or(z.literal("")),
   type: z.string().max(40).optional().or(z.literal("")),
+  provides: z.string().max(240).optional().or(z.literal("")),
   quotedPrice: z.string().max(120).optional().or(z.literal("")),
+  rateListUrl: z.string().max(240).optional().or(z.literal("")),
   notes: z.string().max(500).optional().or(z.literal(""))
 });
 
 type VendorRecord = z.infer<typeof vendorSchema> & {
   id: string;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -231,8 +235,11 @@ function readVendorSheetRows(): Promise<VendorRecord[]> {
           vendorName: String(row.vendorName ?? row["Vendor Name"] ?? "").trim(),
           contactNumber: String(row.contactNumber ?? row["Contact Number"] ?? "").trim(),
           type: String(row.type ?? row["Type"] ?? "Vendor").trim() || "Vendor",
+          provides: String(row.provides ?? row["Provides"] ?? "").trim(),
           quotedPrice: String(row.quotedPrice ?? row["Quoted Price"] ?? "").trim(),
+          rateListUrl: String(row.rateListUrl ?? row["Rate List URL"] ?? "").trim(),
           notes: String(row.notes ?? row["Notes"] ?? "").trim(),
+          isActive: String(row.isActive ?? row["Active"] ?? "true").toLowerCase() !== "false",
           createdAt: String(row.createdAt ?? new Date().toISOString()),
           updatedAt: String(row.updatedAt ?? new Date().toISOString())
         }))
@@ -256,8 +263,11 @@ async function writeVendorSheetRows(rows: VendorRecord[]) {
       vendorName: row.vendorName,
       contactNumber: row.contactNumber,
       type: row.type,
+      provides: row.provides,
       quotedPrice: row.quotedPrice,
+      rateListUrl: row.rateListUrl,
       notes: row.notes,
+      isActive: row.isActive,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     }))
@@ -366,6 +376,52 @@ async function saveUploadedImage(filename: string | undefined, dataUrl: string) 
   return {
     filename: safeFilename,
     url: `/uploads/images/${safeFilename}`
+  };
+}
+
+function sanitizeUploadFilename(filename: string | undefined, fallback: string, extension: string) {
+  const base = filename ? normalizeSlug(filename.replace(/\.[^.]+$/, "")) : fallback;
+  const name = base.slice(0, 48) || fallback;
+  const suffix = randomUUID().slice(0, 8);
+  return `${name}-${Date.now().toString(36)}-${suffix}.${extension}`;
+}
+
+async function saveVendorRateList(filename: string | undefined, dataUrl: string) {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("Invalid attachment data.");
+  }
+
+  const mimeType = match[1];
+  const base64 = match[2];
+  const extensionByMime: Record<string, string> = {
+    "application/pdf": "pdf",
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "text/csv": "csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-excel": "xls"
+  };
+  const extension = extensionByMime[mimeType ?? ""];
+  if (!extension || !base64) {
+    throw new Error("Only PDF, image, CSV, and Excel rate lists are allowed.");
+  }
+
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.length) {
+    throw new Error("Attachment file is empty.");
+  }
+  if (buffer.length > 8 * 1024 * 1024) {
+    throw new Error("Attachment must be 8MB or smaller.");
+  }
+
+  await mkdir(API_UPLOADS_VENDOR_RATE_LISTS_DIR, { recursive: true });
+  const safeFilename = sanitizeUploadFilename(filename, "rate-list", extension);
+  await writeFile(path.join(API_UPLOADS_VENDOR_RATE_LISTS_DIR, safeFilename), buffer);
+
+  return {
+    filename: safeFilename,
+    url: `/uploads/vendor-rate-lists/${safeFilename}`
   };
 }
 
@@ -2357,7 +2413,7 @@ router.get("/customers", async (_req, res) => {
 
 router.get("/vendors", async (_req, res, next) => {
   try {
-    const vendors = (await readVendorSheetRows()).sort((left, right) => {
+    const vendors = (await readVendorSheetRows()).filter((vendor) => vendor.isActive !== false).sort((left, right) => {
       const categoryCompare = left.ingredientCategory.localeCompare(right.ingredientCategory);
       return categoryCompare !== 0 ? categoryCompare : left.vendorName.localeCompare(right.vendorName);
     });
@@ -2382,8 +2438,11 @@ router.post("/vendors", async (req, res, next) => {
       vendorName: payload.vendorName.trim(),
       contactNumber: payload.contactNumber?.trim() || "",
       type: payload.type?.trim() || "Vendor",
+      provides: payload.provides?.trim() || "",
       quotedPrice: payload.quotedPrice?.trim() || "",
+      rateListUrl: payload.rateListUrl?.trim() || "",
       notes: payload.notes?.trim() || "",
+      isActive: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -2423,9 +2482,12 @@ router.patch("/vendors/:id", async (req, res, next) => {
       contactNumber:
         payload.contactNumber !== undefined ? payload.contactNumber?.trim() || "" : current.contactNumber ?? "",
       type: payload.type !== undefined ? payload.type?.trim() || "Vendor" : current.type ?? "Vendor",
+      provides: payload.provides !== undefined ? payload.provides?.trim() || "" : current.provides ?? "",
       quotedPrice:
         payload.quotedPrice !== undefined ? payload.quotedPrice?.trim() || "" : current.quotedPrice ?? "",
+      rateListUrl: payload.rateListUrl !== undefined ? payload.rateListUrl?.trim() || "" : current.rateListUrl ?? "",
       notes: payload.notes !== undefined ? payload.notes?.trim() || "" : current.notes ?? "",
+      isActive: current.isActive,
       createdAt: current.createdAt,
       updatedAt: new Date().toISOString()
     };
@@ -2450,21 +2512,38 @@ router.patch("/vendors/:id", async (req, res, next) => {
 router.delete("/vendors/:id", async (req, res, next) => {
   try {
     const vendors = await readVendorSheetRows();
-    const nextVendors = vendors.filter((vendor) => vendor.id !== req.params.id);
-    if (nextVendors.length === vendors.length) {
+    const index = vendors.findIndex((vendor) => vendor.id === req.params.id);
+    if (index === -1) {
       return res.status(404).json({ message: "Vendor not found." });
     }
 
-    await writeVendorSheetRows(nextVendors);
+    const current = vendors[index] as VendorRecord;
+    vendors[index] = {
+      ...current,
+      isActive: false,
+      updatedAt: new Date().toISOString()
+    };
+
+    await writeVendorSheetRows(vendors);
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "vendor.delete",
+      action: "vendor.disable",
       entityType: "vendor",
       entityId: req.params.id,
-      payload: { deleted: true }
+      payload: { mode: "disabled" }
     });
 
-    return res.json({ deleted: true });
+    return res.json({ disabled: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/vendors/rate-list", async (req, res, next) => {
+  try {
+    const payload = imageUploadSchema.parse(req.body);
+    const uploaded = await saveVendorRateList(payload.filename, payload.dataUrl);
+    return res.status(201).json(uploaded);
   } catch (error) {
     return next(error);
   }
