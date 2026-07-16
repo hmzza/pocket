@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, PencilLine, RefreshCcw, Trash2 } from "lucide-react";
+import { Eye, PencilLine, RefreshCcw, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -382,7 +382,18 @@ export function OrderManagement() {
                   <span className="min-w-0 font-medium text-pocket-navy/70">{order.foodpandaOrderNumber ?? "null"}</span>
                   <span className="min-w-0 font-medium text-pocket-navy/70">{order.items.length}</span>
                   <span className="min-w-0 font-bold text-pocket-navy">{formatCurrency(order.totalAmount)}</span>
-                  <div className="flex min-w-0 justify-end gap-2">
+                  <div className="flex min-w-0 items-center justify-end gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 px-0"
+                      onClick={() => setExpandedOrderId(open ? "" : order.id)}
+                      aria-label={open ? "Hide order details" : "View order details"}
+                      title={open ? "Hide order details" : "View order details"}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
                     <Button
                       type="button"
                       size="sm"
@@ -394,10 +405,6 @@ export function OrderManagement() {
                     >
                       <PencilLine className="h-4 w-4" />
                       <span className="sr-only">Edit order</span>
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setExpandedOrderId(open ? "" : order.id)}>
-                      <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
-                      View
                     </Button>
                     <Button
                       type="button"
