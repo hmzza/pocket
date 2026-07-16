@@ -12,7 +12,7 @@ import { formatCurrency } from "@/lib/utils";
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
   { value: "inshop", label: "Inshop" },
-  { value: "foodpanda", label: "Foodpanda" }
+  { value: "foodpanda", label: "Foodpanda Orders" }
 ];
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
@@ -22,6 +22,16 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "month", label: "This Month" },
   { value: "year", label: "This Year" },
   { value: "custom", label: "Custom" }
+];
+
+type PaymentFilter = "all" | "cash" | "easypaisa" | "jazzcash" | "foodpanda";
+
+const paymentFilters: Array<{ value: PaymentFilter; label: string; method?: string }> = [
+  { value: "all", label: "All Payments" },
+  { value: "cash", label: "Cash", method: "CASH" },
+  { value: "easypaisa", label: "Easypaisa", method: "EASYPAISA" },
+  { value: "jazzcash", label: "JazzCash", method: "JAZZCASH" },
+  { value: "foodpanda", label: "Foodpanda Payout", method: "FOODPANDA_PAYOUT" }
 ];
 
 const orderGridColumns = "grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,0.5fr)_minmax(0,0.8fr)_minmax(0,0.7fr)] gap-4";
@@ -136,6 +146,7 @@ export function OrderManagement() {
   const [customStart, setCustomStart] = useState(getTodayDateKey());
   const [customEnd, setCustomEnd] = useState(getTodayDateKey());
   const [segmentFilter, setSegmentFilter] = useState<AdminOrderSegment>("all");
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
   const [search, setSearch] = useState("");
   const [expandedOrderId, setExpandedOrderId] = useState("");
   const [deletingOrderId, setDeletingOrderId] = useState("");
@@ -170,13 +181,34 @@ export function OrderManagement() {
     void loadOrders();
   }, [segmentFilter, preset, customStart, customEnd]);
 
+  const selectedPaymentMethod = paymentFilters.find((option) => option.value === paymentFilter)?.method;
+
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      const haystack = `${order.orderNumber} ${order.customerName} ${order.branch} ${order.channel} ${order.address?.addressLine1 ?? ""} ${order.address?.city ?? ""}`.toLowerCase();
+      const haystack = `${order.orderNumber} ${order.customerName} ${order.branch} ${order.channel} ${order.paymentMethod} ${formatPaymentMethod(order.paymentMethod)} ${order.foodpandaOrderNumber ?? ""} ${order.address?.addressLine1 ?? ""} ${order.address?.city ?? ""}`.toLowerCase();
       const matchesSearch = !search || haystack.includes(search.toLowerCase());
-      return matchesSearch;
+      const matchesPayment = paymentFilter === "all" || order.paymentMethod === selectedPaymentMethod;
+
+      return matchesSearch && matchesPayment;
     });
-  }, [orders, search]);
+  }, [orders, search, paymentFilter, selectedPaymentMethod]);
+
+  const paymentCounts = useMemo(() => {
+    return orders.reduce<Record<PaymentFilter, number>>(
+      (counts, order) => {
+        counts.all += 1;
+        if (order.paymentMethod === "CASH") counts.cash += 1;
+        if (order.paymentMethod === "EASYPAISA") counts.easypaisa += 1;
+        if (order.paymentMethod === "JAZZCASH") counts.jazzcash += 1;
+        if (order.paymentMethod === "FOODPANDA_PAYOUT") counts.foodpanda += 1;
+        return counts;
+      },
+      { all: 0, cash: 0, easypaisa: 0, jazzcash: 0, foodpanda: 0 }
+    );
+  }, [orders]);
+
+  const totalOrderCount = orders.length;
+  const visibleOrderCount = filteredOrders.length;
 
   async function removeOrder(order: AdminOrder) {
     const confirmed = window.confirm(`Delete ${order.orderNumber}? This removes the order and receipt from the system.`);
@@ -228,6 +260,30 @@ export function OrderManagement() {
               </Button>
             ))}
           </div>
+          <div className="flex flex-wrap items-center gap-3 rounded-md bg-pocket-cream/70 px-4 py-3 text-sm text-pocket-navy">
+            <span className="font-semibold">Orders in range:</span>
+            <span className="rounded-full bg-white px-3 py-1 font-bold text-pocket-navy shadow-sm">{totalOrderCount}</span>
+            <span className="text-pocket-navy/50">Visible after payment/search filters:</span>
+            <span className="rounded-full bg-white px-3 py-1 font-bold text-pocket-navy shadow-sm">{visibleOrderCount}</span>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/50">Payment Filters</p>
+            <div className="flex flex-wrap gap-2">
+              {paymentFilters.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant={paymentFilter === option.value ? "default" : "outline"}
+                  onClick={() => setPaymentFilter(option.value)}
+                >
+                  {option.label}
+                  <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs font-bold text-pocket-navy shadow-sm">
+                    {paymentCounts[option.value]}
+                  </span>
+                </Button>
+              ))}
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
             {presets.map((option) => (
               <Button
@@ -248,7 +304,7 @@ export function OrderManagement() {
             </div>
           ) : null}
           <div className="grid gap-4 lg:grid-cols-[1fr_auto_auto]">
-            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, customer, branch, or address" />
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search order ID, customer, branch, address, or payment" />
             <Button
               variant="outline"
               onClick={() => {
@@ -274,7 +330,9 @@ export function OrderManagement() {
             ) : null}
           </div>
         </div>
-        <p className="mt-4 text-sm text-pocket-navy/60">Inshop includes current Inshop plus older takeaway and dine-in orders. Foodpanda orders remain visible for operations.</p>
+        <p className="mt-4 text-sm text-pocket-navy/60">
+          Inshop includes current Inshop plus older takeaway and dine-in orders. Use the payment filters to isolate cash, Easypaisa, JazzCash, and Foodpanda payout orders.
+        </p>
       </Card>
 
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
