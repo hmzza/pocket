@@ -455,6 +455,7 @@ export type AdminOrder = {
     bundleComponents: BundleComponent[];
     addOns: Array<{
       id: string;
+      optionId: string;
       optionName: string;
       priceDelta: number;
     }>;
@@ -526,6 +527,7 @@ export type PosReceiptOrder = {
     bundleComponents: BundleComponent[];
     addOns: Array<{
       id: string;
+      optionId: string;
       optionName: string;
       priceDelta: number;
     }>;
@@ -555,9 +557,17 @@ export type PosEditableOrder = {
     bundleComponents: BundleComponent[];
     addOns: Array<{
       id: string;
+      optionId: string;
       optionName: string;
       priceDelta: number;
     }>;
+    selections?: Array<{
+      groupId: string;
+      optionIds: string[];
+    }>;
+    product?: {
+      addOnGroups: AddOnGroup[];
+    } | null;
   }>;
 };
 

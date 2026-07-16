@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, RefreshCcw, Trash2 } from "lucide-react";
+import { ChevronDown, PencilLine, RefreshCcw, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -138,6 +139,7 @@ function OrderDetails({ order }: { order: AdminOrder }) {
 }
 
 export function OrderManagement() {
+  const router = useRouter();
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -381,6 +383,18 @@ export function OrderManagement() {
                   <span className="min-w-0 font-medium text-pocket-navy/70">{order.items.length}</span>
                   <span className="min-w-0 font-bold text-pocket-navy">{formatCurrency(order.totalAmount)}</span>
                   <div className="flex min-w-0 justify-end gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 w-8 px-0"
+                      disabled={order.channel !== "POS"}
+                      onClick={() => router.push(`/pos?orderNumber=${encodeURIComponent(order.orderNumber)}`)}
+                      title={order.channel !== "POS" ? "Only POS orders can be edited" : "Edit order"}
+                    >
+                      <PencilLine className="h-4 w-4" />
+                      <span className="sr-only">Edit order</span>
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => setExpandedOrderId(open ? "" : order.id)}>
                       <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
                       View

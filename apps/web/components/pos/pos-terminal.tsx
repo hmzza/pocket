@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarDays, LayoutGrid, LogOut, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -256,6 +256,35 @@ function formatBundleSummary(components: Array<{ productName: string; quantity: 
   return components.map((component) => `${component.quantity * multiplier}x ${component.productName}`).join(", ");
 }
 
+function buildSelectionsFromEditableItem(item: PosEditableOrder["items"][number]) {
+  const groups = item.product?.addOnGroups ?? [];
+  const groupByOptionId = new Map<string, string>();
+
+  for (const group of groups) {
+    for (const option of group.options ?? []) {
+      groupByOptionId.set(option.id, group.id);
+    }
+  }
+
+  const selections = new Map<string, string[]>();
+  for (const addOn of item.addOns ?? []) {
+    const groupId = groupByOptionId.get(addOn.optionId);
+    if (!groupId) {
+      continue;
+    }
+
+    const current = selections.get(groupId) ?? [];
+    if (!current.includes(addOn.optionId)) {
+      selections.set(groupId, [...current, addOn.optionId]);
+    }
+  }
+
+  return Array.from(selections.entries()).map(([groupId, optionIds]) => ({
+    groupId,
+    optionIds
+  }));
+}
+
 function mapEditableOrderToTicket(order: PosEditableOrder): TicketLine[] {
   return order.items.map((item) => ({
     id: crypto.randomUUID(),
@@ -266,7 +295,7 @@ function mapEditableOrderToTicket(order: PosEditableOrder): TicketLine[] {
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     customDescription: item.customDescription ?? undefined,
-    selections: [],
+    selections: item.selections?.length ? item.selections : buildSelectionsFromEditableItem(item),
     bundleComponents: item.bundleComponents.map((component) => ({
       productId: component.productId,
       productName: component.productName,
@@ -282,6 +311,7 @@ function mapEditableOrderToTicket(order: PosEditableOrder): TicketLine[] {
 
 export function PosTerminal() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -321,6 +351,7 @@ export function PosTerminal() {
   const [editPanelOpen, setEditPanelOpen] = useState(false);
   const [splitView, setSplitView] = useState(false);
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
+  const autoLoadedOrderRef = useRef("");
 
   async function loadCatalog(nextBranchId?: string) {
     const data = await fetchPosCatalog({
@@ -556,8 +587,8 @@ export function PosTerminal() {
     setError("");
   }
 
-  async function loadOrderForEditing() {
-    const query = orderLookupNumber.trim();
+  async function loadOrderForEditing(orderNumber?: string) {
+    const query = (orderNumber ?? orderLookupNumber).trim();
     if (!query) {
       setError("Enter a system order number to load.");
       return;
@@ -581,6 +612,19 @@ export function PosTerminal() {
       setLoadingLookup(false);
     }
   }
+
+  const autoEditOrderNumber = (searchParams.get("orderNumber") ?? searchParams.get("order") ?? "").trim();
+
+  useEffect(() => {
+    if (!ready || loading || !autoEditOrderNumber || autoLoadedOrderRef.current === autoEditOrderNumber) {
+      return;
+    }
+
+    autoLoadedOrderRef.current = autoEditOrderNumber;
+    setOrderLookupNumber(autoEditOrderNumber);
+    setEditPanelOpen(true);
+    void loadOrderForEditing(autoEditOrderNumber);
+  }, [autoEditOrderNumber, loading, ready]);
 
   async function submitOrder() {
     setSubmitting(true);

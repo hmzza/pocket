@@ -61,6 +61,7 @@ export function formatOrderForReceipt(order: any) {
       })),
       addOns: item.addOns.map((addOn: any) => ({
         id: addOn.id,
+        optionId: addOn.optionId ?? "",
         optionName: addOn.optionName,
         priceDelta: Number(addOn.priceDelta)
       }))

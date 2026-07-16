@@ -124,6 +124,35 @@ function formatReceiptResponse(order: any) {
 }
 
 function formatEditablePosOrder(order: any) {
+  function buildSelections(item: any) {
+    const groups = item.product?.addOnGroups ?? [];
+    const groupByOptionId = new Map<string, string>();
+
+    for (const group of groups) {
+      for (const option of group.options ?? []) {
+        groupByOptionId.set(option.id, group.id);
+      }
+    }
+
+    const selections = new Map<string, string[]>();
+    for (const addOn of item.addOns ?? []) {
+      const groupId = groupByOptionId.get(addOn.optionId ?? "");
+      if (!groupId) {
+        continue;
+      }
+
+      const current = selections.get(groupId) ?? [];
+      if (!current.includes(addOn.optionId)) {
+        selections.set(groupId, [...current, addOn.optionId]);
+      }
+    }
+
+    return Array.from(selections.entries()).map(([groupId, optionIds]) => ({
+      groupId,
+      optionIds
+    }));
+  }
+
   return {
     id: order.id,
     orderNumber: order.orderNumber,
@@ -152,9 +181,27 @@ function formatEditablePosOrder(order: any) {
       })),
       addOns: (item.addOns ?? []).map((addOn: any) => ({
         id: addOn.id,
+        optionId: addOn.optionId ?? "",
         optionName: addOn.optionName,
         priceDelta: Number(addOn.priceDelta)
-      }))
+      })),
+      selections: buildSelections(item),
+      product: item.product
+        ? {
+            addOnGroups: (item.product.addOnGroups ?? []).map((group: any) => ({
+              id: group.id,
+              name: group.name,
+              minSelect: group.minSelect,
+              maxSelect: group.maxSelect,
+              isRequired: group.isRequired,
+              options: (group.options ?? []).map((option: any) => ({
+                id: option.id,
+                name: option.name,
+                priceDelta: Number(option.priceDelta)
+              }))
+            }))
+          }
+        : null
     }))
   };
 }
@@ -375,6 +422,15 @@ const posOrderInclude = {
           category: {
             select: {
               name: true
+            }
+          },
+          addOnGroups: {
+            orderBy: { sortOrder: "asc" as const },
+            include: {
+              options: {
+                where: { isActive: true },
+                orderBy: { sortOrder: "asc" as const }
+              }
             }
           }
         }
