@@ -217,18 +217,29 @@ type VendorRecord = z.infer<typeof vendorSchema> & {
   updatedAt: string;
 };
 
-function readVendorSheetRows(): Promise<VendorRecord[]> {
+type VendorCategoryRecord = {
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type VendorWorkbookData = {
+  vendors: VendorRecord[];
+  categories: VendorCategoryRecord[];
+};
+
+async function readVendorWorkbook(): Promise<VendorWorkbookData> {
   return Promise.resolve().then(async () => {
     try {
       const buffer = await readFile(VENDORS_WORKBOOK_PATH);
       const workbook = XLSX.read(buffer, { type: "buffer" });
-      const sheet = workbook.Sheets[workbook.SheetNames[0] ?? "Vendors"];
-      if (!sheet) {
-        return [] as VendorRecord[];
-      }
+      const vendorSheet = workbook.Sheets[workbook.SheetNames[0] ?? "Vendors"];
+      const categorySheet = workbook.Sheets.Categories;
 
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-      return rows
+      const vendorRows = vendorSheet
+        ? XLSX.utils.sheet_to_json<Record<string, unknown>>(vendorSheet, { defval: "" })
+        : [];
+      const vendors = vendorRows
         .map((row) => ({
           id: String(row.id ?? row.ID ?? randomUUID()),
           ingredientCategory: String(row.ingredientCategory ?? row["Ingredient / Category"] ?? "").trim(),
@@ -244,19 +255,43 @@ function readVendorSheetRows(): Promise<VendorRecord[]> {
           updatedAt: String(row.updatedAt ?? new Date().toISOString())
         }))
         .filter((row) => row.ingredientCategory.length && row.vendorName.length);
+
+      const categoryRows = categorySheet
+        ? XLSX.utils.sheet_to_json<Record<string, unknown>>(categorySheet, { defval: "" })
+        : [];
+      const categoryMap = new Map<string, VendorCategoryRecord>();
+      for (const row of categoryRows) {
+        const name = String(row.name ?? row.category ?? "").trim();
+        if (!name || categoryMap.has(name.toLowerCase())) continue;
+        categoryMap.set(name.toLowerCase(), {
+          name,
+          createdAt: String(row.createdAt ?? new Date().toISOString()),
+          updatedAt: String(row.updatedAt ?? new Date().toISOString())
+        });
+      }
+      for (const vendor of vendors) {
+        if (categoryMap.has(vendor.ingredientCategory.toLowerCase())) continue;
+        categoryMap.set(vendor.ingredientCategory.toLowerCase(), {
+          name: vendor.ingredientCategory,
+          createdAt: vendor.createdAt,
+          updatedAt: vendor.updatedAt
+        });
+      }
+
+      return { vendors, categories: Array.from(categoryMap.values()) };
     } catch (readError) {
       if ((readError as NodeJS.ErrnoException).code === "ENOENT") {
-        return [] as VendorRecord[];
+        return { vendors: [], categories: [] };
       }
       throw readError;
     }
   });
 }
 
-async function writeVendorSheetRows(rows: VendorRecord[]) {
+async function writeVendorSheetRows(rows: VendorRecord[], categories: VendorCategoryRecord[]) {
   await mkdir(path.dirname(VENDORS_WORKBOOK_PATH), { recursive: true });
   const workbook = XLSX.utils.book_new();
-  const sheet = XLSX.utils.json_to_sheet(
+  const vendorSheet = XLSX.utils.json_to_sheet(
     rows.map((row) => ({
       id: row.id,
       ingredientCategory: row.ingredientCategory,
@@ -272,9 +307,27 @@ async function writeVendorSheetRows(rows: VendorRecord[]) {
       updatedAt: row.updatedAt
     }))
   );
-  XLSX.utils.book_append_sheet(workbook, sheet, "Vendors");
+  const categorySheet = XLSX.utils.json_to_sheet(
+    categories.map((category) => ({
+      name: category.name,
+      createdAt: category.createdAt,
+      updatedAt: category.updatedAt
+    }))
+  );
+  XLSX.utils.book_append_sheet(workbook, vendorSheet, "Vendors");
+  XLSX.utils.book_append_sheet(workbook, categorySheet, "Categories");
   const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
   await writeFile(VENDORS_WORKBOOK_PATH, buffer);
+}
+
+function addVendorCategory(categories: VendorCategoryRecord[], name: string) {
+  const normalizedName = name.trim();
+  if (categories.some((category) => category.name.toLowerCase() === normalizedName.toLowerCase())) {
+    return categories;
+  }
+
+  const now = new Date().toISOString();
+  return [...categories, { name: normalizedName, createdAt: now, updatedAt: now }];
 }
 
 const manageableUserRoleCodes = ["ADMIN", "SUPER_ADMIN", "POS_STAFF"] as const;
@@ -2413,16 +2466,45 @@ router.get("/customers", async (_req, res) => {
 
 router.get("/vendors", async (_req, res, next) => {
   try {
-    const vendors = (await readVendorSheetRows()).filter((vendor) => vendor.isActive !== false).sort((left, right) => {
+    const workbook = await readVendorWorkbook();
+    const vendors = workbook.vendors.filter((vendor) => vendor.isActive !== false).sort((left, right) => {
       const categoryCompare = left.ingredientCategory.localeCompare(right.ingredientCategory);
       return categoryCompare !== 0 ? categoryCompare : left.vendorName.localeCompare(right.vendorName);
     });
 
-    const categories = [...new Set(vendors.map((vendor) => vendor.ingredientCategory))].sort((left, right) =>
-      left.localeCompare(right)
-    );
+    const categories = workbook.categories.map((category) => category.name).sort((left, right) => left.localeCompare(right));
 
     return res.json({ vendors, categories });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const vendorCategorySchema = z.object({
+  name: z.string().trim().min(1).max(120)
+});
+
+router.post("/vendors/categories", async (req, res, next) => {
+  try {
+    const payload = vendorCategorySchema.parse(req.body);
+    const workbook = await readVendorWorkbook();
+    const existing = workbook.categories.find((category) => category.name.toLowerCase() === payload.name.toLowerCase());
+    if (existing) {
+      return res.json({ category: existing.name });
+    }
+
+    const categories = addVendorCategory(workbook.categories, payload.name);
+    await writeVendorSheetRows(workbook.vendors, categories);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "vendor.category.create",
+      entityType: "vendor_category",
+      entityId: payload.name,
+      payload: { name: payload.name }
+    });
+
+    return res.status(201).json({ category: payload.name });
   } catch (error) {
     return next(error);
   }
@@ -2431,7 +2513,7 @@ router.get("/vendors", async (_req, res, next) => {
 router.post("/vendors", async (req, res, next) => {
   try {
     const payload = vendorSchema.parse(req.body);
-    const vendors = await readVendorSheetRows();
+    const workbook = await readVendorWorkbook();
     const vendor: VendorRecord = {
       id: randomUUID(),
       ingredientCategory: payload.ingredientCategory.trim(),
@@ -2447,8 +2529,9 @@ router.post("/vendors", async (req, res, next) => {
       updatedAt: new Date().toISOString()
     };
 
-    vendors.push(vendor);
-    await writeVendorSheetRows(vendors);
+    const vendors = [...workbook.vendors, vendor];
+    const categories = addVendorCategory(workbook.categories, vendor.ingredientCategory);
+    await writeVendorSheetRows(vendors, categories);
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -2467,7 +2550,8 @@ router.post("/vendors", async (req, res, next) => {
 router.patch("/vendors/:id", async (req, res, next) => {
   try {
     const payload = vendorSchema.partial().parse(req.body);
-    const vendors = await readVendorSheetRows();
+    const workbook = await readVendorWorkbook();
+    const vendors = workbook.vendors;
     const index = vendors.findIndex((vendor) => vendor.id === req.params.id);
     if (index === -1) {
       return res.status(404).json({ message: "Vendor not found." });
@@ -2493,7 +2577,8 @@ router.patch("/vendors/:id", async (req, res, next) => {
     };
 
     vendors[index] = nextVendor;
-    await writeVendorSheetRows(vendors);
+    const categories = addVendorCategory(workbook.categories, nextVendor.ingredientCategory);
+    await writeVendorSheetRows(vendors, categories);
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -2511,7 +2596,8 @@ router.patch("/vendors/:id", async (req, res, next) => {
 
 router.delete("/vendors/:id", async (req, res, next) => {
   try {
-    const vendors = await readVendorSheetRows();
+    const workbook = await readVendorWorkbook();
+    const vendors = workbook.vendors;
     const index = vendors.findIndex((vendor) => vendor.id === req.params.id);
     if (index === -1) {
       return res.status(404).json({ message: "Vendor not found." });
@@ -2524,7 +2610,7 @@ router.delete("/vendors/:id", async (req, res, next) => {
       updatedAt: new Date().toISOString()
     };
 
-    await writeVendorSheetRows(vendors);
+    await writeVendorSheetRows(vendors, workbook.categories);
     await writeAuditLog({
       actorId: req.user!.id,
       action: "vendor.disable",

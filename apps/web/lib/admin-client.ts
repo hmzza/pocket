@@ -156,6 +156,14 @@ export async function fetchAdminVendors(): Promise<AdminVendorData> {
   };
 }
 
+export async function createAdminVendorCategory(name: string) {
+  const data = await adminFetch<{ category: string }>("/api/admin/vendors/categories", {
+    method: "POST",
+    body: JSON.stringify({ name })
+  });
+  return data.category;
+}
+
 export async function createAdminVendor(payload: Record<string, unknown>) {
   const data = await adminFetch<{ vendor: AdminVendor }>("/api/admin/vendors", {
     method: "POST",

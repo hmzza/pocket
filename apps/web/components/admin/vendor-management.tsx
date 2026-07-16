@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createAdminVendor,
+  createAdminVendorCategory,
   deleteAdminVendor,
   fetchAdminVendors,
   fetchAdminSession,
@@ -39,6 +40,8 @@ const EMPTY_FORM: VendorFormState = {
   notes: ""
 };
 
+const ADD_CATEGORY_VALUE = "__add_vendor_category__";
+
 function mapVendorToForm(vendor: AdminVendor): VendorFormState {
   return {
     ingredientCategory: vendor.ingredientCategory,
@@ -59,6 +62,7 @@ function VendorEditor({
   editingVendor,
   saving,
   onUpload,
+  onAddCategory,
   onChange,
   onClose,
   onSubmit
@@ -69,11 +73,15 @@ function VendorEditor({
   editingVendor: AdminVendor | null;
   saving: boolean;
   onUpload: (file: File) => Promise<void>;
+  onAddCategory: (name: string) => Promise<string>;
   onChange: (next: VendorFormState) => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
   const [uploading, setUploading] = useState(false);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
+  const [categoryError, setCategoryError] = useState("");
 
   async function handleUpload(file: File) {
     setUploading(true);
@@ -81,6 +89,24 @@ function VendorEditor({
       await onUpload(file);
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleAddCategory() {
+    const name = newCategory.trim();
+    if (!name) {
+      setCategoryError("Enter a category name.");
+      return;
+    }
+
+    setCategoryError("");
+    try {
+      const category = await onAddCategory(name);
+      onChange({ ...value, ingredientCategory: category });
+      setNewCategory("");
+      setAddingCategory(false);
+    } catch (addCategoryError) {
+      setCategoryError(addCategoryError instanceof Error ? addCategoryError.message : "Failed to add category.");
     }
   }
 
@@ -104,7 +130,18 @@ function VendorEditor({
             <label className="text-sm font-semibold text-pocket-navy">Ingredient / Category</label>
             <select
               value={value.ingredientCategory}
-              onChange={(event) => onChange({ ...value, ingredientCategory: event.target.value })}
+              onChange={(event) => {
+                if (event.target.value === ADD_CATEGORY_VALUE) {
+                  setAddingCategory(true);
+                  setCategoryError("");
+                  onChange({ ...value, ingredientCategory: "" });
+                  return;
+                }
+
+                setAddingCategory(false);
+                setCategoryError("");
+                onChange({ ...value, ingredientCategory: event.target.value });
+              }}
               className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
             >
               <option value="">Select category</option>
@@ -113,7 +150,28 @@ function VendorEditor({
                   {category}
                 </option>
               ))}
+              <option value={ADD_CATEGORY_VALUE}>+ Add Category</option>
             </select>
+            {addingCategory ? (
+              <div className="flex gap-2">
+                <Input
+                  autoFocus
+                  value={newCategory}
+                  onChange={(event) => setNewCategory(event.target.value)}
+                  placeholder="Enter category name"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleAddCategory();
+                    }
+                  }}
+                />
+                <Button type="button" onClick={() => void handleAddCategory()}>
+                  Add
+                </Button>
+              </div>
+            ) : null}
+            {categoryError ? <p className="text-xs font-medium text-red-600">{categoryError}</p> : null}
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Vendor name</label>
@@ -277,6 +335,13 @@ export function VendorManagement() {
     setEditorOpen(true);
   }
 
+  async function addCategory(name: string) {
+    const category = await createAdminVendorCategory(name);
+    setCategories((current) => [...new Set([...current, category])].sort((left, right) => left.localeCompare(right)));
+    flashNotice("success", "Category added.");
+    return category;
+  }
+
   async function submitVendor() {
     if (!canManage) return;
     if (!form.ingredientCategory.trim() || !form.vendorName.trim()) {
@@ -352,6 +417,7 @@ export function VendorManagement() {
           value={form}
           editingVendor={editingVendor}
           saving={saving}
+          onAddCategory={addCategory}
           onUpload={async (file) => {
             const uploaded = await uploadAdminVendorRateList(file);
             setForm((current) => ({ ...current, rateListUrl: uploaded.url }));
