@@ -495,8 +495,8 @@ export function VendorManagement() {
         <div
           className={
             canManage
-              ? "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
-              : "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
+              ? "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr_1.3fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
+              : "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr_1.3fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60"
           }
         >
           <span>Category</span>
@@ -504,6 +504,7 @@ export function VendorManagement() {
           <span>Contact</span>
           <span>Provides</span>
           <span>Quoted Price</span>
+          <span>Notes</span>
           {canManage ? <span>Actions</span> : null}
         </div>
         {loading ? (
@@ -514,8 +515,8 @@ export function VendorManagement() {
               key={vendor.id}
               className={
                 canManage
-                  ? "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
-                  : "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
+                  ? "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr_1.3fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
+                  : "grid grid-cols-[1fr_1fr_1fr_1fr_0.8fr_1.3fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0"
               }
             >
               <div className="font-semibold text-pocket-navy">{vendor.ingredientCategory}</div>
@@ -531,6 +532,7 @@ export function VendorManagement() {
                   </a>
                 ) : null}
               </div>
+              <div className="whitespace-pre-wrap break-words text-pocket-navy/70">{vendor.notes || "—"}</div>
               {canManage ? (
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => openEdit(vendor)}>
