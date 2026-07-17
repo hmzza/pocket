@@ -1,4 +1,4 @@
-import { InventoryTransactionType, Prisma } from "@prisma/client";
+import { InventoryTransactionType, Prisma, ServiceType } from "@prisma/client";
 import { OPTION_RECIPE_BY_NAME } from "./inventory-config.js";
 
 type InventoryOrderItem = {
@@ -20,6 +20,7 @@ type ApplyOrderInventoryArgs = {
   actorId?: string | null;
   items: InventoryOrderItem[];
   mode: "consume" | "return";
+  serviceType?: ServiceType | string;
 };
 
 type RecordInventoryChangeArgs = {
@@ -114,6 +115,22 @@ export type InventoryChange = {
   lowStockAlert: boolean;
 };
 
+const inventoryIngredientInclude = {
+  preparedComponents: {
+    include: {
+      componentIngredient: {
+        include: {
+          preparedComponents: {
+            include: {
+              componentIngredient: true
+            }
+          }
+        }
+      }
+    }
+  }
+} as const;
+
 /**
  * Reads the recipe + branch stock needed to compute an inventory adjustment.
  * Accepts any Prisma client (the shared client OR a transaction client) so the
@@ -124,12 +141,20 @@ export async function readInventoryData(
   branchId: string,
   productIds: string[]
 ) {
-  const [productIngredients, branchInventories] = await Promise.all([
+  const [productIngredients, productPackagingRules, branchInventories] = await Promise.all([
     productIds.length
       ? client.productIngredient.findMany({
           where: { productId: { in: productIds } },
           include: {
-            ingredient: true
+            ingredient: { include: inventoryIngredientInclude }
+          }
+        })
+      : Promise.resolve([]),
+    productIds.length
+      ? client.productPackagingRule.findMany({
+          where: { productId: { in: productIds } },
+          include: {
+            packagingIngredient: true
           }
         })
       : Promise.resolve([]),
@@ -141,7 +166,7 @@ export async function readInventoryData(
     })
   ]);
 
-  return { productIngredients, branchInventories };
+  return { productIngredients, productPackagingRules, branchInventories };
 }
 
 type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
@@ -152,15 +177,34 @@ type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
  */
 export function computeInventoryChanges({
   productIngredients,
+  productPackagingRules,
   branchInventories,
   items,
-  mode
+  mode,
+  serviceType = ServiceType.DELIVERY
 }: {
   productIngredients: InventoryData["productIngredients"];
+  productPackagingRules: InventoryData["productPackagingRules"];
   branchInventories: InventoryData["branchInventories"];
   items: InventoryOrderItem[];
   mode: "consume" | "return";
+  serviceType?: ServiceType | string;
 }): InventoryChange[] {
+  const totals = new Map<string, number>();
+
+  function addIngredientUsage(ingredient: any, quantity: number, seen = new Set<string>()) {
+    if (!ingredient) return;
+    if (ingredient.type === "PREPARED" && ingredient.preparedComponents?.length && !seen.has(ingredient.id)) {
+      const nextSeen = new Set(seen);
+      nextSeen.add(ingredient.id);
+      for (const component of ingredient.preparedComponents) {
+        addIngredientUsage(component.componentIngredient, quantity * Number(component.quantityNeeded), nextSeen);
+      }
+      return;
+    }
+    totals.set(ingredient.id, roundQuantity((totals.get(ingredient.id) ?? 0) + quantity));
+  }
+
   const recipeByProduct = new Map<string, Array<{ ingredientId: string; quantityNeeded: number }>>();
   for (const recipe of productIngredients) {
     const existing = recipeByProduct.get(recipe.productId) ?? [];
@@ -171,14 +215,34 @@ export function computeInventoryChanges({
     recipeByProduct.set(recipe.productId, existing);
   }
 
+  const ingredientById = new Map(productIngredients.map((entry) => [entry.ingredientId, entry.ingredient]));
+  const packagingRulesByProduct = new Map<string, typeof productPackagingRules>();
+  for (const rule of productPackagingRules) {
+    const existing = packagingRulesByProduct.get(rule.productId) ?? [];
+    existing.push(rule);
+    packagingRulesByProduct.set(rule.productId, existing);
+  }
+
+  function addPackagingUsage(productId: string, multiplier: number) {
+    const rules = packagingRulesByProduct.get(productId) ?? [];
+    const specificRules = rules.filter((rule) => rule.serviceType === serviceType);
+    const selectedRules = specificRules.length ? specificRules : rules.filter((rule) => rule.serviceType === "DEFAULT");
+    for (const rule of selectedRules) {
+      totals.set(
+        rule.packagingIngredientId,
+        roundQuantity((totals.get(rule.packagingIngredientId) ?? 0) + Number(rule.quantityNeeded) * multiplier)
+      );
+    }
+  }
+
   const inventoryBySku = new Map(branchInventories.map((entry) => [entry.ingredient.sku, entry]));
-  const totals = new Map<string, number>();
 
   for (const item of items) {
     if (item.productId && !(item.bundleComponents?.length ?? 0)) {
       for (const recipe of recipeByProduct.get(item.productId) ?? []) {
-        totals.set(recipe.ingredientId, roundQuantity((totals.get(recipe.ingredientId) ?? 0) + recipe.quantityNeeded * item.quantity));
+        addIngredientUsage(ingredientById.get(recipe.ingredientId), recipe.quantityNeeded * item.quantity);
       }
+      addPackagingUsage(item.productId, item.quantity);
     }
 
     for (const component of item.bundleComponents ?? []) {
@@ -187,11 +251,9 @@ export function computeInventoryChanges({
       }
 
       for (const recipe of recipeByProduct.get(component.productId) ?? []) {
-        totals.set(
-          recipe.ingredientId,
-          roundQuantity((totals.get(recipe.ingredientId) ?? 0) + recipe.quantityNeeded * component.quantity)
-        );
+        addIngredientUsage(ingredientById.get(recipe.ingredientId), recipe.quantityNeeded * component.quantity);
       }
+      addPackagingUsage(component.productId, component.quantity);
     }
 
     for (const addOn of item.addOns ?? []) {
@@ -301,7 +363,8 @@ export async function applyOrderInventory({
   orderId,
   actorId,
   items,
-  mode
+  mode,
+  serviceType
 }: ApplyOrderInventoryArgs) {
   const productIds = [
     ...new Set(
@@ -311,7 +374,7 @@ export async function applyOrderInventory({
       ]).filter((value): value is string => Boolean(value))
     )
   ];
-  const { productIngredients, branchInventories } = await readInventoryData(transaction, branchId, productIds);
-  const changes = computeInventoryChanges({ productIngredients, branchInventories, items, mode });
+  const { productIngredients, productPackagingRules, branchInventories } = await readInventoryData(transaction, branchId, productIds);
+  const changes = computeInventoryChanges({ productIngredients, productPackagingRules, branchInventories, items, mode, serviceType });
   await applyInventoryChanges({ transaction, changes, orderId, actorId, mode });
 }

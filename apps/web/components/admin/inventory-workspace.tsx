@@ -1,7 +1,7 @@
 "use client";
 
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
-import { BarChart3, ChefHat, ClipboardList, History, Pencil, Plus, RefreshCcw, Trash2, Warehouse } from "lucide-react";
+import { BarChart3, ChefHat, ChevronDown, ClipboardList, History, Pencil, Plus, RefreshCcw, Search, Trash2, Warehouse } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,22 +17,38 @@ import {
   updateAdminInventoryItem,
   updateAdminInventoryTransaction,
   updateAdminPreparedRecipe,
+  updateAdminProductPackagingRules,
   updateAdminProductRecipe
 } from "@/lib/admin-client";
 import type { AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminRecipeData, AdminVendor } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
-type InventoryTab = "dashboard" | "stock" | "add-stock" | "vendors" | "recipes" | "wastage" | "forecast" | "logs";
+type InventoryTab = "stock" | "add-stock" | "vendors" | "prep" | "recipes" | "wastage" | "forecast" | "logs";
 
 const INVENTORY_UNITS = ["kg", "litre", "bottles", "pieces", "slices", "loafs"];
-const ITEM_TYPES = ["RAW", "PREPARED", "PACKAGING"] as const;
+const ITEM_TYPES = ["RAW", "PREPARED", "PACKAGING", "RETAIL"] as const;
+const ITEM_TYPE_LABELS: Record<(typeof ITEM_TYPES)[number], string> = {
+  RAW: "Ingredient",
+  PREPARED: "Prep Item",
+  PACKAGING: "Packaging",
+  RETAIL: "Retail Item"
+};
+const SERVICE_TYPES = ["DEFAULT", "INSHOP", "FOODPANDA", "DINE_IN", "TAKEAWAY", "DELIVERY"] as const;
+const SERVICE_TYPE_LABELS: Record<(typeof SERVICE_TYPES)[number], string> = {
+  DEFAULT: "Default",
+  INSHOP: "In-shop",
+  FOODPANDA: "Foodpanda",
+  DINE_IN: "Dine in",
+  TAKEAWAY: "Takeaway",
+  DELIVERY: "Delivery"
+};
 const WASTAGE_REASONS = ["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"] as const;
 
 const TABS: Array<{ id: InventoryTab; label: string; icon: typeof Warehouse }> = [
-  { id: "dashboard", label: "Dashboard", icon: BarChart3 },
   { id: "stock", label: "Stock", icon: ClipboardList },
   { id: "add-stock", label: "Add Stock", icon: Warehouse },
   { id: "vendors", label: "Vendors", icon: ClipboardList },
+  { id: "prep", label: "Prep Items", icon: ChefHat },
   { id: "recipes", label: "Recipes & Costing", icon: ChefHat },
   { id: "wastage", label: "Wastage", icon: Trash2 },
   { id: "forecast", label: "Forecast / Buy List", icon: BarChart3 },
@@ -41,7 +57,6 @@ const TABS: Array<{ id: InventoryTab; label: string; icon: typeof Warehouse }> =
 
 type ItemFormState = {
   name: string;
-  sku: string;
   unit: string;
   type: (typeof ITEM_TYPES)[number];
   reorderLevel: string;
@@ -77,14 +92,13 @@ type LogEditState = {
 };
 
 type RecipeEditState = {
-  mode: "product" | "prepared";
+  mode: "product" | "prepared" | "packaging";
   id: string;
-  components: Array<{ ingredientId: string; quantityNeeded: string }>;
+  components: Array<{ ingredientId: string; quantityNeeded: string; serviceType?: string }>;
 };
 
 const EMPTY_ITEM_FORM: ItemFormState = {
   name: "",
-  sku: "",
   unit: "kg",
   type: "RAW",
   reorderLevel: "",
@@ -117,7 +131,6 @@ function numberValue(value: string) {
 function itemToForm(item: AdminInventoryItem): ItemFormState {
   return {
     name: item.name,
-    sku: item.sku,
     unit: item.unit,
     type: (ITEM_TYPES.includes(item.type as any) ? item.type : "RAW") as ItemFormState["type"],
     reorderLevel: String(item.reorderLevel),
@@ -129,10 +142,10 @@ function itemToForm(item: AdminInventoryItem): ItemFormState {
 
 function TabNav({ activeTab, onChange }: { activeTab: InventoryTab; onChange: (tab: InventoryTab) => void }) {
   return (
-    <Card className="p-3">
-      <div className="flex flex-wrap gap-2">
+    <Card className="overflow-x-auto p-3">
+      <div className="flex min-w-max gap-2 md:min-w-0 md:flex-wrap">
         {TABS.map((tab) => (
-          <Button key={tab.id} variant={activeTab === tab.id ? "default" : "outline"} onClick={() => onChange(tab.id)} className="justify-start">
+          <Button key={tab.id} variant={activeTab === tab.id ? "default" : "outline"} onClick={() => onChange(tab.id)} className="shrink-0 justify-start">
             <tab.icon className="h-4 w-4" />
             {tab.label}
           </Button>
@@ -177,13 +190,9 @@ function ItemEditor({
             <Input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">SKU</label>
-            <Input value={value.sku} onChange={(event) => onChange({ ...value, sku: event.target.value.toUpperCase() })} />
-          </div>
-          <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Type</label>
             <select value={value.type} onChange={(event) => onChange({ ...value, type: event.target.value as ItemFormState["type"] })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
-              {ITEM_TYPES.map((type) => <option key={type} value={type}>{type}</option>)}
+              {ITEM_TYPES.map((type) => <option key={type} value={type}>{ITEM_TYPE_LABELS[type]}</option>)}
             </select>
           </div>
           <div className="space-y-2">
@@ -202,7 +211,7 @@ function ItemEditor({
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Calories per unit</label>
-            <Input type="number" min="0" step="1" value={value.caloriesPerUnit} onChange={(event) => onChange({ ...value, caloriesPerUnit: event.target.value })} />
+            <Input type="number" min="0" step="1" value={value.type === "PACKAGING" ? "0" : value.caloriesPerUnit} disabled={value.type === "PACKAGING"} onChange={(event) => onChange({ ...value, caloriesPerUnit: event.target.value })} />
           </div>
           {!editingItem ? (
             <div className="space-y-2">
@@ -228,7 +237,7 @@ function SummaryCards({ data, forecast, onRefresh, onAddItem }: { data: AdminInv
       <Card className="p-5"><p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Low stock</p><p className="mt-3 text-3xl font-black text-pocket-navy">{data?.summary.lowStockItems ?? 0}</p><p className="mt-2 text-sm text-pocket-navy/60">Needs attention.</p></Card>
       <Card className="p-5"><p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Stock value</p><p className="mt-3 text-2xl font-black text-pocket-navy">{formatCurrency(data?.summary.totalStockValue ?? 0)}</p><p className="mt-2 text-sm text-pocket-navy/60">On-hand value.</p></Card>
       <Card className="p-5"><p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Tomorrow buy</p><p className="mt-3 text-2xl font-black text-pocket-navy">{formatCurrency(tomorrow?.suggestedPurchaseCost ?? 0)}</p><p className="mt-2 text-sm text-pocket-navy/60">Forecasted purchase.</p></Card>
-      <Card className="flex items-center justify-between gap-3 p-5"><div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p><p className="mt-3 text-sm text-pocket-navy/60">Refresh or add item.</p></div><div className="flex gap-2"><Button variant="outline" onClick={onRefresh}><RefreshCcw className="h-4 w-4" /></Button><Button onClick={onAddItem}><Plus className="h-4 w-4" />Add</Button></div></Card>
+      <Card className="flex flex-col items-start justify-between gap-4 p-5 sm:flex-row sm:items-center"><div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p><p className="mt-3 text-sm text-pocket-navy/60">Refresh or add item.</p></div><div className="flex w-full flex-wrap gap-2 sm:w-auto"><Button variant="outline" onClick={onRefresh} className="shrink-0"><RefreshCcw className="h-4 w-4" /></Button><Button onClick={onAddItem} className="min-w-0 shrink-0"><Plus className="h-4 w-4" />Add</Button></div></Card>
     </div>
   );
 }
@@ -244,10 +253,9 @@ function StockTable({ items, loading, onEdit, onAddStock, onWastage }: { items: 
         <div key={item.id} className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
           <div>
             <p className="font-bold text-pocket-navy">{item.name}</p>
-            <p className="text-xs text-pocket-navy/50">{item.sku}</p>
             <p className="mt-1 text-xs text-pocket-navy/60">{item.linkedProducts.length ? `Used in ${item.linkedProducts.length} product${item.linkedProducts.length === 1 ? "" : "s"}` : "Not linked to a product yet"}</p>
           </div>
-          <span className="font-semibold text-pocket-navy">{item.type}</span>
+          <span className="font-semibold text-pocket-navy">{ITEM_TYPE_LABELS[item.type as keyof typeof ITEM_TYPE_LABELS] ?? item.type}</span>
           <span className={item.lowStockAlert ? "font-bold text-red-600" : "font-bold text-pocket-navy"}>{item.quantityOnHand} {item.unit}</span>
           <span>{formatCurrency(item.costPerUnit)}</span>
           <span>{formatCurrency(item.stockValue)}</span>
@@ -271,18 +279,19 @@ function VendorSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const [query, setQuery] = useState(value);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [manual, setManual] = useState(false);
   const filteredVendors = useMemo(() => {
     const search = query.toLowerCase();
     return vendors
       .filter((vendor) => `${vendor.vendorName} ${vendor.provides ?? ""} ${vendor.ingredientCategory} ${vendor.contactNumber ?? ""}`.toLowerCase().includes(search))
-      .slice(0, 8);
+      .slice(0, 20);
   }, [query, vendors]);
 
   useEffect(() => {
-    setQuery(value);
-  }, [value]);
+    if (!open) setQuery("");
+  }, [open]);
 
   if (manual) {
     return (
@@ -297,30 +306,56 @@ function VendorSelect({
 
   return (
     <Field label="Vendor">
-      <div className="space-y-2">
-        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search vendor by name or provided items" />
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-          <select value={value} onChange={(event) => onChange(event.target.value)} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
-            <option value="">Select vendor</option>
-            {filteredVendors.map((vendor) => (
-              <option key={vendor.id} value={vendor.vendorName}>
-                {vendor.vendorName}{vendor.provides ? ` - ${vendor.provides}` : ""}
-              </option>
-            ))}
-          </select>
-          <Button type="button" variant="outline" onClick={() => { setManual(true); onChange(""); }}>Other</Button>
+      <div className="relative">
+        <button type="button" onClick={() => setOpen((current) => !current)} className="flex h-11 w-full items-center justify-between rounded-md border border-pocket-navy/15 bg-white px-3 text-left text-sm">
+          <span className={value ? "font-medium text-pocket-navy" : "text-pocket-navy/45"}>{value || "Select vendor"}</span>
+          <ChevronDown className="h-4 w-4 text-pocket-navy/50" />
+        </button>
+        {open ? (
+          <div className="absolute z-30 mt-2 w-full rounded-md border border-pocket-navy/10 bg-white p-2 shadow-panel">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pocket-navy/40" />
+              <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search vendors" className="pl-9" />
+            </div>
+            <div className="mt-2 max-h-64 overflow-auto">
+              {filteredVendors.map((vendor) => (
+                <button
+                  type="button"
+                  key={vendor.id}
+                  onClick={() => {
+                    onChange(vendor.vendorName);
+                    setOpen(false);
+                  }}
+                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-pocket-cream"
+                >
+                  <span className="font-semibold text-pocket-navy">{vendor.vendorName}</span>
+                  <span className="block text-xs text-pocket-navy/55">{vendor.provides || vendor.ingredientCategory || "Vendor"}</span>
+                </button>
+              ))}
+              {!filteredVendors.length ? <p className="px-3 py-2 text-sm text-pocket-navy/55">No vendor found.</p> : null}
+            </div>
+            <Button type="button" variant="outline" className="mt-2 w-full justify-start" onClick={() => { setManual(true); setOpen(false); onChange(""); }}>Other / Manual vendor</Button>
+          </div>
+        ) : null}
         </div>
-      </div>
     </Field>
   );
 }
 
 function AddStockForm({ items, vendors, form, setForm, saving, onSubmit }: { items: AdminInventoryItem[]; vendors: AdminVendor[]; form: StockFormState; setForm: Dispatch<SetStateAction<StockFormState>>; saving: boolean; onSubmit: () => void }) {
+  const [itemType, setItemType] = useState<(typeof ITEM_TYPES)[number] | "ALL">("ALL");
+  const filteredItems = itemType === "ALL" ? items : items.filter((item) => item.type === itemType);
   return (
     <Card className="p-5">
       <p className="text-lg font-black text-pocket-navy">Add Stock</p>
       <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <SelectItem items={items} value={form.ingredientId} onChange={(ingredientId) => setForm((current) => ({ ...current, ingredientId }))} />
+        <Field label="Stock type">
+          <select value={itemType} onChange={(event) => setItemType(event.target.value as typeof itemType)} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+            <option value="ALL">All stock</option>
+            {ITEM_TYPES.map((type) => <option key={type} value={type}>{ITEM_TYPE_LABELS[type]}</option>)}
+          </select>
+        </Field>
+        <SelectItem items={filteredItems} value={form.ingredientId} onChange={(ingredientId) => setForm((current) => ({ ...current, ingredientId }))} />
         <Field label="Quantity"><Input type="number" min="0" step="0.001" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></Field>
         <VendorSelect vendors={vendors} value={form.vendorName} onChange={(vendorName) => setForm((current) => ({ ...current, vendorName }))} />
         <Field label="Purchase date"><Input type="date" value={form.purchaseDate} onChange={(event) => setForm((current) => ({ ...current, purchaseDate: event.target.value }))} /></Field>
@@ -388,7 +423,10 @@ function ForecastSection({ forecast, loading }: { forecast: AdminInventoryForeca
 }
 
 function RecipesSection({ data, ingredients, edit, setEdit, saving, onSave }: { data: AdminRecipeData | null; ingredients: AdminRecipeData["ingredients"]; edit: RecipeEditState | null; setEdit: Dispatch<SetStateAction<RecipeEditState | null>>; saving: boolean; onSave: () => void }) {
-  const selectedName = edit?.mode === "product" ? data?.products.find((product) => product.id === edit.id)?.name : data?.preparedItems.find((item) => item.id === edit?.id)?.name;
+  const selectedName = edit?.mode === "product" || edit?.mode === "packaging" ? data?.products.find((product) => product.id === edit.id)?.name : data?.preparedItems.find((item) => item.id === edit?.id)?.name;
+  const foodIngredients = ingredients.filter((ingredient) => ingredient.type !== "PACKAGING");
+  const packagingIngredients = ingredients.filter((ingredient) => ingredient.type === "PACKAGING");
+  const editorIngredients = edit?.mode === "packaging" ? packagingIngredients : foodIngredients;
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_1.1fr]">
       <Card className="p-5">
@@ -439,6 +477,106 @@ function RecipeRow({ name, meta, onEdit }: { name: string; meta: string; onEdit:
   return <div className="mb-2 flex items-center justify-between gap-3 rounded-lg border border-pocket-navy/10 p-3"><div><p className="font-bold text-pocket-navy">{name}</p><p className="text-xs text-pocket-navy/60">{meta}</p></div><Button size="sm" variant="outline" onClick={onEdit}>Edit</Button></div>;
 }
 
+function RecipesCostingSection({ data, ingredients, edit, setEdit, saving, onSave }: { data: AdminRecipeData | null; ingredients: AdminRecipeData["ingredients"]; edit: RecipeEditState | null; setEdit: Dispatch<SetStateAction<RecipeEditState | null>>; saving: boolean; onSave: () => void }) {
+  const selectedName = edit?.mode === "product" || edit?.mode === "packaging" ? data?.products.find((product) => product.id === edit.id)?.name : data?.preparedItems.find((item) => item.id === edit?.id)?.name;
+  const foodIngredients = ingredients.filter((ingredient) => ingredient.type !== "PACKAGING");
+  const packagingIngredients = ingredients.filter((ingredient) => ingredient.type === "PACKAGING");
+  const editorIngredients = edit?.mode === "packaging" ? packagingIngredients : foodIngredients;
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1fr_1.1fr]">
+      <Card className="p-5">
+        <p className="text-lg font-black text-pocket-navy">Recipes & Costing</p>
+        <div className="mt-4 space-y-3">
+          {(data?.products ?? []).map((product) => (
+            <div key={product.id} className="rounded-lg border border-pocket-navy/10 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-bold text-pocket-navy">{product.name}</p>
+                  <p className="text-xs text-pocket-navy/60">
+                    {formatCurrency(product.costSummary.recipeCost)} food + {formatCurrency(product.costSummary.packagingCost)} packaging = {formatCurrency(product.costSummary.totalCost)} total · {product.costSummary.calories} cal
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setEdit({ mode: "product", id: product.id, components: product.costSummary.items.filter((component) => component.ingredientType !== "PACKAGING").map((component) => ({ ingredientId: component.ingredientId, quantityNeeded: String(component.quantity) })) })}>Food</Button>
+                  <Button size="sm" variant="outline" onClick={() => setEdit({ mode: "packaging", id: product.id, components: (product.costSummary.packagingRules ?? []).map((rule) => ({ ingredientId: rule.ingredientId, quantityNeeded: String(rule.quantity), serviceType: rule.serviceType })) })}>Packaging</Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card className="p-5">
+        <p className="text-lg font-black text-pocket-navy">{selectedName ? `Edit ${selectedName}` : "Recipe editor"}</p>
+        {!edit ? <p className="mt-3 text-sm text-pocket-navy/60">Select food recipe or packaging rules.</p> : (
+          <>
+            <div className="mt-4 space-y-3">
+              {edit.components.map((component, index) => (
+                <div key={`${index}-${component.ingredientId}`} className={edit.mode === "packaging" ? "grid gap-3 md:grid-cols-[150px_1fr_140px_auto]" : "grid gap-3 md:grid-cols-[1fr_140px_auto]"}>
+                  {edit.mode === "packaging" ? (
+                    <select value={component.serviceType ?? "DEFAULT"} onChange={(event) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, serviceType: event.target.value } : entry) } : current)} className="flex h-11 rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+                      {SERVICE_TYPES.map((serviceType) => <option key={serviceType} value={serviceType}>{SERVICE_TYPE_LABELS[serviceType]}</option>)}
+                    </select>
+                  ) : null}
+                  <select value={component.ingredientId} onChange={(event) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, ingredientId: event.target.value } : entry) } : current)} className="flex h-11 rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+                    <option value="">{edit.mode === "packaging" ? "Select packaging" : "Select ingredient or prep item"}</option>
+                    {editorIngredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name} ({ingredient.unit})</option>)}
+                  </select>
+                  <Input type="number" min="0" step="0.001" value={component.quantityNeeded} onChange={(event) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantityNeeded: event.target.value } : entry) } : current)} />
+                  <Button variant="ghost" onClick={() => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantityNeeded: "0" } : entry) } : current)}>Set 0</Button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 flex flex-wrap justify-between gap-3">
+              <Button variant="outline" onClick={() => setEdit((current) => current ? { ...current, components: [...current.components, { ingredientId: "", quantityNeeded: "0", serviceType: edit.mode === "packaging" ? "DEFAULT" : undefined }] } : current)}><Plus className="h-4 w-4" />{edit.mode === "packaging" ? "Add packaging" : "Add ingredient"}</Button>
+              <Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : edit.mode === "packaging" ? "Save packaging" : "Save recipe"}</Button>
+            </div>
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function PrepItemsSection({ data, ingredients, edit, setEdit, saving, onSave }: { data: AdminRecipeData | null; ingredients: AdminRecipeData["ingredients"]; edit: RecipeEditState | null; setEdit: Dispatch<SetStateAction<RecipeEditState | null>>; saving: boolean; onSave: () => void }) {
+  const preparedEdit = edit?.mode === "prepared" ? edit : null;
+  return (
+    <div className="grid gap-5 xl:grid-cols-[1fr_1.1fr]">
+      <Card className="p-5">
+        <p className="text-lg font-black text-pocket-navy">Prep Items</p>
+        <div className="mt-4 space-y-3">
+          {(data?.preparedItems ?? []).map((item) => (
+            <RecipeRow key={item.id} name={item.name} meta={`${formatCurrency(item.totalCost)} · ${item.totalCalories} cal · ${item.components.length} components`} onEdit={() => setEdit({ mode: "prepared", id: item.id, components: item.components.map((component) => ({ ingredientId: component.ingredientId, quantityNeeded: String(component.quantityNeeded) })) })} />
+          ))}
+        </div>
+      </Card>
+      <Card className="p-5">
+        <p className="text-lg font-black text-pocket-navy">{preparedEdit ? "Edit prep recipe" : "Prep recipe editor"}</p>
+        {!preparedEdit ? <p className="mt-3 text-sm text-pocket-navy/60">Select a prep item to edit the ingredients used to make it.</p> : (
+          <>
+            <div className="mt-4 space-y-3">
+              {preparedEdit.components.map((component, index) => (
+                <div key={`${index}-${component.ingredientId}`} className="grid gap-3 md:grid-cols-[1fr_140px_auto]">
+                  <select value={component.ingredientId} onChange={(event) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, ingredientId: event.target.value } : entry) } : current)} className="flex h-11 rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+                    <option value="">Select ingredient</option>
+                    {ingredients.filter((ingredient) => ingredient.type !== "PACKAGING").map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name} ({ingredient.unit})</option>)}
+                  </select>
+                  <Input type="number" min="0" step="0.001" value={component.quantityNeeded} onChange={(event) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantityNeeded: event.target.value } : entry) } : current)} />
+                  <Button variant="ghost" onClick={() => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantityNeeded: "0" } : entry) } : current)}>Set 0</Button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 flex flex-wrap justify-between gap-3">
+              <Button variant="outline" onClick={() => setEdit((current) => current ? { ...current, components: [...current.components, { ingredientId: "", quantityNeeded: "0" }] } : current)}><Plus className="h-4 w-4" />Add ingredient</Button>
+              <Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save prep recipe"}</Button>
+            </div>
+          </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function LogsSection({ entries, edit, setEdit, saving, onSave }: { entries: AdminInventoryTransaction[]; edit: LogEditState | null; setEdit: Dispatch<SetStateAction<LogEditState | null>>; saving: boolean; onSave: () => void }) {
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
@@ -474,7 +612,7 @@ function LogsSection({ entries, edit, setEdit, saving, onSave }: { entries: Admi
 }
 
 export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | "movement" | "log" | "list" }) {
-  const initialTab: InventoryTab = mode === "movement" ? "add-stock" : mode === "log" ? "logs" : mode === "list" ? "stock" : "dashboard";
+  const initialTab: InventoryTab = mode === "movement" ? "add-stock" : mode === "log" ? "logs" : "stock";
   const [activeTab, setActiveTab] = useState<InventoryTab>(initialTab);
   const [data, setData] = useState<AdminInventoryData | null>(null);
   const [forecast, setForecast] = useState<AdminInventoryForecast | null>(null);
@@ -544,7 +682,6 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       const payload = {
         branchId,
         name: itemForm.name.trim(),
-        sku: itemForm.sku.trim() || undefined,
         unit: itemForm.unit,
         type: itemForm.type,
         reorderLevel: numberValue(itemForm.reorderLevel),
@@ -635,7 +772,8 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
     setSaving(true);
     try {
       const components = recipeEdit.components.filter((component) => component.ingredientId).map((component) => ({ ingredientId: component.ingredientId, quantityNeeded: numberValue(component.quantityNeeded) }));
-      if (recipeEdit.mode === "product") await updateAdminProductRecipe(recipeEdit.id, components);
+      if (recipeEdit.mode === "packaging") await updateAdminProductPackagingRules(recipeEdit.id, recipeEdit.components.filter((component) => component.ingredientId).map((component) => ({ serviceType: component.serviceType ?? "DEFAULT", ingredientId: component.ingredientId, quantityNeeded: numberValue(component.quantityNeeded) })));
+      else if (recipeEdit.mode === "product") await updateAdminProductRecipe(recipeEdit.id, components);
       else await updateAdminPreparedRecipe(recipeEdit.id, components);
       setRecipeEdit(null);
       await loadAll();
@@ -653,15 +791,15 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       <TabNav activeTab={activeTab} onChange={setActiveTab} />
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
       <Card className="p-5">
-        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search inventory, SKU, type, or linked product" />
+        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search inventory, type, or linked product" />
       </Card>
-      {activeTab === "dashboard" ? <StockTable items={items.filter((item) => item.lowStockAlert).slice(0, 8)} loading={loading} onEdit={openEditItem} onAddStock={(item) => { setStockForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("add-stock"); }} onWastage={(item) => { setWastageForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("wastage"); }} /> : null}
       {activeTab === "stock" ? <StockTable items={items} loading={loading} onEdit={openEditItem} onAddStock={(item) => { setStockForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("add-stock"); }} onWastage={(item) => { setWastageForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("wastage"); }} /> : null}
       {activeTab === "add-stock" ? <AddStockForm items={items} vendors={vendors} form={stockForm} setForm={setStockForm} saving={saving} onSubmit={() => void submitStock()} /> : null}
       {activeTab === "vendors" ? <VendorManagement /> : null}
+      {activeTab === "prep" ? <PrepItemsSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
       {activeTab === "wastage" ? <WastageForm items={items} form={wastageForm} setForm={setWastageForm} saving={saving} onSubmit={() => void submitWastage()} /> : null}
       {activeTab === "forecast" ? <ForecastSection forecast={forecast} loading={loading} /> : null}
-      {activeTab === "recipes" ? <RecipesSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
+      {activeTab === "recipes" ? <RecipesCostingSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
       {activeTab === "logs" ? <LogsSection entries={data?.recentTransactions ?? []} edit={logEdit} setEdit={setLogEdit} saving={saving} onSave={() => void saveLogEdit()} /> : null}
     </div>
   );

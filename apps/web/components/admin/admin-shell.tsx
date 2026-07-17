@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Banknote, Boxes, Building2, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
+import { Banknote, Boxes, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -17,7 +17,6 @@ const links: Array<{
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/products", label: "Products", icon: Boxes },
   { href: "/admin/website", label: "Website Control", icon: SlidersHorizontal },
-  { href: "/admin/vendors", label: "Vendors", icon: Building2 },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/inventory", label: "Inventory", icon: Package2 },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },

@@ -196,6 +196,7 @@ model Product {
   orderItems       OrderItem[]
   cartItems        CartItem[]
   productIngredients ProductIngredient[]
+  packagingRules   ProductPackagingRule[]
 }
 
 model ProductImage {
@@ -449,6 +450,7 @@ model Ingredient {
   productUsage  ProductIngredient[]
   preparedComponents IngredientComponent[] @relation("PreparedIngredient")
   usedInPreparedItems IngredientComponent[] @relation("ComponentIngredient")
+  packagingRuleUsage ProductPackagingRule[] @relation("PackagingRuleIngredient")
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 }
@@ -496,6 +498,21 @@ model ProductIngredient {
   ingredient     Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@id([productId, ingredientId])
+}
+
+model ProductPackagingRule {
+  id                    String     @id @default(cuid())
+  productId             String
+  serviceType           String     @default("DEFAULT")
+  packagingIngredientId String
+  quantityNeeded        Decimal    @db.Decimal(10, 2)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  product               Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  packagingIngredient   Ingredient @relation("PackagingRuleIngredient", fields: [packagingIngredientId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, serviceType, packagingIngredientId])
+  @@index([packagingIngredientId])
 }
 
 model IngredientComponent {

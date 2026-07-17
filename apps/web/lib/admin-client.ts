@@ -670,6 +670,17 @@ export async function updateAdminProductRecipe(productId: string, components: Ar
   return data.ok;
 }
 
+export async function updateAdminProductPackagingRules(
+  productId: string,
+  rules: Array<{ serviceType: string; ingredientId: string; quantityNeeded: number }>
+) {
+  const data = await adminFetch<{ ok: boolean }>(`/api/admin/inventory/recipes/products/${productId}/packaging`, {
+    method: "PATCH",
+    body: JSON.stringify({ rules })
+  });
+  return data.ok;
+}
+
 export async function updateAdminPreparedRecipe(ingredientId: string, components: Array<{ ingredientId: string; quantityNeeded: number }>) {
   const data = await adminFetch<{ ok: boolean }>(`/api/admin/inventory/recipes/prepared/${ingredientId}`, {
     method: "PATCH",

@@ -200,6 +200,8 @@ export type AdminInventoryItem = {
   updatedAt: string;
 };
 
+export type InventoryItemType = "RAW" | "PREPARED" | "PACKAGING" | "RETAIL";
+
 export type AdminInventoryTransaction = {
   id: string;
   branchId: string;
@@ -278,7 +280,6 @@ export type AdminRecipeData = {
   products: Array<{
     id: string;
     name: string;
-    sku: string;
     categoryName: string;
     basePrice: number;
     calories?: number;
@@ -304,6 +305,19 @@ export type AdminProductCostSummary = {
     unitCost: number;
     cost: number;
     calories: number;
+    source?: "product" | "prep" | "packaging-rule";
+  }>;
+  packagingRules?: Array<{
+    ingredientId: string;
+    ingredientName: string;
+    ingredientType: string;
+    unit: string;
+    quantity: number;
+    unitCost: number;
+    cost: number;
+    calories: number;
+    source: "packaging-rule";
+    serviceType: string;
   }>;
 };
 
