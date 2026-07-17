@@ -354,9 +354,11 @@ async function buildPosOrderPayload(payload: CheckoutPayload) {
 
   const consumeChanges = computeInventoryChanges({
     productIngredients: inventoryData.productIngredients,
+    productPackagingRules: inventoryData.productPackagingRules,
     branchInventories: inventoryData.branchInventories,
     items: normalizedItems,
-    mode: "consume"
+    mode: "consume",
+    serviceType: payload.serviceType
   });
 
   return {
@@ -727,9 +729,11 @@ router.patch("/orders/:orderId", async (req, res, next) => {
     const oldInventoryData = await readInventoryData(prisma, existingOrder.branchId, oldProductIds);
     const returnChanges = computeInventoryChanges({
       productIngredients: oldInventoryData.productIngredients,
+      productPackagingRules: oldInventoryData.productPackagingRules,
       branchInventories: oldInventoryData.branchInventories,
       items: oldItems,
-      mode: "return"
+      mode: "return",
+      serviceType: existingOrder.serviceType
     });
 
     const updatedOrder = await prisma.$transaction(async (transaction) => {

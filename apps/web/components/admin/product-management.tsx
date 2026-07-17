@@ -18,7 +18,6 @@ import { formatCurrency } from "@/lib/utils";
 type ProductFormState = {
   categoryId: string;
   slug: string;
-  sku: string;
   name: string;
   description: string;
   ingredients: string;
@@ -87,7 +86,6 @@ const MODE_COPY: Record<
 const EMPTY_FORM: ProductFormState = {
   categoryId: "",
   slug: "",
-  sku: "",
   name: "",
   description: "",
   ingredients: "",
@@ -113,7 +111,6 @@ function mapProductToForm(product: AdminProduct): ProductFormState {
   return {
     categoryId: product.categoryId,
     slug: product.slug,
-    sku: product.sku,
     name: product.name,
     description: product.description,
     ingredients: product.ingredients.join(", "),
@@ -252,10 +249,6 @@ function ProductEditor({
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Slug <span className="text-pocket-navy/40">(optional)</span></label>
             <Input value={value.slug} onChange={(event) => onChange({ ...value, slug: slugify(event.target.value) })} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">SKU <span className="text-pocket-navy/40">(optional)</span></label>
-            <Input value={value.sku} onChange={(event) => onChange({ ...value, sku: event.target.value.toUpperCase() })} />
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Category</label>
@@ -641,7 +634,6 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
     const payload = {
       categoryId: form.categoryId,
       slug: form.slug.trim() || undefined,
-      sku: form.sku.trim() || undefined,
       name: form.name.trim(),
       description: form.description.trim() || undefined,
       ingredients: form.ingredients
@@ -806,7 +798,6 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
                 <div className="min-w-0">
                   <p className="font-bold text-pocket-navy">{product.name}</p>
                   <p className="text-pocket-navy/60">{product.description}</p>
-                  <p className="mt-2 text-xs font-medium uppercase tracking-wide text-pocket-navy/40">{product.sku}</p>
                   {product.bundleComponents.length ? (
                     <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-pocket-orange">
                       Bundle · {product.bundleComponents.length} component{product.bundleComponents.length === 1 ? "" : "s"}

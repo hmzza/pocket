@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { DiscountType, PaymentMethod, PaymentStatus } from "@prisma/client";
+import { DiscountType, PaymentMethod, PaymentStatus, ServiceType } from "@prisma/client";
 import { z } from "zod";
 import { authenticate } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
@@ -430,7 +430,8 @@ router.post("/checkout", async (req, res, next) => {
           orderId: createdOrder.id,
           actorId: req.user!.id,
           items: createdOrder.items,
-          mode: "consume"
+          mode: "consume",
+          serviceType: ServiceType.DELIVERY
         });
 
         await transaction.cartItem.deleteMany({ where: { cartId: cart.id } });

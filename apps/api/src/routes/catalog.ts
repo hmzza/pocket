@@ -599,7 +599,8 @@ router.post("/checkout", async (req, res, next) => {
           orderId: createdOrder.id,
           actorId: customerId,
           items: createdOrder.items,
-          mode: "consume"
+          mode: "consume",
+          serviceType: ServiceType.DELIVERY
         });
 
         await transaction.notification.create({
