@@ -839,12 +839,18 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   async function loadAll() {
     try {
       setError("");
-      const [inventoryData, forecastData, recipeData, vendorData, ruleData] = await Promise.all([fetchAdminInventory(), fetchAdminInventoryForecast(), fetchAdminInventoryRecipes(), fetchAdminVendors(), fetchAdminPackagingRules()]);
+      const inventoryData = await fetchAdminInventory();
       setData(inventoryData);
-      setForecast(forecastData);
-      setRecipes(recipeData);
-      setVendors(vendorData.vendors);
-      setRules(ruleData);
+      const [forecastResult, recipeResult, vendorResult, ruleResult] = await Promise.allSettled([
+        fetchAdminInventoryForecast(),
+        fetchAdminInventoryRecipes(),
+        fetchAdminVendors(),
+        fetchAdminPackagingRules()
+      ]);
+      if (forecastResult.status === "fulfilled") setForecast(forecastResult.value);
+      if (recipeResult.status === "fulfilled") setRecipes(recipeResult.value);
+      if (vendorResult.status === "fulfilled") setVendors(vendorResult.value.vendors);
+      if (ruleResult.status === "fulfilled") setRules(ruleResult.value);
       const first = inventoryData.items[0]?.ingredientId ?? "";
       const branchId = inventoryData.branches[0]?.id ?? "";
       setStockForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));

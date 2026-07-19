@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, LayoutGrid, LogOut, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
+import { CalendarDays, Car, LayoutGrid, LogOut, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -42,7 +42,7 @@ const foodpandaPaymentOption = { value: "FOODPANDA_PAYOUT", label: "Foodpanda pa
 
 const serviceTypes = [
   { value: "INSHOP", label: "Dine-in", logo: "/images/instore-logo.png" },
-  { value: "TAKEAWAY", label: "Takeaway", logo: "/images/instore-logo.png" },
+  { value: "TAKEAWAY", label: "Takeaway", icon: Car },
   { value: "FOODPANDA", label: "Foodpanda", logo: "/images/foodpanda-logo.png" }
 ] as const;
 
@@ -1039,7 +1039,11 @@ export function PosTerminal() {
                           aria-label={entry.label}
                           title={entry.label}
                         >
-                          <Image src={entry.logo} alt={entry.label} width={28} height={28} className="h-7 w-7 object-contain" />
+                          {"icon" in entry ? (
+                            <entry.icon className="h-6 w-6 text-slate-800" aria-hidden="true" />
+                          ) : (
+                            <Image src={entry.logo} alt={entry.label} width={28} height={28} className="h-7 w-7 object-contain" />
+                          )}
                         </button>
                       );
                     })}
