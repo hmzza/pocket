@@ -43,6 +43,10 @@ function roundQuantity(value: number) {
   return Number(value.toFixed(3));
 }
 
+function isMissingTableError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && ["P2021", "P2022"].includes(error.code);
+}
+
 export async function recordInventoryChange({
   transaction,
   branchId,
@@ -141,7 +145,7 @@ export async function readInventoryData(
   branchId: string,
   productIds: string[]
 ) {
-  const [productIngredients, packagingRules, products, branchInventories] = await Promise.all([
+  const [productIngredients, packagingRules, products] = await Promise.all([
     productIds.length
       ? client.productIngredient.findMany({
           where: { productId: { in: productIds } },
@@ -154,20 +158,53 @@ export async function readInventoryData(
       include: {
         packagingIngredient: true
       }
+    }).catch((error) => {
+      if (isMissingTableError(error)) return [];
+      throw error;
     }),
     productIds.length
       ? client.product.findMany({
           where: { id: { in: productIds } },
           select: { id: true, categoryId: true }
         })
-      : Promise.resolve([]),
-    client.branchInventory.findMany({
-      where: { branchId },
-      include: {
-        ingredient: true
-      }
-    })
+      : Promise.resolve([])
   ]);
+
+  const neededIngredientIds = new Set<string>();
+  function collectIngredientIds(ingredient: any, seen = new Set<string>()) {
+    if (!ingredient || seen.has(ingredient.id)) return;
+    seen.add(ingredient.id);
+    neededIngredientIds.add(ingredient.id);
+    for (const component of ingredient.preparedComponents ?? []) {
+      collectIngredientIds(component.componentIngredient, seen);
+    }
+  }
+
+  for (const recipe of productIngredients) {
+    collectIngredientIds(recipe.ingredient);
+  }
+  for (const rule of packagingRules) {
+    neededIngredientIds.add(rule.packagingIngredientId);
+  }
+
+  if (neededIngredientIds.size) {
+    await client.branchInventory.createMany({
+      data: Array.from(neededIngredientIds).map((ingredientId) => ({
+        branchId,
+        ingredientId,
+        quantityOnHand: 0,
+        lowStockAlert: true
+      })),
+      skipDuplicates: true
+    });
+  }
+
+  const branchInventories = await client.branchInventory.findMany({
+    where: { branchId },
+    include: {
+      ingredient: true
+    }
+  });
 
   return { productIngredients, packagingRules, products, branchInventories };
 }

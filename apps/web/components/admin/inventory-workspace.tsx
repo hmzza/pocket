@@ -852,15 +852,23 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       setTransferForm((current) => ({ ...current, branchId: current.branchId || branchId }));
       setClosingForm((current) => ({ ...current, branchId: current.branchId || branchId }));
       if (branchId) {
-        const [transferData, closingData] = await Promise.all([fetchAdminMoneyTransfers(branchId), fetchAdminDailyClosing(branchId, closingForm.closingDate)]);
-        setTransfers(transferData);
-        setClosing(closingData);
-        setClosingForm((current) => ({
-          ...current,
-          cashCounted: current.cashCounted || String(closingData.expected.CASH),
-          easypaisaCounted: current.easypaisaCounted || String(closingData.expected.EASYPAISA),
-          jazzcashCounted: current.jazzcashCounted || String(closingData.expected.JAZZCASH)
-        }));
+        const [transferResult, closingResult] = await Promise.allSettled([
+          fetchAdminMoneyTransfers(branchId),
+          fetchAdminDailyClosing(branchId, closingForm.closingDate)
+        ]);
+        if (transferResult.status === "fulfilled") {
+          setTransfers(transferResult.value);
+        }
+        if (closingResult.status === "fulfilled") {
+          const closingData = closingResult.value;
+          setClosing(closingData);
+          setClosingForm((current) => ({
+            ...current,
+            cashCounted: current.cashCounted || String(closingData.expected.CASH),
+            easypaisaCounted: current.easypaisaCounted || String(closingData.expected.EASYPAISA),
+            jazzcashCounted: current.jazzcashCounted || String(closingData.expected.JAZZCASH)
+          }));
+        }
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load inventory.");

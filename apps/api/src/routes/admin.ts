@@ -2170,6 +2170,39 @@ function emptyMoneyTotals() {
   return { CASH: 0, EASYPAISA: 0, JAZZCASH: 0 };
 }
 
+function isMissingTableError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && ["P2021", "P2022"].includes(error.code);
+}
+
+async function readLoanCashflow(branchId: string, start: Date, end: Date) {
+  try {
+    const [loans, loanRepayments] = await Promise.all([
+      prisma.loan.findMany({
+        where: {
+          branchId,
+          loanDate: { gte: start, lte: end },
+          receivedSource: { in: [...MONEY_SOURCES] }
+        },
+        select: { receivedSource: true, amount: true }
+      }),
+      prisma.loanRepayment.findMany({
+        where: {
+          branchId,
+          paymentDate: { gte: start, lte: end },
+          paidFrom: { in: [...MONEY_SOURCES] }
+        },
+        select: { paidFrom: true, amount: true }
+      })
+    ]);
+    return { loans, loanRepayments };
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return { loans: [], loanRepayments: [] };
+    }
+    throw error;
+  }
+}
+
 async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   const date = normalizeClosingDate(closingDate);
   const start = startOfDay(date);
@@ -2182,7 +2215,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     orderBy: { closingDate: "desc" }
   });
 
-  const [orders, expenses, transfers, loans, loanRepayments, recentClosings] = await Promise.all([
+  const [orders, expenses, transfers, loanCashflow, recentClosings] = await Promise.all([
     prisma.order.findMany({
       where: {
         branchId,
@@ -2206,22 +2239,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
         transferDate: { gte: start, lte: end }
       }
     }),
-    prisma.loan.findMany({
-      where: {
-        branchId,
-        loanDate: { gte: start, lte: end },
-        receivedSource: { in: [...MONEY_SOURCES] }
-      },
-      select: { receivedSource: true, amount: true }
-    }),
-    prisma.loanRepayment.findMany({
-      where: {
-        branchId,
-        paymentDate: { gte: start, lte: end },
-        paidFrom: { in: [...MONEY_SOURCES] }
-      },
-      select: { paidFrom: true, amount: true }
-    }),
+    readLoanCashflow(branchId, start, end),
     prisma.dailyClosing.findMany({
       where: { branchId },
       orderBy: { closingDate: "desc" },
@@ -2251,10 +2269,10 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   }
   const loanIn = emptyMoneyTotals();
   const loanOut = emptyMoneyTotals();
-  for (const loan of loans) {
+  for (const loan of loanCashflow.loans) {
     loanIn[loan.receivedSource as keyof typeof loanIn] += parseDecimal(loan.amount);
   }
-  for (const repayment of loanRepayments) {
+  for (const repayment of loanCashflow.loanRepayments) {
     loanOut[repayment.paidFrom as keyof typeof loanOut] += parseDecimal(repayment.amount);
   }
   const expected = {
