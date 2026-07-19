@@ -1163,42 +1163,65 @@ router.get("/analytics/sales", async (req, res, next) => {
   }
 });
 
-router.get("/products", async (_req, res) => {
-  const products = await prisma.product.findMany({
-    include: {
-      category: true,
-      images: { orderBy: { sortOrder: "asc" } },
-      bundleComponents: {
-        orderBy: { sortOrder: "asc" },
-        include: {
-          componentProduct: {
-            select: {
-              id: true,
-              name: true,
-              slug: true
-            }
+router.get("/products", async (_req, res, next) => {
+  const includeBase = {
+    category: true,
+    images: { orderBy: { sortOrder: "asc" as const } },
+    bundleComponents: {
+      orderBy: { sortOrder: "asc" as const },
+      include: {
+        componentProduct: {
+          select: {
+            id: true,
+            name: true,
+            slug: true
           }
         }
-      },
-      branchPricing: { include: { branch: true } },
-      productIngredients: {
-        include: { ingredient: { include: ingredientCostInclude } },
-        orderBy: { ingredient: { name: "asc" } }
-      },
-      packagingRules: {
-        include: { packagingIngredient: true },
-        orderBy: [{ serviceType: "asc" }, { packagingIngredient: { name: "asc" } }]
       }
     },
-    orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
-  });
+    branchPricing: { include: { branch: true } },
+    productIngredients: {
+      include: { ingredient: { include: ingredientCostInclude } },
+      orderBy: { ingredient: { name: "asc" as const } }
+    }
+  };
 
-  return res.json({
-    products: products.map((product) => ({
-      ...product,
-      costSummary: buildProductCostSummary(product)
-    }))
-  });
+  try {
+    const products = await prisma.product.findMany({
+      include: {
+        ...includeBase,
+        packagingRules: {
+          include: { packagingIngredient: true },
+          orderBy: [{ serviceType: "asc" }, { packagingIngredient: { name: "asc" } }]
+        }
+      },
+      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
+    });
+
+    return res.json({
+      products: products.map((product) => ({
+        ...product,
+        costSummary: buildProductCostSummary(product)
+      }))
+    });
+  } catch (error) {
+    if (!isMissingTableError(error)) {
+      return next(error);
+    }
+
+    const products = await prisma.product.findMany({
+      include: includeBase,
+      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
+    });
+
+    return res.json({
+      products: products.map((product) => ({
+        ...product,
+        packagingRules: [],
+        costSummary: buildProductCostSummary({ ...product, packagingRules: [] })
+      }))
+    });
+  }
 });
 
 const productSchema = z.object({
