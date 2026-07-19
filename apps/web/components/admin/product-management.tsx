@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, Pencil, Plus, Power, RefreshCcw, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, Plus, RefreshCcw, Trash2, Upload } from "lucide-react";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -677,7 +677,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
   }
 
   async function deleteProduct(product: AdminProduct) {
-    const confirmed = window.confirm(`Disable ${product.name}? It will stay in the database but no longer be active.`);
+    const confirmed = window.confirm(`Delete ${product.name}? This cannot be undone if the product is not protected by order history.`);
     if (!confirmed) return;
 
     setActionProductId(product.id);
@@ -814,7 +814,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
               </span>
             ) : null}
           </span>
-              <span className={product.isActive ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>{product.isActive ? "Active" : "Disabled"}</span>
+              <span className={product.isActive ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>{product.isActive ? "Active" : "Inactive"}</span>
               <span className="font-medium text-pocket-navy/70">
                 {[product.featured ? "Featured" : null, product.bestSeller ? "Best Seller" : null, product.bundleComponents.length ? "Bundle" : null].filter(Boolean).join(", ") || "Base"}
               </span>
@@ -836,8 +836,8 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
                   onClick={() => void deleteProduct(product)}
                   disabled={actionProductId === product.id}
                 >
-                  <Power className="h-4 w-4" />
-                  Disable
+                  <Trash2 className="h-4 w-4" />
+                  Delete
                 </Button>
               </div>
             </div>

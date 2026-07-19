@@ -116,6 +116,10 @@ model User {
   cart          ShoppingCart?
   inventoryTransactions InventoryTransaction[] @relation("InventoryActor")
   expenses      Expense[]     @relation("ExpenseActor")
+  moneyTransfers MoneyTransfer[] @relation("MoneyTransferActor")
+  dailyClosings DailyClosing[] @relation("DailyClosingActor")
+  loans         Loan[]        @relation("LoanActor")
+  loanRepayments LoanRepayment[] @relation("LoanRepaymentActor")
 }
 
 model Branch {
@@ -139,6 +143,10 @@ model Branch {
   orders         Order[]
   inventories    BranchInventory[]
   expenses       Expense[]
+  moneyTransfers MoneyTransfer[]
+  dailyClosings  DailyClosing[]
+  loans          Loan[]
+  loanRepayments LoanRepayment[]
 }
 
 model BranchHours {
@@ -161,6 +169,7 @@ model Category {
   isActive    Boolean   @default(true)
   imageUrl    String?
   products    Product[]
+  packagingRules PackagingRule[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 }
@@ -196,7 +205,7 @@ model Product {
   orderItems       OrderItem[]
   cartItems        CartItem[]
   productIngredients ProductIngredient[]
-  packagingRules   ProductPackagingRule[]
+  packagingRules   PackagingRule[]
 }
 
 model ProductImage {
@@ -450,7 +459,7 @@ model Ingredient {
   productUsage  ProductIngredient[]
   preparedComponents IngredientComponent[] @relation("PreparedIngredient")
   usedInPreparedItems IngredientComponent[] @relation("ComponentIngredient")
-  packagingRuleUsage ProductPackagingRule[] @relation("PackagingRuleIngredient")
+  packagingRuleUsage PackagingRule[] @relation("PackagingRuleIngredient")
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 }
@@ -500,18 +509,22 @@ model ProductIngredient {
   @@id([productId, ingredientId])
 }
 
-model ProductPackagingRule {
+model PackagingRule {
   id                    String     @id @default(cuid())
-  productId             String
+  productId             String?
+  categoryId            String?
   serviceType           String     @default("DEFAULT")
   packagingIngredientId String
-  quantityNeeded        Decimal    @db.Decimal(10, 2)
-  createdAt             DateTime   @default(now())
-  updatedAt             DateTime   @updatedAt
-  product               Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantityMode          String     @default("FIXED")
+  quantity              Decimal    @db.Decimal(10, 2)
+  itemStep              Int?
+  product               Product?   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category              Category?  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
   packagingIngredient   Ingredient @relation("PackagingRuleIngredient", fields: [packagingIngredientId], references: [id], onDelete: Cascade)
 
-  @@unique([productId, serviceType, packagingIngredientId])
+  @@index([productId])
+  @@index([categoryId])
+  @@index([serviceType])
   @@index([packagingIngredientId])
 }
 
@@ -532,6 +545,7 @@ model Expense {
   title         String
   category      String
   amount        Decimal  @db.Decimal(10, 2)
+  paymentSource String   @default("CASH")
   expenseDate   DateTime
   vendor        String?
   billReference String?
@@ -540,6 +554,78 @@ model Expense {
   updatedAt     DateTime @updatedAt
   branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   createdBy     User?    @relation("ExpenseActor", fields: [createdById], references: [id], onDelete: SetNull)
+}
+
+model MoneyTransfer {
+  id           String   @id @default(cuid())
+  branchId     String
+  fromSource   String
+  toSource     String
+  amount       Decimal  @db.Decimal(10, 2)
+  transferDate DateTime
+  note         String?
+  createdById  String?
+  createdAt    DateTime @default(now())
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy    User?    @relation("MoneyTransferActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([branchId, transferDate])
+}
+
+model DailyClosing {
+  id                 String   @id @default(cuid())
+  branchId           String
+  closingDate        DateTime
+  cashExpected       Decimal  @db.Decimal(10, 2)
+  cashCounted        Decimal  @db.Decimal(10, 2)
+  easypaisaExpected  Decimal  @db.Decimal(10, 2)
+  easypaisaCounted   Decimal  @db.Decimal(10, 2)
+  jazzcashExpected   Decimal  @db.Decimal(10, 2)
+  jazzcashCounted    Decimal  @db.Decimal(10, 2)
+  note               String?
+  closedById         String?
+  createdAt          DateTime @default(now())
+  branch             Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  closedBy           User?    @relation("DailyClosingActor", fields: [closedById], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, closingDate])
+}
+
+model Loan {
+  id             String          @id @default(cuid())
+  branchId       String
+  lenderName     String
+  amount         Decimal         @db.Decimal(10, 2)
+  receivedSource String
+  loanDate       DateTime
+  note           String?
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy      User?           @relation("LoanActor", fields: [createdById], references: [id], onDelete: SetNull)
+  repayments     LoanRepayment[]
+
+  @@index([branchId, loanDate])
+  @@index([receivedSource])
+}
+
+model LoanRepayment {
+  id          String   @id @default(cuid())
+  loanId      String
+  branchId    String
+  amount      Decimal  @db.Decimal(10, 2)
+  paidFrom    String
+  paymentDate DateTime
+  note        String?
+  createdById String?
+  createdAt   DateTime @default(now())
+  loan        Loan     @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation("LoanRepaymentActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([loanId])
+  @@index([branchId, paymentDate])
+  @@index([paidFrom])
 }
 
 model AuditLog {

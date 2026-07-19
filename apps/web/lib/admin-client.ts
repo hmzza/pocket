@@ -3,10 +3,14 @@
 import type {
   AdminCustomer,
   AdminExpenseData,
+  AdminDailyClosingData,
   AdminInventoryForecast,
   AdminRecipeData,
   AdminInventoryData,
+  AdminLoanData,
+  AdminMoneyTransferData,
   AdminOrderSegment,
+  AdminPackagingRuleData,
   AdminOrder,
   AdminProduct,
   AdminRangePreset,
@@ -181,10 +185,10 @@ export async function updateAdminVendor(vendorId: string, payload: Record<string
 }
 
 export async function deleteAdminVendor(vendorId: string) {
-  const data = await adminFetch<{ disabled: boolean }>(`/api/admin/vendors/${vendorId}`, {
+  const data = await adminFetch<{ deleted: boolean }>(`/api/admin/vendors/${vendorId}`, {
     method: "DELETE"
   });
-  return data.disabled;
+  return data.deleted;
 }
 
 export async function uploadAdminVendorRateList(file: File) {
@@ -250,7 +254,7 @@ export async function updateAdminProduct(productId: string, payload: Record<stri
 }
 
 export async function deleteAdminProduct(productId: string) {
-  const data = await adminFetch<{ mode: "deleted" | "disabled"; message: string }>(`/api/admin/products/${productId}`, {
+  const data = await adminFetch<{ mode: "deleted"; message: string }>(`/api/admin/products/${productId}`, {
     method: "DELETE"
   });
   return data;
@@ -619,6 +623,12 @@ export async function updateAdminInventoryItem(ingredientId: string, payload: Re
   return data.ingredient;
 }
 
+export async function deleteAdminInventoryItem(ingredientId: string) {
+  await adminFetch(`/api/admin/inventory/items/${ingredientId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function createAdminInventoryTransaction(payload: Record<string, unknown>) {
   const data = await adminFetch<{ inventory: any }>("/api/admin/inventory/transactions", {
     method: "POST",
@@ -689,6 +699,122 @@ export async function updateAdminPreparedRecipe(ingredientId: string, components
   return data.ok;
 }
 
+export async function fetchAdminPackagingRules(): Promise<AdminPackagingRuleData> {
+  return adminFetch<AdminPackagingRuleData>("/api/admin/inventory/rules");
+}
+
+export async function saveAdminPackagingRule(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ rule: any }>("/api/admin/inventory/rules", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.rule;
+}
+
+export async function deleteAdminPackagingRule(ruleId: string) {
+  await adminFetch(`/api/admin/inventory/rules/${ruleId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchAdminMoneyTransfers(branchId?: string): Promise<AdminMoneyTransferData> {
+  const searchParams = new URLSearchParams();
+  if (branchId) searchParams.set("branchId", branchId);
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return adminFetch<AdminMoneyTransferData>(`/api/admin/inventory/transfers${suffix}`);
+}
+
+export async function createAdminMoneyTransfer(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ transfer: any }>("/api/admin/inventory/transfers", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.transfer;
+}
+
+export async function deleteAdminMoneyTransfer(transferId: string) {
+  await adminFetch(`/api/admin/inventory/transfers/${transferId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchAdminDailyClosing(branchId: string, date?: string): Promise<AdminDailyClosingData> {
+  const searchParams = new URLSearchParams({ branchId });
+  if (date) searchParams.set("date", date);
+  return adminFetch<AdminDailyClosingData>(`/api/admin/inventory/closing?${searchParams.toString()}`);
+}
+
+export async function saveAdminDailyClosing(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ closing: any }>("/api/admin/inventory/closing", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.closing;
+}
+
+export async function deleteAdminDailyClosing(closingId: string) {
+  await adminFetch(`/api/admin/inventory/closing/${closingId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchAdminLoans(params?: {
+  preset?: AdminRangePreset;
+  branchId?: string;
+  status?: "all" | "open" | "paid";
+  search?: string;
+  monthKey?: string;
+  start?: string;
+  end?: string;
+}): Promise<AdminLoanData> {
+  const searchParams = new URLSearchParams();
+  if (params?.preset) searchParams.set("preset", params.preset);
+  if (params?.branchId) searchParams.set("branchId", params.branchId);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.monthKey) searchParams.set("monthKey", params.monthKey);
+  if (params?.start) searchParams.set("start", params.start);
+  if (params?.end) searchParams.set("end", params.end);
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return adminFetch<AdminLoanData>(`/api/admin/loans${suffix}`);
+}
+
+export async function createAdminLoan(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ loan: any }>("/api/admin/loans", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.loan;
+}
+
+export async function updateAdminLoan(loanId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ loan: any }>(`/api/admin/loans/${loanId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.loan;
+}
+
+export async function deleteAdminLoan(loanId: string) {
+  await adminFetch(`/api/admin/loans/${loanId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function createAdminLoanRepayment(loanId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ repayment: any }>(`/api/admin/loans/${loanId}/repayments`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.repayment;
+}
+
+export async function deleteAdminLoanRepayment(loanId: string, repaymentId: string) {
+  await adminFetch(`/api/admin/loans/${loanId}/repayments/${repaymentId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function fetchAdminExpenses(params?: {
   preset?: AdminRangePreset;
   branchId?: string;
@@ -747,6 +873,7 @@ export async function fetchAdminExpenses(params?: {
       title: expense.title,
       category: expense.category,
       amount: Number(expense.amount),
+      paymentSource: expense.paymentSource ?? "CASH",
       expenseDate: expense.expenseDate,
       vendor: expense.vendor ?? undefined,
       billReference: expense.billReference ?? undefined,

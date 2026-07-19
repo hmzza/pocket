@@ -141,7 +141,7 @@ export async function readInventoryData(
   branchId: string,
   productIds: string[]
 ) {
-  const [productIngredients, productPackagingRules, branchInventories] = await Promise.all([
+  const [productIngredients, packagingRules, products, branchInventories] = await Promise.all([
     productIds.length
       ? client.productIngredient.findMany({
           where: { productId: { in: productIds } },
@@ -150,12 +150,15 @@ export async function readInventoryData(
           }
         })
       : Promise.resolve([]),
+    client.packagingRule.findMany({
+      include: {
+        packagingIngredient: true
+      }
+    }),
     productIds.length
-      ? client.productPackagingRule.findMany({
-          where: { productId: { in: productIds } },
-          include: {
-            packagingIngredient: true
-          }
+      ? client.product.findMany({
+          where: { id: { in: productIds } },
+          select: { id: true, categoryId: true }
         })
       : Promise.resolve([]),
     client.branchInventory.findMany({
@@ -166,7 +169,7 @@ export async function readInventoryData(
     })
   ]);
 
-  return { productIngredients, productPackagingRules, branchInventories };
+  return { productIngredients, packagingRules, products, branchInventories };
 }
 
 type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
@@ -177,14 +180,16 @@ type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
  */
 export function computeInventoryChanges({
   productIngredients,
-  productPackagingRules,
+  packagingRules,
+  products,
   branchInventories,
   items,
   mode,
   serviceType = ServiceType.DELIVERY
 }: {
   productIngredients: InventoryData["productIngredients"];
-  productPackagingRules: InventoryData["productPackagingRules"];
+  packagingRules: InventoryData["packagingRules"];
+  products: InventoryData["products"];
   branchInventories: InventoryData["branchInventories"];
   items: InventoryOrderItem[];
   mode: "consume" | "return";
@@ -216,21 +221,60 @@ export function computeInventoryChanges({
   }
 
   const ingredientById = new Map(productIngredients.map((entry) => [entry.ingredientId, entry.ingredient]));
-  const packagingRulesByProduct = new Map<string, typeof productPackagingRules>();
-  for (const rule of productPackagingRules) {
-    const existing = packagingRulesByProduct.get(rule.productId) ?? [];
-    existing.push(rule);
-    packagingRulesByProduct.set(rule.productId, existing);
+  const productCategoryById = new Map(products.map((product) => [product.id, product.categoryId]));
+  const productQuantities = new Map<string, number>();
+  const categoryQuantities = new Map<string, number>();
+  let orderQuantity = 0;
+
+  function addPackagingRuleUsage(rule: InventoryData["packagingRules"][number], itemCount: number) {
+    if (itemCount <= 0) return;
+    const quantity = Number(rule.quantity);
+    const needed = rule.quantityMode === "PER_ITEM_STEP"
+      ? quantity * Math.ceil(itemCount / Math.max(1, rule.itemStep ?? 1))
+      : quantity * itemCount;
+    if (needed <= 0) return;
+    totals.set(
+      rule.packagingIngredientId,
+      roundQuantity((totals.get(rule.packagingIngredientId) ?? 0) + needed)
+    );
   }
 
-  function addPackagingUsage(productId: string, multiplier: number) {
-    const rules = packagingRulesByProduct.get(productId) ?? [];
-    const specificRules = rules.filter((rule) => rule.serviceType === serviceType);
-    const selectedRules = specificRules.length ? specificRules : rules.filter((rule) => rule.serviceType === "DEFAULT");
-    for (const rule of selectedRules) {
+  function addProductPackagingInput(productId: string, quantity: number) {
+    productQuantities.set(productId, (productQuantities.get(productId) ?? 0) + quantity);
+    const categoryId = productCategoryById.get(productId);
+    if (categoryId) {
+      categoryQuantities.set(categoryId, (categoryQuantities.get(categoryId) ?? 0) + quantity);
+    }
+    orderQuantity += quantity;
+  }
+
+  function addPackagingUsage() {
+    const matchingRules = packagingRules.filter((rule) => rule.serviceType === serviceType || rule.serviceType === "DEFAULT");
+    for (const rule of matchingRules) {
+      const hasSpecificForScope = packagingRules.some((candidate) =>
+        candidate.serviceType === serviceType &&
+        candidate.productId === rule.productId &&
+        candidate.categoryId === rule.categoryId &&
+        candidate.packagingIngredientId === rule.packagingIngredientId
+      );
+      if (rule.serviceType === "DEFAULT" && hasSpecificForScope) continue;
+      if (rule.productId) {
+        addPackagingRuleUsage(rule, productQuantities.get(rule.productId) ?? 0);
+      } else if (rule.categoryId) {
+        addPackagingRuleUsage(rule, categoryQuantities.get(rule.categoryId) ?? 0);
+      } else {
+        addPackagingRuleUsage(rule, orderQuantity);
+      }
+    }
+  }
+
+  function addLegacyPackagingUsage(productId: string, multiplier: number) {
+    for (const recipe of recipeByProduct.get(productId) ?? []) {
+      const ingredient = ingredientById.get(recipe.ingredientId);
+      if (ingredient?.type !== "PACKAGING") continue;
       totals.set(
-        rule.packagingIngredientId,
-        roundQuantity((totals.get(rule.packagingIngredientId) ?? 0) + Number(rule.quantityNeeded) * multiplier)
+        recipe.ingredientId,
+        roundQuantity((totals.get(recipe.ingredientId) ?? 0) + recipe.quantityNeeded * multiplier)
       );
     }
   }
@@ -240,9 +284,13 @@ export function computeInventoryChanges({
   for (const item of items) {
     if (item.productId && !(item.bundleComponents?.length ?? 0)) {
       for (const recipe of recipeByProduct.get(item.productId) ?? []) {
-        addIngredientUsage(ingredientById.get(recipe.ingredientId), recipe.quantityNeeded * item.quantity);
+        const ingredient = ingredientById.get(recipe.ingredientId);
+        if (ingredient?.type !== "PACKAGING") {
+          addIngredientUsage(ingredient, recipe.quantityNeeded * item.quantity);
+        }
       }
-      addPackagingUsage(item.productId, item.quantity);
+      addLegacyPackagingUsage(item.productId, item.quantity);
+      addProductPackagingInput(item.productId, item.quantity);
     }
 
     for (const component of item.bundleComponents ?? []) {
@@ -251,9 +299,13 @@ export function computeInventoryChanges({
       }
 
       for (const recipe of recipeByProduct.get(component.productId) ?? []) {
-        addIngredientUsage(ingredientById.get(recipe.ingredientId), recipe.quantityNeeded * component.quantity);
+        const ingredient = ingredientById.get(recipe.ingredientId);
+        if (ingredient?.type !== "PACKAGING") {
+          addIngredientUsage(ingredient, recipe.quantityNeeded * component.quantity);
+        }
       }
-      addPackagingUsage(component.productId, component.quantity);
+      addLegacyPackagingUsage(component.productId, component.quantity);
+      addProductPackagingInput(component.productId, component.quantity);
     }
 
     for (const addOn of item.addOns ?? []) {
@@ -270,6 +322,8 @@ export function computeInventoryChanges({
       }
     }
   }
+
+  addPackagingUsage();
 
   if (!totals.size) {
     return [];
@@ -374,7 +428,7 @@ export async function applyOrderInventory({
       ]).filter((value): value is string => Boolean(value))
     )
   ];
-  const { productIngredients, productPackagingRules, branchInventories } = await readInventoryData(transaction, branchId, productIds);
-  const changes = computeInventoryChanges({ productIngredients, productPackagingRules, branchInventories, items, mode, serviceType });
+  const { productIngredients, packagingRules, products, branchInventories } = await readInventoryData(transaction, branchId, productIds);
+  const changes = computeInventoryChanges({ productIngredients, packagingRules, products, branchInventories, items, mode, serviceType });
   await applyInventoryChanges({ transaction, changes, orderId, actorId, mode });
 }

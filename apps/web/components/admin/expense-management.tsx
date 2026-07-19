@@ -31,6 +31,11 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
 
 const COMMON_EXPENSE_CATEGORIES = ["Inventory", "Utilities", "Rent", "Salaries", "Maintenance", "Marketing", "Delivery", "Misc"];
 const EXPENSE_CATEGORY_SETTING_KEY = "expense.categories";
+const MONEY_SOURCES = [
+  { value: "CASH", label: "Cash" },
+  { value: "EASYPAISA", label: "Easypaisa" },
+  { value: "JAZZCASH", label: "JazzCash" }
+] as const;
 
 function getCurrentMonthKey() {
   const now = new Date();
@@ -58,6 +63,7 @@ type ExpenseFormState = {
   title: string;
   category: string;
   amount: string;
+  paymentSource: (typeof MONEY_SOURCES)[number]["value"];
   expenseDate: string;
   vendor: string;
   billReference: string;
@@ -69,6 +75,7 @@ const EMPTY_EXPENSE_FORM: ExpenseFormState = {
   title: "",
   category: "Inventory",
   amount: "",
+  paymentSource: "CASH",
   expenseDate: new Date().toISOString().slice(0, 10),
   vendor: "",
   billReference: "",
@@ -81,6 +88,7 @@ function mapExpenseToForm(expense: AdminExpense): ExpenseFormState {
     title: expense.title,
     category: expense.category,
     amount: String(expense.amount),
+    paymentSource: expense.paymentSource ?? "CASH",
     expenseDate: expense.expenseDate.slice(0, 10),
     vendor: expense.vendor ?? "",
     billReference: expense.billReference ?? "",
@@ -185,6 +193,12 @@ function ExpenseEditor({
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Amount</label>
             <Input type="number" min="0" step="0.01" value={value.amount} onChange={(event) => onChange({ ...value, amount: event.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Paid from</label>
+            <select value={value.paymentSource} onChange={(event) => onChange({ ...value, paymentSource: event.target.value as ExpenseFormState["paymentSource"] })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20">
+              {MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
+            </select>
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Vendor</label>
@@ -391,6 +405,7 @@ export function ExpenseManagement() {
         title: form.title.trim(),
         category: nextCategory,
         amount: Number(form.amount),
+        paymentSource: form.paymentSource,
         expenseDate: new Date(`${form.expenseDate}T12:00:00`).toISOString(),
         vendor: nextVendor || undefined,
         billReference: form.billReference.trim() || undefined,
@@ -675,6 +690,7 @@ export function ExpenseManagement() {
                         </div>
                         <div className="grid gap-2 text-sm text-pocket-navy/70 sm:grid-cols-2">
                           <p>Date: {new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric", year: "numeric" }).format(new Date(expense.expenseDate))}</p>
+                          <p>Paid from: {MONEY_SOURCES.find((source) => source.value === expense.paymentSource)?.label ?? expense.paymentSource}</p>
                           {expense.vendor ? <p>Vendor: {expense.vendor}</p> : null}
                           {expense.billReference ? <p>Bill: {expense.billReference}</p> : null}
                           {expense.createdByName ? <p>Logged by: {expense.createdByName}</p> : null}

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { InventoryTransactionType, OrderStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { InventoryTransactionType, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -179,6 +179,22 @@ function buildProductSlug(name: string) {
 const INVENTORY_ITEM_TYPES = ["RAW", "PREPARED", "PACKAGING", "RETAIL"] as const;
 const DEFAULT_PACKAGING_SERVICE = "DEFAULT";
 const PACKAGING_SERVICE_TYPES = [DEFAULT_PACKAGING_SERVICE, ...Object.values(ServiceType)] as const;
+const MONEY_SOURCES = ["CASH", "EASYPAISA", "JAZZCASH"] as const;
+const PACKAGING_QUANTITY_MODES = ["FIXED", "PER_ITEM_STEP"] as const;
+
+function blockedDeleteError(entityLabel: string) {
+  return Object.assign(
+    new Error(`${entityLabel} cannot be deleted because it is linked to existing history. Remove dependent setup records first or keep it for history.`),
+    { statusCode: 409 }
+  );
+}
+
+function rethrowDeleteError(error: unknown, entityLabel: string): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2003", "P2014"].includes(error.code)) {
+    throw blockedDeleteError(entityLabel);
+  }
+  throw error;
+}
 
 function skuPrefix(value: string, fallback: string) {
   const normalized = normalizeSku(value).replace(/-/g, "");
@@ -637,7 +653,7 @@ function buildProductCostSummary(product: any) {
   );
   const packagingRuleItems: PackagingRuleCostLine[] = (product.packagingRules ?? []).map((rule: any) => {
     const ingredient = rule.packagingIngredient;
-    const quantity = parseDecimal(rule.quantityNeeded);
+    const quantity = parseDecimal(rule.quantity);
     const unitCost = parseDecimal(ingredient?.costPerUnit);
     return {
       ingredientId: rule.packagingIngredientId,
@@ -727,7 +743,7 @@ function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda"): Prisma
 
 function getServiceBreakdown(value: ServiceType | string) {
   if (value === ServiceType.INSHOP || value === ServiceType.TAKEAWAY || value === ServiceType.DINE_IN) {
-    return { key: "INSHOP", label: "Inshop" };
+    return { key: "INSHOP", label: "Dine-in" };
   }
 
   if (value === ServiceType.FOODPANDA) {
@@ -1376,14 +1392,7 @@ router.patch("/products/:id", async (req, res, next) => {
           ...productPayload,
           ...(name ? { name: name.trim() } : {}),
           ...(slug ? { slug: normalizeSlug(slug) } : {}),
-          ...(description ? { description: description.trim() } : {}),
-          ...(nextImages
-            ? {
-                images: {
-                  create: nextImages
-                }
-              }
-            : {})
+          ...(description ? { description: description.trim() } : {})
         },
         include: {
           category: true,
@@ -1399,7 +1408,25 @@ router.patch("/products/:id", async (req, res, next) => {
         }
       });
 
+      if (nextImages) {
+        await transaction.productImage.deleteMany({ where: { productId: updatedProduct.id } });
+        await transaction.productImage.createMany({
+          data: nextImages.map((image) => ({
+            productId: updatedProduct.id,
+            ...image
+          }))
+        });
+      }
+
       if (normalizedBundleComponents !== null) {
+        await transaction.productBundleComponent.deleteMany({
+          where: {
+            productId: updatedProduct.id,
+            componentProductId: {
+              notIn: normalizedBundleComponents.map((component) => component.componentProductId)
+            }
+          }
+        });
         for (const component of normalizedBundleComponents) {
           await transaction.productBundleComponent.upsert({
             where: {
@@ -1433,7 +1460,21 @@ router.patch("/products/:id", async (req, res, next) => {
         });
       }
 
-      return updatedProduct;
+      return transaction.product.findUniqueOrThrow({
+        where: { id: updatedProduct.id },
+        include: {
+          category: true,
+          images: { orderBy: { sortOrder: "asc" } },
+          bundleComponents: {
+            orderBy: { sortOrder: "asc" },
+            include: {
+              componentProduct: {
+                select: { id: true, name: true, slug: true }
+              }
+            }
+          }
+        }
+      });
     });
 
     await writeAuditLog({
@@ -1453,25 +1494,42 @@ router.patch("/products/:id", async (req, res, next) => {
 router.delete("/products/:id", async (req, res, next) => {
   try {
     const productId = req.params.id;
-    await prisma.product.update({
-      where: { id: productId },
-      data: { isActive: false }
+    const orderItemCount = await prisma.orderItem.count({ where: { productId } });
+    if (orderItemCount > 0) {
+      throw blockedDeleteError("Product");
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.productBundleComponent.deleteMany({
+        where: {
+          OR: [{ productId }, { componentProductId: productId }]
+        }
+      });
+      await transaction.branchProduct.deleteMany({ where: { productId } });
+      await transaction.productIngredient.deleteMany({ where: { productId } });
+      await transaction.packagingRule.deleteMany({ where: { productId } });
+      await transaction.productImage.deleteMany({ where: { productId } });
+      await transaction.product.delete({ where: { id: productId } });
     });
 
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "product.disable",
+      action: "product.delete",
       entityType: "product",
       entityId: productId,
-      payload: { mode: "disabled", reason: "products are soft-disabled to preserve database history" }
+      payload: { mode: "deleted" }
     });
 
     return res.json({
-      mode: "disabled",
-      message: "Product disabled. No product data was deleted."
+      mode: "deleted",
+      message: "Product deleted."
     });
   } catch (error) {
-    return next(error);
+    try {
+      rethrowDeleteError(error, "Product");
+    } catch (nextError) {
+      return next(nextError);
+    }
   }
 });
 
@@ -1512,12 +1570,21 @@ router.patch("/categories/:id", async (req, res, next) => {
   }
 });
 
-router.delete("/categories/:id", async (req, res) => {
-  await prisma.category.update({
-    where: { id: req.params.id },
-    data: { isActive: false }
-  });
-  return res.status(204).send();
+router.delete("/categories/:id", async (req, res, next) => {
+  try {
+    const productCount = await prisma.product.count({ where: { categoryId: req.params.id } });
+    if (productCount > 0) {
+      throw blockedDeleteError("Category");
+    }
+    await prisma.category.delete({ where: { id: req.params.id } });
+    return res.status(204).send();
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Category");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
 });
 
 const inventoryQuerySchema = z.object({
@@ -1883,6 +1950,50 @@ router.patch("/inventory/items/:id", async (req, res, next) => {
   }
 });
 
+router.delete("/inventory/items/:id", async (req, res, next) => {
+  try {
+    const ingredientId = req.params.id;
+    const transactionCount = await prisma.inventoryTransaction.count({
+      where: {
+        branchInventory: {
+          ingredientId
+        }
+      }
+    });
+    if (transactionCount > 0) {
+      throw blockedDeleteError("Inventory item");
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.productIngredient.deleteMany({ where: { ingredientId } });
+      await transaction.ingredientComponent.deleteMany({
+        where: {
+          OR: [{ parentIngredientId: ingredientId }, { componentIngredientId: ingredientId }]
+        }
+      });
+      await transaction.packagingRule.deleteMany({ where: { packagingIngredientId: ingredientId } });
+      await transaction.branchInventory.deleteMany({ where: { ingredientId } });
+      await transaction.ingredient.delete({ where: { id: ingredientId } });
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.item_delete",
+      entityType: "ingredient",
+      entityId: ingredientId,
+      payload: { mode: "deleted" }
+    });
+
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Inventory item");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
 router.post("/inventory/transactions", async (req, res, next) => {
   try {
     const payload = inventoryMovementSchema.parse(req.body);
@@ -2007,6 +2118,738 @@ const transactionUpdateSchema = z.object({
   wastageReason: z.enum(["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"]).nullable().optional()
 });
 
+const packagingRuleSchema = z.object({
+  id: z.string().cuid().optional(),
+  productId: z.string().cuid().nullable().optional(),
+  categoryId: z.string().cuid().nullable().optional(),
+  serviceType: z.string().refine((value) => PACKAGING_SERVICE_TYPES.includes(value as any), "Invalid service type.").default(DEFAULT_PACKAGING_SERVICE),
+  packagingIngredientId: z.string().cuid(),
+  quantityMode: z.enum(PACKAGING_QUANTITY_MODES).default("FIXED"),
+  quantity: z.number().nonnegative(),
+  itemStep: z.number().int().positive().nullable().optional()
+});
+
+const transferSchema = z
+  .object({
+    branchId: z.string().cuid(),
+    fromSource: z.enum(MONEY_SOURCES),
+    toSource: z.enum(MONEY_SOURCES),
+    amount: z.number().positive(),
+    transferDate: z.string().datetime(),
+    note: z.string().max(240).optional().or(z.literal(""))
+  })
+  .superRefine((value, context) => {
+    if (value.fromSource === value.toSource) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["toSource"],
+        message: "Transfer destination must be different."
+      });
+    }
+  });
+
+const closingQuerySchema = z.object({
+  branchId: z.string().cuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+});
+
+const closingSchema = z.object({
+  branchId: z.string().cuid(),
+  closingDate: z.string().datetime(),
+  cashCounted: z.number().nonnegative(),
+  easypaisaCounted: z.number().nonnegative(),
+  jazzcashCounted: z.number().nonnegative(),
+  note: z.string().max(240).optional().or(z.literal(""))
+});
+
+function normalizeClosingDate(value: Date) {
+  return startOfDay(value);
+}
+
+function emptyMoneyTotals() {
+  return { CASH: 0, EASYPAISA: 0, JAZZCASH: 0 };
+}
+
+async function buildClosingSnapshot(branchId: string, closingDate: Date) {
+  const date = normalizeClosingDate(closingDate);
+  const start = startOfDay(date);
+  const end = endOfDay(date);
+  const previousClosing = await prisma.dailyClosing.findFirst({
+    where: {
+      branchId,
+      closingDate: { lt: start }
+    },
+    orderBy: { closingDate: "desc" }
+  });
+
+  const [orders, expenses, transfers, loans, loanRepayments, recentClosings] = await Promise.all([
+    prisma.order.findMany({
+      where: {
+        branchId,
+        status: { not: OrderStatus.CANCELLED },
+        placedAt: { gte: start, lte: end },
+        paymentMethod: { in: [PaymentMethod.CASH, PaymentMethod.EASYPAISA, PaymentMethod.JAZZCASH] }
+      },
+      select: { paymentMethod: true, totalAmount: true }
+    }),
+    prisma.expense.findMany({
+      where: {
+        branchId,
+        expenseDate: { gte: start, lte: end },
+        paymentSource: { in: [...MONEY_SOURCES] }
+      },
+      select: { paymentSource: true, amount: true }
+    }),
+    prisma.moneyTransfer.findMany({
+      where: {
+        branchId,
+        transferDate: { gte: start, lte: end }
+      }
+    }),
+    prisma.loan.findMany({
+      where: {
+        branchId,
+        loanDate: { gte: start, lte: end },
+        receivedSource: { in: [...MONEY_SOURCES] }
+      },
+      select: { receivedSource: true, amount: true }
+    }),
+    prisma.loanRepayment.findMany({
+      where: {
+        branchId,
+        paymentDate: { gte: start, lte: end },
+        paidFrom: { in: [...MONEY_SOURCES] }
+      },
+      select: { paidFrom: true, amount: true }
+    }),
+    prisma.dailyClosing.findMany({
+      where: { branchId },
+      orderBy: { closingDate: "desc" },
+      take: 8,
+      include: { closedBy: true }
+    })
+  ]);
+
+  const opening = {
+    CASH: parseDecimal(previousClosing?.cashCounted),
+    EASYPAISA: parseDecimal(previousClosing?.easypaisaCounted),
+    JAZZCASH: parseDecimal(previousClosing?.jazzcashCounted)
+  };
+  const sales = emptyMoneyTotals();
+  for (const order of orders) {
+    sales[order.paymentMethod as keyof typeof sales] += parseDecimal(order.totalAmount);
+  }
+  const expenseTotals = emptyMoneyTotals();
+  for (const expense of expenses) {
+    expenseTotals[expense.paymentSource as keyof typeof expenseTotals] += parseDecimal(expense.amount);
+  }
+  const transferIn = emptyMoneyTotals();
+  const transferOut = emptyMoneyTotals();
+  for (const transfer of transfers) {
+    transferOut[transfer.fromSource as keyof typeof transferOut] += parseDecimal(transfer.amount);
+    transferIn[transfer.toSource as keyof typeof transferIn] += parseDecimal(transfer.amount);
+  }
+  const loanIn = emptyMoneyTotals();
+  const loanOut = emptyMoneyTotals();
+  for (const loan of loans) {
+    loanIn[loan.receivedSource as keyof typeof loanIn] += parseDecimal(loan.amount);
+  }
+  for (const repayment of loanRepayments) {
+    loanOut[repayment.paidFrom as keyof typeof loanOut] += parseDecimal(repayment.amount);
+  }
+  const expected = {
+    CASH: roundMoney(opening.CASH + sales.CASH - expenseTotals.CASH - transferOut.CASH + transferIn.CASH + loanIn.CASH - loanOut.CASH),
+    EASYPAISA: roundMoney(opening.EASYPAISA + sales.EASYPAISA - expenseTotals.EASYPAISA - transferOut.EASYPAISA + transferIn.EASYPAISA + loanIn.EASYPAISA - loanOut.EASYPAISA),
+    JAZZCASH: roundMoney(opening.JAZZCASH + sales.JAZZCASH - expenseTotals.JAZZCASH - transferOut.JAZZCASH + transferIn.JAZZCASH + loanIn.JAZZCASH - loanOut.JAZZCASH)
+  };
+
+  return {
+    branchId,
+    closingDate: start.toISOString(),
+    opening,
+    sales,
+    expenses: expenseTotals,
+    transferIn,
+    transferOut,
+    loanIn,
+    loanOut,
+    expected,
+    recentClosings: recentClosings.map((closing) => ({
+      id: closing.id,
+      closingDate: closing.closingDate.toISOString(),
+      cashExpected: parseDecimal(closing.cashExpected),
+      cashCounted: parseDecimal(closing.cashCounted),
+      easypaisaExpected: parseDecimal(closing.easypaisaExpected),
+      easypaisaCounted: parseDecimal(closing.easypaisaCounted),
+      jazzcashExpected: parseDecimal(closing.jazzcashExpected),
+      jazzcashCounted: parseDecimal(closing.jazzcashCounted),
+      note: closing.note,
+      closedByName: closing.closedBy?.name ?? null,
+      createdAt: closing.createdAt.toISOString()
+    }))
+  };
+}
+
+router.get("/inventory/rules", async (_req, res, next) => {
+  try {
+    const [rules, products, categories, packagingItems] = await Promise.all([
+      prisma.packagingRule.findMany({
+        include: {
+          product: { select: { id: true, name: true } },
+          category: { select: { id: true, name: true } },
+          packagingIngredient: true
+        },
+        orderBy: [{ serviceType: "asc" }, { id: "asc" }]
+      }),
+      prisma.product.findMany({ where: { isActive: true }, select: { id: true, name: true, categoryId: true }, orderBy: { name: "asc" } }),
+      prisma.category.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+      prisma.ingredient.findMany({ where: { type: "PACKAGING" }, orderBy: { name: "asc" } })
+    ]);
+    return res.json({
+      serviceTypes: PACKAGING_SERVICE_TYPES,
+      quantityModes: PACKAGING_QUANTITY_MODES,
+      products,
+      categories,
+      packagingItems: packagingItems.map((item) => ({
+        id: item.id,
+        name: item.name,
+        unit: item.unit,
+        costPerUnit: parseDecimal(item.costPerUnit)
+      })),
+      rules: rules.map((rule) => ({
+        id: rule.id,
+        productId: rule.productId,
+        productName: rule.product?.name ?? null,
+        categoryId: rule.categoryId,
+        categoryName: rule.category?.name ?? null,
+        serviceType: rule.serviceType,
+        packagingIngredientId: rule.packagingIngredientId,
+        packagingIngredientName: rule.packagingIngredient.name,
+        quantityMode: rule.quantityMode,
+        quantity: parseDecimal(rule.quantity),
+        itemStep: rule.itemStep
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/inventory/rules", async (req, res, next) => {
+  try {
+    const payload = packagingRuleSchema.parse(req.body);
+    const data = {
+      productId: payload.productId || null,
+      categoryId: payload.productId ? null : payload.categoryId || null,
+      serviceType: payload.serviceType,
+      packagingIngredientId: payload.packagingIngredientId,
+      quantityMode: payload.quantityMode,
+      quantity: payload.quantity,
+      itemStep: payload.quantityMode === "PER_ITEM_STEP" ? payload.itemStep ?? 1 : null
+    };
+    const rule = payload.id
+      ? await prisma.packagingRule.update({ where: { id: payload.id }, data })
+      : await prisma.packagingRule.create({ data });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: payload.id ? "inventory.packaging_rule_update" : "inventory.packaging_rule_create",
+      entityType: "packaging_rule",
+      entityId: rule.id,
+      payload
+    });
+    return res.status(payload.id ? 200 : 201).json({ rule });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/inventory/rules/:id", async (req, res, next) => {
+  try {
+    await prisma.packagingRule.delete({ where: { id: req.params.id } });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.packaging_rule_delete",
+      entityType: "packaging_rule",
+      entityId: req.params.id,
+      payload: { mode: "deleted" }
+    });
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Packaging rule");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
+router.get("/inventory/transfers", async (req, res, next) => {
+  try {
+    const query = z.object({ branchId: z.string().cuid().optional() }).parse(req.query);
+    const [branches, transfers] = await Promise.all([
+      prisma.branch.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+      prisma.moneyTransfer.findMany({
+        where: query.branchId ? { branchId: query.branchId } : undefined,
+        include: { branch: true, createdBy: true },
+        orderBy: { transferDate: "desc" },
+        take: 50
+      })
+    ]);
+    return res.json({
+      sources: MONEY_SOURCES,
+      branches: branches.map((branch) => ({ id: branch.id, name: branch.name })),
+      transfers: transfers.map((transfer) => ({
+        id: transfer.id,
+        branchId: transfer.branchId,
+        branchName: transfer.branch.name,
+        fromSource: transfer.fromSource,
+        toSource: transfer.toSource,
+        amount: parseDecimal(transfer.amount),
+        transferDate: transfer.transferDate.toISOString(),
+        note: transfer.note,
+        createdByName: transfer.createdBy?.name ?? null,
+        createdAt: transfer.createdAt.toISOString()
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/inventory/transfers", async (req, res, next) => {
+  try {
+    const payload = transferSchema.parse(req.body);
+    const transfer = await prisma.moneyTransfer.create({
+      data: {
+        branchId: payload.branchId,
+        fromSource: payload.fromSource,
+        toSource: payload.toSource,
+        amount: payload.amount,
+        transferDate: new Date(payload.transferDate),
+        note: payload.note?.trim() || undefined,
+        createdById: req.user!.id
+      }
+    });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.money_transfer_create",
+      entityType: "money_transfer",
+      entityId: transfer.id,
+      payload
+    });
+    return res.status(201).json({ transfer });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/inventory/transfers/:id", async (req, res, next) => {
+  try {
+    await prisma.moneyTransfer.delete({ where: { id: req.params.id } });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.money_transfer_delete",
+      entityType: "money_transfer",
+      entityId: req.params.id,
+      payload: { mode: "deleted" }
+    });
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Money transfer");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
+router.get("/inventory/closing", async (req, res, next) => {
+  try {
+    const query = closingQuerySchema.parse(req.query);
+    const snapshot = await buildClosingSnapshot(query.branchId, query.date ? new Date(`${query.date}T12:00:00`) : new Date());
+    return res.json(snapshot);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/inventory/closing", async (req, res, next) => {
+  try {
+    const payload = closingSchema.parse(req.body);
+    const snapshot = await buildClosingSnapshot(payload.branchId, new Date(payload.closingDate));
+    const closingDate = normalizeClosingDate(new Date(payload.closingDate));
+    const closing = await prisma.dailyClosing.upsert({
+      where: {
+        branchId_closingDate: {
+          branchId: payload.branchId,
+          closingDate
+        }
+      },
+      update: {
+        cashExpected: snapshot.expected.CASH,
+        cashCounted: payload.cashCounted,
+        easypaisaExpected: snapshot.expected.EASYPAISA,
+        easypaisaCounted: payload.easypaisaCounted,
+        jazzcashExpected: snapshot.expected.JAZZCASH,
+        jazzcashCounted: payload.jazzcashCounted,
+        note: payload.note?.trim() || null,
+        closedById: req.user!.id
+      },
+      create: {
+        branchId: payload.branchId,
+        closingDate,
+        cashExpected: snapshot.expected.CASH,
+        cashCounted: payload.cashCounted,
+        easypaisaExpected: snapshot.expected.EASYPAISA,
+        easypaisaCounted: payload.easypaisaCounted,
+        jazzcashExpected: snapshot.expected.JAZZCASH,
+        jazzcashCounted: payload.jazzcashCounted,
+        note: payload.note?.trim() || undefined,
+        closedById: req.user!.id
+      }
+    });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.daily_closing_save",
+      entityType: "daily_closing",
+      entityId: closing.id,
+      payload
+    });
+    return res.status(201).json({ closing });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/inventory/closing/:id", async (req, res, next) => {
+  try {
+    await prisma.dailyClosing.delete({ where: { id: req.params.id } });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.daily_closing_delete",
+      entityType: "daily_closing",
+      entityId: req.params.id,
+      payload: { mode: "deleted" }
+    });
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Daily closing");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
+const loanQuerySchema = dashboardQueryBaseSchema
+  .extend({
+    branchId: z.string().cuid().optional(),
+    status: z.enum(["all", "open", "paid"]).default("all"),
+    search: z.string().trim().optional()
+  })
+  .superRefine((value, context) => {
+    if (value.preset === "custom" && (!value.start || !value.end)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Custom range requires start and end dates.",
+        path: ["start"]
+      });
+    }
+  });
+
+const loanSchema = z.object({
+  branchId: z.string().cuid(),
+  lenderName: z.string().trim().min(2).max(120),
+  amount: z.number().positive(),
+  receivedSource: z.enum(MONEY_SOURCES),
+  loanDate: z.string().datetime(),
+  note: z.string().max(500).optional().or(z.literal(""))
+});
+
+const loanRepaymentSchema = z.object({
+  amount: z.number().positive(),
+  paidFrom: z.enum(MONEY_SOURCES),
+  paymentDate: z.string().datetime(),
+  note: z.string().max(500).optional().or(z.literal(""))
+});
+
+function serializeLoan(loan: Prisma.LoanGetPayload<{ include: { branch: true; createdBy: true; repayments: { include: { createdBy: true } } } }>) {
+  const amount = parseDecimal(loan.amount);
+  const repaidAmount = loan.repayments.reduce((sum, repayment) => sum + parseDecimal(repayment.amount), 0);
+  const outstandingAmount = roundMoney(Math.max(0, amount - repaidAmount));
+  const status = outstandingAmount <= 0 ? "PAID" : repaidAmount > 0 ? "PARTIALLY_PAID" : "OPEN";
+
+  return {
+    id: loan.id,
+    branchId: loan.branchId,
+    branchName: loan.branch.name,
+    lenderName: loan.lenderName,
+    amount,
+    receivedSource: loan.receivedSource,
+    loanDate: loan.loanDate.toISOString(),
+    note: loan.note,
+    createdByName: loan.createdBy?.name ?? null,
+    createdAt: loan.createdAt.toISOString(),
+    repaidAmount: roundMoney(repaidAmount),
+    outstandingAmount,
+    status,
+    repayments: loan.repayments
+      .slice()
+      .sort((left, right) => right.paymentDate.getTime() - left.paymentDate.getTime())
+      .map((repayment) => ({
+        id: repayment.id,
+        loanId: repayment.loanId,
+        branchId: repayment.branchId,
+        amount: parseDecimal(repayment.amount),
+        paidFrom: repayment.paidFrom,
+        paymentDate: repayment.paymentDate.toISOString(),
+        note: repayment.note,
+        createdByName: repayment.createdBy?.name ?? null,
+        createdAt: repayment.createdAt.toISOString()
+      }))
+  };
+}
+
+router.get("/loans", async (req, res, next) => {
+  try {
+    const query = loanQuerySchema.parse(req.query);
+    const range = buildDashboardRange(query);
+    const where: Prisma.LoanWhereInput = {
+      loanDate: { gte: range.start, lte: range.end },
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(query.search
+        ? {
+            lenderName: {
+              contains: query.search,
+              mode: "insensitive"
+            }
+          }
+        : {})
+    };
+    const [branches, loans] = await Promise.all([
+      prisma.branch.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+      prisma.loan.findMany({
+        where,
+        include: {
+          branch: true,
+          createdBy: true,
+          repayments: { include: { createdBy: true } }
+        },
+        orderBy: [{ loanDate: "desc" }, { createdAt: "desc" }]
+      })
+    ]);
+
+    const serializedLoans = loans.map(serializeLoan).filter((loan) => {
+      if (query.status === "open") return loan.outstandingAmount > 0;
+      if (query.status === "paid") return loan.outstandingAmount <= 0;
+      return true;
+    });
+    const totalLoanTaken = serializedLoans.reduce((sum, loan) => sum + loan.amount, 0);
+    const totalLoanRepaid = serializedLoans.reduce((sum, loan) => sum + loan.repaidAmount, 0);
+    const outstandingLoanBalance = serializedLoans.reduce((sum, loan) => sum + loan.outstandingAmount, 0);
+
+    return res.json({
+      range: {
+        preset: range.preset,
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        label: range.label
+      },
+      branches: branches.map((branch) => ({
+        id: branch.id,
+        slug: branch.slug,
+        name: branch.name,
+        city: branch.city,
+        addressLine1: branch.addressLine1,
+        phone: branch.phone,
+        deliveryFee: parseDecimal(branch.deliveryFee)
+      })),
+      sources: MONEY_SOURCES,
+      summary: {
+        totalLoanTaken: roundMoney(totalLoanTaken),
+        totalLoanRepaid: roundMoney(totalLoanRepaid),
+        outstandingLoanBalance: roundMoney(outstandingLoanBalance),
+        openLoanCount: serializedLoans.filter((loan) => loan.outstandingAmount > 0).length,
+        paidLoanCount: serializedLoans.filter((loan) => loan.outstandingAmount <= 0).length
+      },
+      loans: serializedLoans
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/loans", async (req, res, next) => {
+  try {
+    const payload = loanSchema.parse(req.body);
+    const loan = await prisma.loan.create({
+      data: {
+        branchId: payload.branchId,
+        lenderName: payload.lenderName.trim(),
+        amount: payload.amount,
+        receivedSource: payload.receivedSource,
+        loanDate: new Date(payload.loanDate),
+        note: payload.note?.trim() || undefined,
+        createdById: req.user!.id
+      },
+      include: {
+        branch: true,
+        createdBy: true,
+        repayments: { include: { createdBy: true } }
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "loan.create",
+      entityType: "loan",
+      entityId: loan.id,
+      payload
+    });
+
+    return res.status(201).json({ loan: serializeLoan(loan) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/loans/:id", async (req, res, next) => {
+  try {
+    const payload = loanSchema.partial().parse(req.body);
+    const existing = await prisma.loan.findUnique({
+      where: { id: req.params.id },
+      include: { repayments: true }
+    });
+    if (!existing) {
+      return res.status(404).json({ message: "Loan not found." });
+    }
+    const repaidAmount = existing.repayments.reduce((sum, repayment) => sum + parseDecimal(repayment.amount), 0);
+    if (typeof payload.amount === "number" && payload.amount < repaidAmount) {
+      return res.status(400).json({ message: "Loan amount cannot be less than payments already recorded." });
+    }
+
+    const loan = await prisma.loan.update({
+      where: { id: req.params.id },
+      data: {
+        ...(payload.branchId ? { branchId: payload.branchId } : {}),
+        ...(payload.lenderName ? { lenderName: payload.lenderName.trim() } : {}),
+        ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
+        ...(payload.receivedSource ? { receivedSource: payload.receivedSource } : {}),
+        ...(payload.loanDate ? { loanDate: new Date(payload.loanDate) } : {}),
+        ...(payload.note !== undefined ? { note: payload.note.trim() || null } : {})
+      },
+      include: {
+        branch: true,
+        createdBy: true,
+        repayments: { include: { createdBy: true } }
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "loan.update",
+      entityType: "loan",
+      entityId: loan.id,
+      payload
+    });
+
+    return res.json({ loan: serializeLoan(loan) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/loans/:id", async (req, res, next) => {
+  try {
+    await prisma.loan.delete({ where: { id: req.params.id } });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "loan.delete",
+      entityType: "loan",
+      entityId: req.params.id,
+      payload: { mode: "deleted" }
+    });
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Loan");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
+router.post("/loans/:id/repayments", async (req, res, next) => {
+  try {
+    const payload = loanRepaymentSchema.parse(req.body);
+    const loan = await prisma.loan.findUnique({
+      where: { id: req.params.id },
+      include: { repayments: true }
+    });
+    if (!loan) {
+      return res.status(404).json({ message: "Loan not found." });
+    }
+    const repaidAmount = loan.repayments.reduce((sum, repayment) => sum + parseDecimal(repayment.amount), 0);
+    const remainingAmount = roundMoney(parseDecimal(loan.amount) - repaidAmount);
+    if (payload.amount > remainingAmount) {
+      return res.status(400).json({ message: `Payment cannot exceed remaining loan balance of Rs ${remainingAmount}.` });
+    }
+
+    const repayment = await prisma.loanRepayment.create({
+      data: {
+        loanId: loan.id,
+        branchId: loan.branchId,
+        amount: payload.amount,
+        paidFrom: payload.paidFrom,
+        paymentDate: new Date(payload.paymentDate),
+        note: payload.note?.trim() || undefined,
+        createdById: req.user!.id
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "loan.repayment_create",
+      entityType: "loan_repayment",
+      entityId: repayment.id,
+      payload
+    });
+
+    return res.status(201).json({ repayment });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/loans/:id/repayments/:repaymentId", async (req, res, next) => {
+  try {
+    const repayment = await prisma.loanRepayment.findFirst({
+      where: {
+        id: req.params.repaymentId,
+        loanId: req.params.id
+      }
+    });
+    if (!repayment) {
+      return res.status(404).json({ message: "Loan payment not found." });
+    }
+    await prisma.loanRepayment.delete({ where: { id: repayment.id } });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "loan.repayment_delete",
+      entityType: "loan_repayment",
+      entityId: repayment.id,
+      payload: { loanId: req.params.id, mode: "deleted" }
+    });
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Loan payment");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
 router.get("/inventory/recipes", async (_req, res, next) => {
   try {
     const [ingredients, preparedItems, products] = await Promise.all([
@@ -2087,24 +2930,29 @@ router.patch("/inventory/recipes/products/:id/packaging", async (req, res, next)
     const payload = packagingRulesUpdateSchema.parse(req.body);
     await prisma.$transaction(async (transaction) => {
       for (const rule of payload.rules) {
-        await transaction.productPackagingRule.upsert({
+        const existing = await transaction.packagingRule.findFirst({
           where: {
-            productId_serviceType_packagingIngredientId: {
-              productId: req.params.id,
-              serviceType: rule.serviceType,
-              packagingIngredientId: rule.ingredientId
-            }
-          },
-          update: {
-            quantityNeeded: rule.quantityNeeded
-          },
-          create: {
             productId: req.params.id,
+            categoryId: null,
             serviceType: rule.serviceType,
-            packagingIngredientId: rule.ingredientId,
-            quantityNeeded: rule.quantityNeeded
-          }
+            packagingIngredientId: rule.ingredientId
+          },
+          select: { id: true }
         });
+        const data = {
+          productId: req.params.id,
+          categoryId: null,
+          serviceType: rule.serviceType,
+          packagingIngredientId: rule.ingredientId,
+          quantityMode: "FIXED",
+          quantity: rule.quantityNeeded,
+          itemStep: null
+        };
+        if (existing) {
+          await transaction.packagingRule.update({ where: { id: existing.id }, data });
+        } else {
+          await transaction.packagingRule.create({ data });
+        }
       }
     });
 
@@ -2207,7 +3055,7 @@ router.get("/inventory/forecast", async (_req, res, next) => {
 
     const now = new Date();
     const start30 = startOfDay(addDays(now, -29));
-    const [orders, productIngredients, productPackagingRules, inventories, wastageTransactions] = await Promise.all([
+    const [orders, productIngredients, packagingRules, products, inventories, wastageTransactions] = await Promise.all([
       prisma.order.findMany({
         where: {
           branchId: branch.id,
@@ -2221,7 +3069,8 @@ router.get("/inventory/forecast", async (_req, res, next) => {
         }
       }),
       prisma.productIngredient.findMany({ include: { ingredient: { include: ingredientCostInclude } } }),
-      prisma.productPackagingRule.findMany({ include: { packagingIngredient: true } }),
+      prisma.packagingRule.findMany({ include: { packagingIngredient: true } }),
+      prisma.product.findMany({ select: { id: true, categoryId: true } }),
       prisma.branchInventory.findMany({
         where: { branchId: branch.id },
         include: { ingredient: true }
@@ -2243,12 +3092,7 @@ router.get("/inventory/forecast", async (_req, res, next) => {
       recipeByProduct.set(entry.productId, existing);
     }
 
-    const packagingRulesByProduct = new Map<string, typeof productPackagingRules>();
-    for (const rule of productPackagingRules) {
-      const existing = packagingRulesByProduct.get(rule.productId) ?? [];
-      existing.push(rule);
-      packagingRulesByProduct.set(rule.productId, existing);
-    }
+    const productCategoryById = new Map(products.map((product) => [product.id, product.categoryId]));
 
     const usage30ByIngredient = new Map<string, number>();
 
@@ -2265,28 +3109,61 @@ router.get("/inventory/forecast", async (_req, res, next) => {
       usage30ByIngredient.set(ingredient.id, roundQuantity((usage30ByIngredient.get(ingredient.id) ?? 0) + quantity));
     }
 
-    function addForecastProductUsage(productId: string, quantity: number, serviceType: ServiceType) {
-      for (const recipe of recipeByProduct.get(productId) ?? []) {
-        addForecastUsage(recipe.ingredient, parseDecimal(recipe.quantityNeeded) * quantity);
+    function addForecastRuleUsage(rule: typeof packagingRules[number], itemCount: number) {
+      if (itemCount <= 0) return;
+      const quantity = parseDecimal(rule.quantity);
+      const needed = rule.quantityMode === "PER_ITEM_STEP"
+        ? quantity * Math.ceil(itemCount / Math.max(1, rule.itemStep ?? 1))
+        : quantity * itemCount;
+      addForecastUsage(rule.packagingIngredient, needed);
+    }
+
+    function addForecastPackagingUsage(productQuantities: Map<string, number>, categoryQuantities: Map<string, number>, orderQuantity: number, serviceType: ServiceType) {
+      const matchingRules = packagingRules.filter((rule) => rule.serviceType === serviceType || rule.serviceType === DEFAULT_PACKAGING_SERVICE);
+      for (const rule of matchingRules) {
+        const hasSpecificForScope = packagingRules.some((candidate) =>
+          candidate.serviceType === serviceType &&
+          candidate.productId === rule.productId &&
+          candidate.categoryId === rule.categoryId &&
+          candidate.packagingIngredientId === rule.packagingIngredientId
+        );
+        if (rule.serviceType === DEFAULT_PACKAGING_SERVICE && hasSpecificForScope) continue;
+        if (rule.productId) addForecastRuleUsage(rule, productQuantities.get(rule.productId) ?? 0);
+        else if (rule.categoryId) addForecastRuleUsage(rule, categoryQuantities.get(rule.categoryId) ?? 0);
+        else addForecastRuleUsage(rule, orderQuantity);
       }
-      const rules = packagingRulesByProduct.get(productId) ?? [];
-      const specificRules = rules.filter((rule) => rule.serviceType === serviceType);
-      const selectedRules = specificRules.length ? specificRules : rules.filter((rule) => rule.serviceType === DEFAULT_PACKAGING_SERVICE);
-      for (const rule of selectedRules) {
-        addForecastUsage(rule.packagingIngredient, parseDecimal(rule.quantityNeeded) * quantity);
+    }
+
+    function addForecastProductUsage(productId: string, quantity: number) {
+      for (const recipe of recipeByProduct.get(productId) ?? []) {
+        if (recipe.ingredient.type !== "PACKAGING") {
+          addForecastUsage(recipe.ingredient, parseDecimal(recipe.quantityNeeded) * quantity);
+        }
       }
     }
 
     for (const order of orders) {
+      const productQuantities = new Map<string, number>();
+      const categoryQuantities = new Map<string, number>();
+      let orderQuantity = 0;
+      function trackPackagingInput(productId: string, quantity: number) {
+        productQuantities.set(productId, (productQuantities.get(productId) ?? 0) + quantity);
+        const categoryId = productCategoryById.get(productId);
+        if (categoryId) categoryQuantities.set(categoryId, (categoryQuantities.get(categoryId) ?? 0) + quantity);
+        orderQuantity += quantity;
+      }
       for (const item of order.items) {
         if (item.productId) {
-          addForecastProductUsage(item.productId, item.quantity, order.serviceType);
+          addForecastProductUsage(item.productId, item.quantity);
+          trackPackagingInput(item.productId, item.quantity);
         }
         for (const component of item.bundleComponents) {
           if (!component.productId) continue;
-          addForecastProductUsage(component.productId, component.quantity, order.serviceType);
+          addForecastProductUsage(component.productId, component.quantity);
+          trackPackagingInput(component.productId, component.quantity);
         }
       }
+      addForecastPackagingUsage(productQuantities, categoryQuantities, orderQuantity, order.serviceType);
     }
 
     const wastage30ByIngredient = new Map<string, number>();
@@ -2839,22 +3716,18 @@ router.delete("/vendors/:id", async (req, res, next) => {
     }
 
     const current = vendors[index] as VendorRecord;
-    vendors[index] = {
-      ...current,
-      isActive: false,
-      updatedAt: new Date().toISOString()
-    };
+    const nextVendors = vendors.filter((vendor) => vendor.id !== req.params.id);
 
-    await writeVendorSheetRows(vendors, workbook.categories);
+    await writeVendorSheetRows(nextVendors, workbook.categories);
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "vendor.disable",
+      action: "vendor.delete",
       entityType: "vendor",
       entityId: req.params.id,
-      payload: { mode: "disabled" }
+      payload: { mode: "deleted", vendorName: current.vendorName }
     });
 
-    return res.json({ disabled: true });
+    return res.json({ deleted: true });
   } catch (error) {
     return next(error);
   }
@@ -2891,6 +3764,7 @@ const expenseSchema = z.object({
   title: z.string().min(2).max(120),
   category: z.string().min(2).max(60),
   amount: z.number().positive(),
+  paymentSource: z.enum(MONEY_SOURCES).default("CASH"),
   expenseDate: z.string().datetime(),
   vendor: z.string().max(100).optional().or(z.literal("")),
   billReference: z.string().max(100).optional().or(z.literal("")),
@@ -2999,6 +3873,7 @@ router.get("/expenses", async (req, res, next) => {
         title: expense.title,
         category: expense.category,
         amount: parseDecimal(expense.amount),
+        paymentSource: expense.paymentSource,
         expenseDate: expense.expenseDate.toISOString(),
         vendor: expense.vendor,
         billReference: expense.billReference,
@@ -3047,6 +3922,7 @@ router.get("/expenses/export", async (req, res, next) => {
       Title: expense.title,
       Category: expense.category,
       Amount: parseDecimal(expense.amount),
+      PaymentSource: expense.paymentSource,
       Vendor: expense.vendor ?? "",
       BillReference: expense.billReference ?? "",
       Notes: expense.notes ?? "",
@@ -3082,6 +3958,7 @@ router.post("/expenses", async (req, res, next) => {
         title: payload.title.trim(),
         category: payload.category.trim(),
         amount: payload.amount,
+        paymentSource: payload.paymentSource,
         expenseDate: new Date(payload.expenseDate),
         vendor: payload.vendor?.trim() || undefined,
         billReference: payload.billReference?.trim() || undefined,
@@ -3117,6 +3994,7 @@ router.patch("/expenses/:id", async (req, res, next) => {
         ...(payload.title ? { title: payload.title.trim() } : {}),
         ...(payload.category ? { category: payload.category.trim() } : {}),
         ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
+        ...(payload.paymentSource ? { paymentSource: payload.paymentSource } : {}),
         ...(payload.expenseDate ? { expenseDate: new Date(payload.expenseDate) } : {}),
         ...(payload.vendor !== undefined ? { vendor: payload.vendor?.trim() || null } : {}),
         ...(payload.billReference !== undefined ? { billReference: payload.billReference?.trim() || null } : {}),

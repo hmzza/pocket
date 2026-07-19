@@ -30,7 +30,7 @@ type TicketLine = {
 type ProductSelection = { groupId: string; optionIds: string[] };
 
 type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT";
-type ServiceTypeValue = "INSHOP" | "FOODPANDA";
+type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA";
 
 const basePaymentOptions = [
   { value: "CASH", label: "Cash", logo: "/images/cash-logo.png" },
@@ -41,7 +41,8 @@ const basePaymentOptions = [
 const foodpandaPaymentOption = { value: "FOODPANDA_PAYOUT", label: "Foodpanda payout", logo: "/images/foodpanda-logo.png" } as const;
 
 const serviceTypes = [
-  { value: "INSHOP", label: "In Store", logo: "/images/instore-logo.png" },
+  { value: "INSHOP", label: "Dine-in", logo: "/images/instore-logo.png" },
+  { value: "TAKEAWAY", label: "Takeaway", logo: "/images/instore-logo.png" },
   { value: "FOODPANDA", label: "Foodpanda", logo: "/images/foodpanda-logo.png" }
 ] as const;
 
@@ -157,10 +158,10 @@ function getPaymentOptions(serviceType: ServiceTypeValue) {
 
 function formatServiceType(value: string) {
   const map: Record<string, string> = {
-    INSHOP: "Inshop",
+    INSHOP: "Dine-in",
     FOODPANDA: "Foodpanda",
     TAKEAWAY: "Takeaway",
-    DINE_IN: "Dine in",
+    DINE_IN: "Dine-in",
     DELIVERY: "Delivery"
   };
 
@@ -205,7 +206,7 @@ function buildWhatsAppReceiptMessage(order: PosReceiptOrder) {
       lines.push(`   Contains: ${formatBundleSummary(item.bundleComponents)}`);
     }
     if (item.addOns.length) {
-      lines.push(`   Selections: ${item.addOns.map((addOn) => addOn.optionName).join(", ")}`);
+      lines.push(`   ${item.addOns.map((addOn) => addOn.optionName).join(", ")}`);
     }
     lines.push(`   ${formatCurrency(item.unitPrice)} x ${item.quantity} = ${formatCurrency(item.unitPrice * item.quantity)}`);
   });
