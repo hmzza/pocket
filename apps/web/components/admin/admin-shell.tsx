@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Banknote, Boxes, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
+import { Banknote, Boxes, HandCoins, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -22,10 +22,11 @@ const links: Array<{
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt },
+  { href: "/admin/loans", label: "Loans", icon: HandCoins },
   { href: "/admin/finances", label: "Finances", icon: Banknote }
 ];
 
-const staffRestrictedRoutes = ["/admin/products", "/admin/website", "/admin/users", "/admin/finances"];
+const staffRestrictedRoutes = ["/admin/products", "/admin/website", "/admin/users", "/admin/loans", "/admin/finances"];
 
 type AdminSession = Awaited<ReturnType<typeof fetchAdminSession>>;
 

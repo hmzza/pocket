@@ -10,20 +10,30 @@ import { VendorManagement } from "@/components/admin/vendor-management";
 import {
   createAdminInventoryItem,
   createAdminInventoryTransaction,
+  createAdminMoneyTransfer,
+  deleteAdminDailyClosing,
+  deleteAdminInventoryItem,
+  deleteAdminMoneyTransfer,
+  deleteAdminPackagingRule,
+  fetchAdminDailyClosing,
   fetchAdminInventory,
   fetchAdminInventoryForecast,
+  fetchAdminMoneyTransfers,
+  fetchAdminPackagingRules,
   fetchAdminInventoryRecipes,
   fetchAdminVendors,
+  saveAdminDailyClosing,
+  saveAdminPackagingRule,
   updateAdminInventoryItem,
   updateAdminInventoryTransaction,
   updateAdminPreparedRecipe,
   updateAdminProductPackagingRules,
   updateAdminProductRecipe
 } from "@/lib/admin-client";
-import type { AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminRecipeData, AdminVendor } from "@/lib/types";
+import type { AdminDailyClosingData, AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminMoneyTransferData, AdminPackagingRuleData, AdminRecipeData, AdminVendor, MoneySource } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
-type InventoryTab = "stock" | "add-stock" | "vendors" | "prep" | "recipes" | "wastage" | "forecast" | "logs";
+type InventoryTab = "stock" | "add-stock" | "vendors" | "prep" | "recipes" | "rules" | "transfers" | "closing" | "wastage" | "forecast" | "logs";
 
 const INVENTORY_UNITS = ["kg", "litre", "bottles", "pieces", "slices", "loafs"];
 const ITEM_TYPES = ["RAW", "PREPARED", "PACKAGING", "RETAIL"] as const;
@@ -38,11 +48,16 @@ const SERVICE_TYPE_LABELS: Record<(typeof SERVICE_TYPES)[number], string> = {
   DEFAULT: "Default",
   INSHOP: "In-shop",
   FOODPANDA: "Foodpanda",
-  DINE_IN: "Dine in",
+  DINE_IN: "Dine-in",
   TAKEAWAY: "Takeaway",
   DELIVERY: "Delivery"
 };
 const WASTAGE_REASONS = ["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"] as const;
+const MONEY_SOURCES: Array<{ value: MoneySource; label: string }> = [
+  { value: "CASH", label: "Cash" },
+  { value: "EASYPAISA", label: "Easypaisa" },
+  { value: "JAZZCASH", label: "JazzCash" }
+];
 
 const TABS: Array<{ id: InventoryTab; label: string; icon: typeof Warehouse }> = [
   { id: "stock", label: "Stock", icon: ClipboardList },
@@ -50,6 +65,9 @@ const TABS: Array<{ id: InventoryTab; label: string; icon: typeof Warehouse }> =
   { id: "vendors", label: "Vendors", icon: ClipboardList },
   { id: "prep", label: "Prep Items", icon: ChefHat },
   { id: "recipes", label: "Recipes & Costing", icon: ChefHat },
+  { id: "rules", label: "Rules", icon: ClipboardList },
+  { id: "transfers", label: "Transfers", icon: RefreshCcw },
+  { id: "closing", label: "Daily Closing", icon: History },
   { id: "wastage", label: "Wastage", icon: Trash2 },
   { id: "forecast", label: "Forecast / Buy List", icon: BarChart3 },
   { id: "logs", label: "Stock Logs", icon: History }
@@ -97,6 +115,36 @@ type RecipeEditState = {
   components: Array<{ ingredientId: string; quantityNeeded: string; serviceType?: string }>;
 };
 
+type RuleFormState = {
+  id: string;
+  scope: "ORDER" | "CATEGORY" | "PRODUCT";
+  productId: string;
+  categoryId: string;
+  serviceType: string;
+  packagingIngredientId: string;
+  quantityMode: "FIXED" | "PER_ITEM_STEP";
+  quantity: string;
+  itemStep: string;
+};
+
+type TransferFormState = {
+  branchId: string;
+  fromSource: MoneySource;
+  toSource: MoneySource;
+  amount: string;
+  transferDate: string;
+  note: string;
+};
+
+type ClosingFormState = {
+  branchId: string;
+  closingDate: string;
+  cashCounted: string;
+  easypaisaCounted: string;
+  jazzcashCounted: string;
+  note: string;
+};
+
 const EMPTY_ITEM_FORM: ItemFormState = {
   name: "",
   unit: "kg",
@@ -120,6 +168,36 @@ const EMPTY_WASTAGE_FORM: WastageFormState = {
   ingredientId: "",
   quantity: "",
   wastageReason: "expired",
+  note: ""
+};
+
+const EMPTY_RULE_FORM: RuleFormState = {
+  id: "",
+  scope: "ORDER",
+  productId: "",
+  categoryId: "",
+  serviceType: "DEFAULT",
+  packagingIngredientId: "",
+  quantityMode: "FIXED",
+  quantity: "1",
+  itemStep: "1"
+};
+
+const EMPTY_TRANSFER_FORM: TransferFormState = {
+  branchId: "",
+  fromSource: "CASH",
+  toSource: "EASYPAISA",
+  amount: "",
+  transferDate: new Date().toISOString().slice(0, 10),
+  note: ""
+};
+
+const EMPTY_CLOSING_FORM: ClosingFormState = {
+  branchId: "",
+  closingDate: new Date().toISOString().slice(0, 10),
+  cashCounted: "",
+  easypaisaCounted: "",
+  jazzcashCounted: "",
   note: ""
 };
 
@@ -242,7 +320,7 @@ function SummaryCards({ data, forecast, onRefresh, onAddItem }: { data: AdminInv
   );
 }
 
-function StockTable({ items, loading, onEdit, onAddStock, onWastage }: { items: AdminInventoryItem[]; loading: boolean; onEdit: (item: AdminInventoryItem) => void; onAddStock: (item: AdminInventoryItem) => void; onWastage: (item: AdminInventoryItem) => void }) {
+function StockTable({ items, loading, onEdit, onAddStock, onWastage, onDelete }: { items: AdminInventoryItem[]; loading: boolean; onEdit: (item: AdminInventoryItem) => void; onAddStock: (item: AdminInventoryItem) => void; onWastage: (item: AdminInventoryItem) => void; onDelete: (item: AdminInventoryItem) => void }) {
   if (loading) return <Card className="p-5 text-sm text-pocket-navy/60">Loading stock...</Card>;
   return (
     <Card className="overflow-hidden">
@@ -263,6 +341,7 @@ function StockTable({ items, loading, onEdit, onAddStock, onWastage }: { items: 
             <Button size="sm" variant="outline" onClick={() => onAddStock(item)}>Add</Button>
             <Button size="sm" variant="outline" onClick={() => onWastage(item)}>Waste</Button>
             <Button size="sm" variant="ghost" onClick={() => onEdit(item)}><Pencil className="h-4 w-4" /></Button>
+            <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(item)}><Trash2 className="h-4 w-4" /></Button>
           </div>
         </div>
       ))}
@@ -577,6 +656,127 @@ function PrepItemsSection({ data, ingredients, edit, setEdit, saving, onSave }: 
   );
 }
 
+function RulesSection({ data, form, setForm, saving, onSubmit, onDelete }: { data: AdminPackagingRuleData | null; form: RuleFormState; setForm: Dispatch<SetStateAction<RuleFormState>>; saving: boolean; onSubmit: () => void; onDelete: (ruleId: string) => void }) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+      <Card className="p-5">
+        <p className="text-lg font-black text-pocket-navy">{form.id ? "Edit packaging rule" : "Add packaging rule"}</p>
+        <div className="mt-4 space-y-3">
+          <Field label="Scope">
+            <select value={form.scope} onChange={(event) => setForm((current) => ({ ...current, scope: event.target.value as RuleFormState["scope"], productId: "", categoryId: "" }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+              <option value="ORDER">Whole order</option>
+              <option value="CATEGORY">Category</option>
+              <option value="PRODUCT">Product</option>
+            </select>
+          </Field>
+          {form.scope === "PRODUCT" ? (
+            <Field label="Product"><select value={form.productId} onChange={(event) => setForm((current) => ({ ...current, productId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Select product</option>{(data?.products ?? []).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></Field>
+          ) : null}
+          {form.scope === "CATEGORY" ? (
+            <Field label="Category"><select value={form.categoryId} onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Select category</option>{(data?.categories ?? []).map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></Field>
+          ) : null}
+          <Field label="Order type"><select value={form.serviceType} onChange={(event) => setForm((current) => ({ ...current, serviceType: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">{SERVICE_TYPES.map((type) => <option key={type} value={type}>{SERVICE_TYPE_LABELS[type]}</option>)}</select></Field>
+          <Field label="Packaging"><select value={form.packagingIngredientId} onChange={(event) => setForm((current) => ({ ...current, packagingIngredientId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Select packaging</option>{(data?.packagingItems ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+          <Field label="Quantity mode"><select value={form.quantityMode} onChange={(event) => setForm((current) => ({ ...current, quantityMode: event.target.value as RuleFormState["quantityMode"] }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="FIXED">Fixed per item/order</option><option value="PER_ITEM_STEP">Per item step</option></select></Field>
+          <Field label="Quantity"><Input type="number" min="0" step="0.001" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></Field>
+          {form.quantityMode === "PER_ITEM_STEP" ? <Field label="Every X items"><Input type="number" min="1" step="1" value={form.itemStep} onChange={(event) => setForm((current) => ({ ...current, itemStep: event.target.value }))} /></Field> : null}
+          <Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : "Save rule"}</Button>
+        </div>
+      </Card>
+      <Card className="p-5">
+        <p className="text-lg font-black text-pocket-navy">Packaging Rules</p>
+        <div className="mt-4 space-y-3">
+          {(data?.rules ?? []).map((rule) => (
+            <div key={rule.id} className="rounded-lg border border-pocket-navy/10 p-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="font-bold text-pocket-navy">{rule.packagingIngredientName}</p>
+                  <p className="text-sm text-pocket-navy/60">{rule.productName ?? rule.categoryName ?? "Whole order"} · {SERVICE_TYPE_LABELS[rule.serviceType as keyof typeof SERVICE_TYPE_LABELS] ?? rule.serviceType}</p>
+                  <p className="text-xs text-pocket-navy/55">{rule.quantityMode === "PER_ITEM_STEP" ? `${rule.quantity} per ${rule.itemStep ?? 1} items` : `${rule.quantity} fixed`}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setForm({ id: rule.id, scope: rule.productId ? "PRODUCT" : rule.categoryId ? "CATEGORY" : "ORDER", productId: rule.productId ?? "", categoryId: rule.categoryId ?? "", serviceType: rule.serviceType, packagingIngredientId: rule.packagingIngredientId, quantityMode: rule.quantityMode, quantity: String(rule.quantity), itemStep: String(rule.itemStep ?? 1) })}>Edit</Button>
+                  <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(rule.id)}><Trash2 className="h-4 w-4" />Delete</Button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function TransfersSection({ data, form, setForm, saving, onSubmit, onDelete }: { data: AdminMoneyTransferData | null; form: TransferFormState; setForm: Dispatch<SetStateAction<TransferFormState>>; saving: boolean; onSubmit: () => void; onDelete: (transferId: string) => void }) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+      <Card className="p-5">
+        <p className="text-lg font-black text-pocket-navy">Record Transfer</p>
+        <div className="mt-4 space-y-3">
+          <Field label="Branch"><select value={form.branchId} onChange={(event) => setForm((current) => ({ ...current, branchId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">{(data?.branches ?? []).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></Field>
+          <Field label="From"><select value={form.fromSource} onChange={(event) => setForm((current) => ({ ...current, fromSource: event.target.value as MoneySource }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">{MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></Field>
+          <Field label="To"><select value={form.toSource} onChange={(event) => setForm((current) => ({ ...current, toSource: event.target.value as MoneySource }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">{MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></Field>
+          <Field label="Amount"><Input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} /></Field>
+          <Field label="Date"><Input type="date" value={form.transferDate} onChange={(event) => setForm((current) => ({ ...current, transferDate: event.target.value }))} /></Field>
+          <Field label="Note"><Textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} /></Field>
+          <Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : "Record transfer"}</Button>
+        </div>
+      </Card>
+      <Card className="p-5"><p className="text-lg font-black text-pocket-navy">Recent Transfers</p><div className="mt-4 space-y-3">{(data?.transfers ?? []).map((transfer) => <div key={transfer.id} className="rounded-lg border border-pocket-navy/10 p-3"><p className="font-bold text-pocket-navy">{formatCurrency(transfer.amount)} · {transfer.fromSource} to {transfer.toSource}</p><p className="text-sm text-pocket-navy/60">{transfer.branchName} · {new Date(transfer.transferDate).toLocaleDateString("en-PK")}</p>{transfer.note ? <p className="text-sm text-pocket-navy/60">{transfer.note}</p> : null}</div>)}</div></Card>
+      <Card className="p-5">
+        <p className="text-sm font-bold text-pocket-navy">Delete Transfers</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(data?.transfers ?? []).map((transfer) => (
+            <Button key={transfer.id} size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(transfer.id)}>
+              <Trash2 className="h-4 w-4" />
+              {formatCurrency(transfer.amount)}
+            </Button>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function ClosingSection({ data, form, setForm, saving, onSubmit, onDelete }: { data: AdminDailyClosingData | null; form: ClosingFormState; setForm: Dispatch<SetStateAction<ClosingFormState>>; saving: boolean; onSubmit: () => void; onDelete: (closingId: string) => void }) {
+  return (
+    <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+      <Card className="p-5">
+        <p className="text-lg font-black text-pocket-navy">Daily Closing</p>
+        <div className="mt-4 space-y-3">
+          <Field label="Date"><Input type="date" value={form.closingDate} onChange={(event) => setForm((current) => ({ ...current, closingDate: event.target.value }))} /></Field>
+          <Field label="Cash counted"><Input type="number" min="0" step="0.01" value={form.cashCounted} onChange={(event) => setForm((current) => ({ ...current, cashCounted: event.target.value }))} /></Field>
+          <Field label="Easypaisa counted"><Input type="number" min="0" step="0.01" value={form.easypaisaCounted} onChange={(event) => setForm((current) => ({ ...current, easypaisaCounted: event.target.value }))} /></Field>
+          <Field label="JazzCash counted"><Input type="number" min="0" step="0.01" value={form.jazzcashCounted} onChange={(event) => setForm((current) => ({ ...current, jazzcashCounted: event.target.value }))} /></Field>
+          <Field label="Note"><Textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} /></Field>
+          <Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : "Close day"}</Button>
+        </div>
+      </Card>
+      <div className="space-y-5">
+        <div className="grid gap-4 md:grid-cols-3">
+          {MONEY_SOURCES.map((source) => {
+            const expected = data?.expected[source.value] ?? 0;
+            const counted = source.value === "CASH" ? numberValue(form.cashCounted) : source.value === "EASYPAISA" ? numberValue(form.easypaisaCounted) : numberValue(form.jazzcashCounted);
+            return <Card key={source.value} className="p-5"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">{source.label}</p><p className="mt-2 text-2xl font-black text-pocket-navy">{formatCurrency(expected)}</p><p className="mt-1 text-sm text-pocket-navy/60">Diff {formatCurrency(counted - expected)}</p></Card>;
+          })}
+        </div>
+        <Card className="p-5"><p className="text-lg font-black text-pocket-navy">Recent Closings</p><div className="mt-4 space-y-3">{(data?.recentClosings ?? []).map((closing) => <div key={closing.id} className="rounded-lg border border-pocket-navy/10 p-3"><p className="font-bold text-pocket-navy">{new Date(closing.closingDate).toLocaleDateString("en-PK")}</p><p className="text-sm text-pocket-navy/60">Cash {formatCurrency(closing.cashCounted)} · Easypaisa {formatCurrency(closing.easypaisaCounted)} · JazzCash {formatCurrency(closing.jazzcashCounted)}</p>{closing.note ? <p className="text-sm text-pocket-navy/60">{closing.note}</p> : null}</div>)}</div></Card>
+        <Card className="p-5">
+          <p className="text-sm font-bold text-pocket-navy">Delete Closings</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(data?.recentClosings ?? []).map((closing) => (
+              <Button key={closing.id} size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(closing.id)}>
+                <Trash2 className="h-4 w-4" />
+                {new Date(closing.closingDate).toLocaleDateString("en-PK")}
+              </Button>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function LogsSection({ entries, edit, setEdit, saving, onSave }: { entries: AdminInventoryTransaction[]; edit: LogEditState | null; setEdit: Dispatch<SetStateAction<LogEditState | null>>; saving: boolean; onSave: () => void }) {
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
@@ -617,6 +817,9 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [data, setData] = useState<AdminInventoryData | null>(null);
   const [forecast, setForecast] = useState<AdminInventoryForecast | null>(null);
   const [recipes, setRecipes] = useState<AdminRecipeData | null>(null);
+  const [rules, setRules] = useState<AdminPackagingRuleData | null>(null);
+  const [transfers, setTransfers] = useState<AdminMoneyTransferData | null>(null);
+  const [closing, setClosing] = useState<AdminDailyClosingData | null>(null);
   const [vendors, setVendors] = useState<AdminVendor[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -626,6 +829,9 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [itemForm, setItemForm] = useState<ItemFormState>(EMPTY_ITEM_FORM);
   const [stockForm, setStockForm] = useState<StockFormState>(EMPTY_STOCK_FORM);
   const [wastageForm, setWastageForm] = useState<WastageFormState>(EMPTY_WASTAGE_FORM);
+  const [ruleForm, setRuleForm] = useState<RuleFormState>(EMPTY_RULE_FORM);
+  const [transferForm, setTransferForm] = useState<TransferFormState>(EMPTY_TRANSFER_FORM);
+  const [closingForm, setClosingForm] = useState<ClosingFormState>(EMPTY_CLOSING_FORM);
   const [logEdit, setLogEdit] = useState<LogEditState | null>(null);
   const [recipeEdit, setRecipeEdit] = useState<RecipeEditState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -633,14 +839,37 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   async function loadAll() {
     try {
       setError("");
-      const [inventoryData, forecastData, recipeData, vendorData] = await Promise.all([fetchAdminInventory(), fetchAdminInventoryForecast(), fetchAdminInventoryRecipes(), fetchAdminVendors()]);
+      const [inventoryData, forecastData, recipeData, vendorData, ruleData] = await Promise.all([fetchAdminInventory(), fetchAdminInventoryForecast(), fetchAdminInventoryRecipes(), fetchAdminVendors(), fetchAdminPackagingRules()]);
       setData(inventoryData);
       setForecast(forecastData);
       setRecipes(recipeData);
       setVendors(vendorData.vendors);
+      setRules(ruleData);
       const first = inventoryData.items[0]?.ingredientId ?? "";
+      const branchId = inventoryData.branches[0]?.id ?? "";
       setStockForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
       setWastageForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
+      setTransferForm((current) => ({ ...current, branchId: current.branchId || branchId }));
+      setClosingForm((current) => ({ ...current, branchId: current.branchId || branchId }));
+      if (branchId) {
+        const [transferResult, closingResult] = await Promise.allSettled([
+          fetchAdminMoneyTransfers(branchId),
+          fetchAdminDailyClosing(branchId, closingForm.closingDate)
+        ]);
+        if (transferResult.status === "fulfilled") {
+          setTransfers(transferResult.value);
+        }
+        if (closingResult.status === "fulfilled") {
+          const closingData = closingResult.value;
+          setClosing(closingData);
+          setClosingForm((current) => ({
+            ...current,
+            cashCounted: current.cashCounted || String(closingData.expected.CASH),
+            easypaisaCounted: current.easypaisaCounted || String(closingData.expected.EASYPAISA),
+            jazzcashCounted: current.jazzcashCounted || String(closingData.expected.JAZZCASH)
+          }));
+        }
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load inventory.");
     } finally {
@@ -784,6 +1013,133 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
     }
   }
 
+  async function deleteItem(item: AdminInventoryItem) {
+    const confirmed = window.confirm(`Delete ${item.name}? This cannot be undone.`);
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await deleteAdminInventoryItem(item.ingredientId);
+      await loadAll();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete item.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveRule() {
+    if (!ruleForm.packagingIngredientId) {
+      setError("Select packaging for the rule.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveAdminPackagingRule({
+        id: ruleForm.id || undefined,
+        productId: ruleForm.scope === "PRODUCT" ? ruleForm.productId || null : null,
+        categoryId: ruleForm.scope === "CATEGORY" ? ruleForm.categoryId || null : null,
+        serviceType: ruleForm.serviceType,
+        packagingIngredientId: ruleForm.packagingIngredientId,
+        quantityMode: ruleForm.quantityMode,
+        quantity: numberValue(ruleForm.quantity),
+        itemStep: ruleForm.quantityMode === "PER_ITEM_STEP" ? Math.max(1, Math.floor(numberValue(ruleForm.itemStep))) : null
+      });
+      setRuleForm(EMPTY_RULE_FORM);
+      await loadAll();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save rule.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteRule(ruleId: string) {
+    const confirmed = window.confirm("Delete this packaging rule?");
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await deleteAdminPackagingRule(ruleId);
+      await loadAll();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete rule.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveTransfer() {
+    if (!transferForm.branchId || !transferForm.amount) return;
+    setSaving(true);
+    try {
+      await createAdminMoneyTransfer({
+        branchId: transferForm.branchId,
+        fromSource: transferForm.fromSource,
+        toSource: transferForm.toSource,
+        amount: numberValue(transferForm.amount),
+        transferDate: new Date(`${transferForm.transferDate}T12:00:00`).toISOString(),
+        note: transferForm.note.trim() || undefined
+      });
+      setTransferForm((current) => ({ ...EMPTY_TRANSFER_FORM, branchId: current.branchId }));
+      await loadAll();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to record transfer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteTransfer(transferId: string) {
+    const confirmed = window.confirm("Delete this money transfer?");
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await deleteAdminMoneyTransfer(transferId);
+      await loadAll();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete transfer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveClosing() {
+    if (!closingForm.branchId) return;
+    setSaving(true);
+    try {
+      await saveAdminDailyClosing({
+        branchId: closingForm.branchId,
+        closingDate: new Date(`${closingForm.closingDate}T12:00:00`).toISOString(),
+        cashCounted: numberValue(closingForm.cashCounted),
+        easypaisaCounted: numberValue(closingForm.easypaisaCounted),
+        jazzcashCounted: numberValue(closingForm.jazzcashCounted),
+        note: closingForm.note.trim() || undefined
+      });
+      await loadAll();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save closing.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteClosing(closingId: string) {
+    const confirmed = window.confirm("Delete this daily closing?");
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await deleteAdminDailyClosing(closingId);
+      await loadAll();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete closing.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <ItemEditor open={itemEditorOpen} value={itemForm} editingItem={editingItem} saving={saving} onChange={setItemForm} onClose={() => setItemEditorOpen(false)} onSubmit={() => void saveItem()} />
@@ -793,10 +1149,13 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       <Card className="p-5">
         <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search inventory, type, or linked product" />
       </Card>
-      {activeTab === "stock" ? <StockTable items={items} loading={loading} onEdit={openEditItem} onAddStock={(item) => { setStockForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("add-stock"); }} onWastage={(item) => { setWastageForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("wastage"); }} /> : null}
+      {activeTab === "stock" ? <StockTable items={items} loading={loading} onEdit={openEditItem} onAddStock={(item) => { setStockForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("add-stock"); }} onWastage={(item) => { setWastageForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("wastage"); }} onDelete={(item) => void deleteItem(item)} /> : null}
       {activeTab === "add-stock" ? <AddStockForm items={items} vendors={vendors} form={stockForm} setForm={setStockForm} saving={saving} onSubmit={() => void submitStock()} /> : null}
       {activeTab === "vendors" ? <VendorManagement /> : null}
       {activeTab === "prep" ? <PrepItemsSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
+      {activeTab === "rules" ? <RulesSection data={rules} form={ruleForm} setForm={setRuleForm} saving={saving} onSubmit={() => void saveRule()} onDelete={(ruleId) => void deleteRule(ruleId)} /> : null}
+      {activeTab === "transfers" ? <TransfersSection data={transfers} form={transferForm} setForm={setTransferForm} saving={saving} onSubmit={() => void saveTransfer()} onDelete={(transferId) => void deleteTransfer(transferId)} /> : null}
+      {activeTab === "closing" ? <ClosingSection data={closing} form={closingForm} setForm={setClosingForm} saving={saving} onSubmit={() => void saveClosing()} onDelete={(closingId) => void deleteClosing(closingId)} /> : null}
       {activeTab === "wastage" ? <WastageForm items={items} form={wastageForm} setForm={setWastageForm} saving={saving} onSubmit={() => void submitWastage()} /> : null}
       {activeTab === "forecast" ? <ForecastSection forecast={forecast} loading={loading} /> : null}
       {activeTab === "recipes" ? <RecipesCostingSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}

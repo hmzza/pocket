@@ -12,7 +12,7 @@ import { formatCurrency } from "@/lib/utils";
 
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
-  { value: "inshop", label: "Inshop" },
+  { value: "inshop", label: "Dine-in / Takeaway" },
   { value: "foodpanda", label: "Foodpanda Orders" }
 ];
 
@@ -43,7 +43,8 @@ function getTodayDateKey() {
 }
 
 function formatServiceType(value: string) {
-  if (["INSHOP", "TAKEAWAY", "DINE_IN"].includes(value)) return "Inshop";
+  if (["INSHOP", "DINE_IN"].includes(value)) return "Dine-in";
+  if (value === "TAKEAWAY") return "Takeaway";
   if (value === "FOODPANDA") return "Foodpanda";
   return value.replaceAll("_", " ");
 }
@@ -333,7 +334,7 @@ export function OrderManagement() {
           </div>
         </div>
         <p className="mt-4 text-sm text-pocket-navy/60">
-          Inshop includes current Inshop plus older takeaway and dine-in orders. Use the payment filters to isolate cash, Easypaisa, JazzCash, and Foodpanda payout orders.
+          Dine-in / Takeaway includes counter orders. Use the payment filters to isolate cash, Easypaisa, JazzCash, and Foodpanda payout orders.
         </p>
       </Card>
 

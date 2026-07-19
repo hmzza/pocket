@@ -328,6 +328,7 @@ export type AdminExpense = {
   title: string;
   category: string;
   amount: number;
+  paymentSource: "CASH" | "EASYPAISA" | "JAZZCASH";
   expenseDate: string;
   vendor?: string | null;
   billReference?: string | null;
@@ -354,6 +355,120 @@ export type AdminExpenseData = {
   series: Array<{ label: string; revenue: number; orders: number }>;
   categories: Array<{ label: string; amount: number; count: number }>;
   expenses: AdminExpense[];
+};
+
+export type MoneySource = "CASH" | "EASYPAISA" | "JAZZCASH";
+
+export type AdminLoanRepayment = {
+  id: string;
+  loanId: string;
+  branchId: string;
+  amount: number;
+  paidFrom: MoneySource;
+  paymentDate: string;
+  note?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+};
+
+export type AdminLoan = {
+  id: string;
+  branchId: string;
+  branchName: string;
+  lenderName: string;
+  amount: number;
+  receivedSource: MoneySource;
+  loanDate: string;
+  note?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+  repaidAmount: number;
+  outstandingAmount: number;
+  status: "OPEN" | "PARTIALLY_PAID" | "PAID";
+  repayments: AdminLoanRepayment[];
+};
+
+export type AdminLoanData = {
+  range: {
+    preset: AdminRangePreset;
+    start: string;
+    end: string;
+    label: string;
+  };
+  branches: Branch[];
+  sources: MoneySource[];
+  summary: {
+    totalLoanTaken: number;
+    totalLoanRepaid: number;
+    outstandingLoanBalance: number;
+    openLoanCount: number;
+    paidLoanCount: number;
+  };
+  loans: AdminLoan[];
+};
+
+export type AdminPackagingRuleData = {
+  serviceTypes: string[];
+  quantityModes: Array<"FIXED" | "PER_ITEM_STEP">;
+  products: Array<{ id: string; name: string; categoryId: string }>;
+  categories: Array<{ id: string; name: string }>;
+  packagingItems: Array<{ id: string; name: string; unit: string; costPerUnit: number }>;
+  rules: Array<{
+    id: string;
+    productId?: string | null;
+    productName?: string | null;
+    categoryId?: string | null;
+    categoryName?: string | null;
+    serviceType: string;
+    packagingIngredientId: string;
+    packagingIngredientName: string;
+    quantityMode: "FIXED" | "PER_ITEM_STEP";
+    quantity: number;
+    itemStep?: number | null;
+  }>;
+};
+
+export type AdminMoneyTransferData = {
+  sources: MoneySource[];
+  branches: Array<{ id: string; name: string }>;
+  transfers: Array<{
+    id: string;
+    branchId: string;
+    branchName: string;
+    fromSource: MoneySource;
+    toSource: MoneySource;
+    amount: number;
+    transferDate: string;
+    note?: string | null;
+    createdByName?: string | null;
+    createdAt: string;
+  }>;
+};
+
+export type AdminDailyClosingData = {
+  branchId: string;
+  closingDate: string;
+  opening: Record<MoneySource, number>;
+  sales: Record<MoneySource, number>;
+  expenses: Record<MoneySource, number>;
+  transferIn: Record<MoneySource, number>;
+  transferOut: Record<MoneySource, number>;
+  loanIn: Record<MoneySource, number>;
+  loanOut: Record<MoneySource, number>;
+  expected: Record<MoneySource, number>;
+  recentClosings: Array<{
+    id: string;
+    closingDate: string;
+    cashExpected: number;
+    cashCounted: number;
+    easypaisaExpected: number;
+    easypaisaCounted: number;
+    jazzcashExpected: number;
+    jazzcashCounted: number;
+    note?: string | null;
+    closedByName?: string | null;
+    createdAt: string;
+  }>;
 };
 
 export type AdminVendor = {

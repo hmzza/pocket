@@ -37,10 +37,10 @@ function formatDateTime(value: string) {
 
 function formatServiceType(value: string) {
   const map: Record<string, string> = {
-    INSHOP: "Inshop",
+    INSHOP: "Dine-in",
     FOODPANDA: "Foodpanda",
     TAKEAWAY: "Takeaway",
-    DINE_IN: "Dine in",
+    DINE_IN: "Dine-in",
     DELIVERY: "Delivery"
   };
 

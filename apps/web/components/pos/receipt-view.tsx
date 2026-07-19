@@ -22,10 +22,10 @@ function formatPaymentMethod(value: string) {
 
 function formatServiceType(value: string) {
   const map: Record<string, string> = {
-    INSHOP: "Inshop",
+    INSHOP: "Dine-in",
     FOODPANDA: "Foodpanda",
     TAKEAWAY: "Takeaway",
-    DINE_IN: "Dine in",
+    DINE_IN: "Dine-in",
     DELIVERY: "Delivery"
   };
 
@@ -99,25 +99,22 @@ function ReceiptSlip({
 
       <table className="w-full table-fixed border-collapse text-[10px] print:text-[10.5px]">
         <colgroup>
-          <col style={{ width: "8%" }} />
-          <col style={{ width: "48%" }} />
+          <col style={{ width: "56%" }} />
           <col style={{ width: "16%" }} />
           <col style={{ width: "10%" }} />
           <col style={{ width: "18%" }} />
         </colgroup>
         <thead>
           <tr className="border-b border-dashed border-black/30">
-            <th className="w-[8%] pb-1 text-left font-bold">Sr</th>
-            <th className="w-[48%] pb-1 text-left font-bold">Product</th>
+            <th className="w-[56%] pb-1 text-left font-bold">Product</th>
             <th className="w-[16%] pb-1 text-right font-bold">Price</th>
             <th className="w-[10%] pb-1 pr-1 text-right font-bold">Qty</th>
             <th className="w-[18%] pb-1 text-right font-bold">Total</th>
           </tr>
         </thead>
         <tbody>
-          {order.items.map((item, index) => (
+          {order.items.map((item) => (
             <tr key={`${copyLabel}-${item.id}`} className="border-b border-dotted border-black/20 align-top">
-              <td className="py-2 pr-1 font-medium print:font-semibold">{index + 1}</td>
               <td className="py-2 pr-1">
                 <div className="break-words font-semibold">{item.productName}</div>
                 {item.customDescription ? <div className="mt-0.5 break-words text-[9px] font-medium text-black/75 print:font-semibold print:text-black">{item.customDescription}</div> : null}
@@ -185,6 +182,10 @@ function ChefSlip({
 
       <div className="space-y-2 text-[14px] print:text-[15px]">
         <div className="flex items-start justify-between gap-3">
+          <span className="font-semibold text-black print:font-bold">Order Type:</span>
+          <span className="text-right font-semibold text-black print:font-bold">{formatServiceType(order.orderType)}</span>
+        </div>
+        <div className="flex items-start justify-between gap-3">
           <span className="font-semibold text-black print:font-bold">Order ID:</span>
           <span className="text-right font-semibold text-black print:font-bold">{order.id}</span>
         </div>
@@ -203,22 +204,20 @@ function ChefSlip({
       <div className="my-3 border-t border-dashed border-black/30" />
 
       <div className="space-y-3">
-        {order.items.map((item, index) => (
+        {order.items.map((item) => (
           <div key={`chef-${item.id}`} className="border-b border-dashed border-black/20 pb-3 text-[15px] leading-tight print:text-[16px]">
             <div className="flex items-start justify-between gap-3">
-              <span className="font-bold">{index + 1}.</span>
-            <span className="ml-2 flex-1 font-bold">{item.productName}</span>
-            <span className="min-w-[40px] text-right font-bold">x{item.quantity}</span>
-          </div>
+              <span className="flex-1 font-bold">{item.productName}</span>
+              <span className="min-w-[40px] text-right font-bold">x{item.quantity}</span>
+            </div>
           {item.customDescription ? (
-            <p className="mt-1 pl-7 text-[13px] font-semibold print:text-[14px]">{item.customDescription}</p>
+            <p className="mt-1 text-[13px] font-semibold print:text-[14px]">{item.customDescription}</p>
           ) : null}
           {item.bundleComponents.length ? (
-            <p className="mt-1 pl-7 text-[13px] font-semibold print:text-[14px]">Contains: {formatBundleSummary(item.bundleComponents)}</p>
+            <p className="mt-1 text-[13px] font-semibold print:text-[14px]">Contains: {formatBundleSummary(item.bundleComponents)}</p>
           ) : null}
           {item.addOns.length ? (
-            <div className="mt-2 pl-7">
-              <p className="text-[11px] font-black uppercase tracking-[0.18em]">Selections</p>
+            <div className="mt-2">
                 <ul className="mt-1 space-y-1">
                   {item.addOns.map((addOn) => (
                     <li key={addOn.id} className="text-[14px] font-semibold print:text-[15px]">
@@ -228,7 +227,7 @@ function ChefSlip({
                 </ul>
               </div>
             ) : null}
-            {item.note ? <p className="mt-2 pl-7 text-[13px] font-semibold">Note: {item.note}</p> : null}
+            {item.note ? <p className="mt-2 text-[13px] font-semibold">Note: {item.note}</p> : null}
           </div>
         ))}
       </div>

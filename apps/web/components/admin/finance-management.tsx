@@ -5,10 +5,10 @@ import { ArrowRight, Wallet } from "lucide-react";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchAdminDashboard, fetchAdminExpenses, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
+import { fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
 import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
 import { Input } from "@/components/ui/input";
-import type { AdminExpenseData, DashboardData } from "@/lib/types";
+import type { AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
 import { formatCurrency, formatCompactNumber } from "@/lib/utils";
 
 function ProgressBar({ value }: { value: number }) {
@@ -137,6 +137,7 @@ export function FinanceManagement() {
   const [monthExpenses, setMonthExpenses] = useState<AdminExpenseData | null>(null);
   const [weekExpenses, setWeekExpenses] = useState<AdminExpenseData | null>(null);
   const [todayExpenses, setTodayExpenses] = useState<AdminExpenseData | null>(null);
+  const [monthLoans, setMonthLoans] = useState<AdminLoanData | null>(null);
   const [monthlyTarget, setMonthlyTarget] = useState<number>(MONTHLY_BREAKEVEN_TARGET);
   const [monthlyTargetInput, setMonthlyTargetInput] = useState(String(MONTHLY_BREAKEVEN_TARGET));
   const [savingTarget, setSavingTarget] = useState(false);
@@ -158,6 +159,7 @@ export function FinanceManagement() {
           monthExpenseData,
           weekExpenseData,
           todayExpenseData,
+          monthLoanData,
           settings
         ] = await Promise.all([
           fetchAdminDashboard({ preset: "month", segment: "all" }),
@@ -167,6 +169,7 @@ export function FinanceManagement() {
           fetchAdminExpenses({ preset: "month" }),
           fetchAdminExpenses({ preset: "7d" }),
           fetchAdminExpenses({ preset: "today" }),
+          fetchAdminLoans({ preset: "month" }),
           fetchAdminSettings()
         ]);
 
@@ -178,6 +181,7 @@ export function FinanceManagement() {
           setMonthExpenses(monthExpenseData);
           setWeekExpenses(weekExpenseData);
           setTodayExpenses(todayExpenseData);
+          setMonthLoans(monthLoanData);
 
           const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
           const targetValue = Number(targetSetting?.value ?? MONTHLY_BREAKEVEN_TARGET);
@@ -241,6 +245,7 @@ export function FinanceManagement() {
     const operatingMargin = monthRevenue > 0 ? (monthNet / monthRevenue) * 100 : 0;
     const foodpandaGross = getFoodpandaRevenueFromBreakdowns(monthFoodpandaDashboard?.breakdowns.serviceTypes ?? []);
     const foodpandaPayout = estimateFoodpandaPayout(foodpandaGross);
+    const loanSummary = monthLoans?.summary ?? { totalLoanTaken: 0, totalLoanRepaid: 0, outstandingLoanBalance: 0 };
     const paymentMix = [...(monthDashboard?.breakdowns.payments ?? [])].sort((left, right) => right.revenue - left.revenue);
     const branchPerformance = buildBranchPerformance(monthDashboard?.breakdowns.branches ?? [], monthExpenses?.expenses ?? []);
     const topCategories = [...(monthExpenses?.categories ?? [])].sort((left, right) => right.amount - left.amount).slice(0, 6);
@@ -262,14 +267,15 @@ export function FinanceManagement() {
       operatingMargin,
       foodpandaGross,
       foodpandaPayout,
+      loanSummary,
       paymentMix,
       branchPerformance,
       topCategories,
       breakevenTarget
     };
-  }, [monthDashboard, monthExpenses, monthFoodpandaDashboard, monthlyTarget, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
+  }, [monthDashboard, monthExpenses, monthFoodpandaDashboard, monthLoans, monthlyTarget, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
 
-  if (loading || !monthDashboard || !monthExpenses || !weekDashboard || !weekExpenses || !todayDashboard || !todayExpenses || !monthFoodpandaDashboard) {
+  if (loading || !monthDashboard || !monthExpenses || !weekDashboard || !weekExpenses || !todayDashboard || !todayExpenses || !monthFoodpandaDashboard || !monthLoans) {
     return <Card className="p-6 text-sm text-pocket-navy/60">Loading finance view...</Card>;
   }
 
@@ -315,6 +321,9 @@ export function FinanceManagement() {
         <MetricCard title="Break-even gap" value={summary.remainingToBreakeven > 0 ? formatCurrency(summary.remainingToBreakeven) : "Reached"} description="Amount still needed before profit can start." tone={summary.remainingToBreakeven > 0 ? "warning" : "positive"} />
         <MetricCard title="Foodpanda payout" value={formatCurrency(summary.foodpandaPayout.estimated)} description="Estimated amount left after Foodpanda keeps 40-42%." />
         <MetricCard title="Today net" value={formatCurrency(summary.todayNet)} description="Today's revenue minus today's expenses." tone={summary.todayNet >= 0 ? "positive" : "negative"} />
+        <MetricCard title="Loan taken" value={formatCurrency(summary.loanSummary.totalLoanTaken)} description="Loan money received this month, separate from revenue." tone="warning" />
+        <MetricCard title="Loan repaid" value={formatCurrency(summary.loanSummary.totalLoanRepaid)} description="Loan repayments made this month." />
+        <MetricCard title="Loan balance" value={formatCurrency(summary.loanSummary.outstandingLoanBalance)} description="Outstanding tracked loan balance." tone={summary.loanSummary.outstandingLoanBalance > 0 ? "negative" : "positive"} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">

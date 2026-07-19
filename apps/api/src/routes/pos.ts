@@ -77,7 +77,7 @@ const cartItemSchema = z.discriminatedUnion("type", [
 const checkoutSchema = z
   .object({
     branchId: z.string().cuid(),
-    serviceType: z.enum(["INSHOP", "FOODPANDA"]),
+    serviceType: z.enum(["INSHOP", "TAKEAWAY", "FOODPANDA"]),
     paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT"]),
     customerName: z.string().max(80).optional(),
     customerPhone: z.string().max(20).optional(),
@@ -354,7 +354,8 @@ async function buildPosOrderPayload(payload: CheckoutPayload) {
 
   const consumeChanges = computeInventoryChanges({
     productIngredients: inventoryData.productIngredients,
-    productPackagingRules: inventoryData.productPackagingRules,
+    packagingRules: inventoryData.packagingRules,
+    products: inventoryData.products,
     branchInventories: inventoryData.branchInventories,
     items: normalizedItems,
     mode: "consume",
@@ -729,7 +730,8 @@ router.patch("/orders/:orderId", async (req, res, next) => {
     const oldInventoryData = await readInventoryData(prisma, existingOrder.branchId, oldProductIds);
     const returnChanges = computeInventoryChanges({
       productIngredients: oldInventoryData.productIngredients,
-      productPackagingRules: oldInventoryData.productPackagingRules,
+      packagingRules: oldInventoryData.packagingRules,
+      products: oldInventoryData.products,
       branchInventories: oldInventoryData.branchInventories,
       items: oldItems,
       mode: "return",

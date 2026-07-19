@@ -382,17 +382,17 @@ export function VendorManagement() {
 
   async function deleteVendor(vendor: AdminVendor) {
     if (!canManage) return;
-    const confirmed = window.confirm(`Disable ${vendor.vendorName}? The vendor record and attachments will stay stored.`);
+    const confirmed = window.confirm(`Delete ${vendor.vendorName}? This removes the vendor from the vendor list.`);
     if (!confirmed) return;
 
     setDeletingId(vendor.id);
     setError("");
     try {
       await deleteAdminVendor(vendor.id);
-      flashNotice("success", "Vendor disabled.");
+      flashNotice("success", "Vendor deleted.");
       await loadVendors();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to disable vendor.");
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete vendor.");
     } finally {
       setDeletingId("");
     }
@@ -443,7 +443,7 @@ export function VendorManagement() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p>
             <p className="mt-3 text-sm text-pocket-navy/60">
-              {canManage ? "Create, edit, disable, or refresh vendor records." : "Read-only view for staff accounts."}
+              {canManage ? "Create, edit, delete, or refresh vendor records." : "Read-only view for staff accounts."}
             </p>
           </div>
           <div className="flex gap-2">
@@ -547,7 +547,7 @@ export function VendorManagement() {
                     disabled={deletingId === vendor.id}
                   >
                     <Trash2 className="h-4 w-4" />
-                    {deletingId === vendor.id ? "Disabling..." : "Disable"}
+                    {deletingId === vendor.id ? "Deleting..." : "Delete"}
                   </Button>
                 </div>
               ) : null}
