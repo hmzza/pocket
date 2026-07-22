@@ -1,6 +1,13 @@
 import { PrismaClient, DiscountType, PaymentMethod, PaymentStatus, RoleCode } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import dotenv from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { INVENTORY_ITEMS, PACKAGING_RULES, PREPARED_RECIPE_BY_SKU, PRODUCT_RECIPE_BY_SLUG } from "../apps/api/src/lib/inventory-config.js";
+
+const seedDirectory = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(seedDirectory, "../.env") });
+dotenv.config();
 
 const prisma = new PrismaClient();
 
