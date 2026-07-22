@@ -1,0 +1,1 @@
+ALTER TABLE "Ingredient" ADD COLUMN "isActive" BOOLEAN NOT NULL DEFAULT true;

@@ -16,7 +16,8 @@
     "lint": "npm run lint --workspace @pocket/api && npm run lint --workspace @pocket/web",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:seed:shop-inventory": "tsx prisma/seed-shop-inventory.ts"
   },
   "devDependencies": {
     "concurrently": "^9.0.1",

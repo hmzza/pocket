@@ -189,6 +189,7 @@ export type AdminInventoryItem = {
   reorderLevel: number;
   costPerUnit: number;
   caloriesPerUnit: number;
+  isActive: boolean;
   quantityOnHand: number;
   stockValue: number;
   lowStockAlert: boolean;

@@ -46,7 +46,15 @@ async function adminFetch<T>(path: string, init?: RequestInit) {
     }
     try {
       const payload = await response.json();
-      const details = normalizeDetails(payload?.details ?? payload?.issues);
+      const structured = {
+        ...(payload?.code ? { code: payload.code } : {}),
+        ...(payload?.entity ? { entity: payload.entity } : {}),
+        ...(payload?.action ? { action: payload.action } : {})
+      };
+      const details = [
+        ...normalizeDetails(Object.keys(structured).length ? structured : null),
+        ...normalizeDetails(payload?.details ?? payload?.issues)
+      ];
       const responseMessage = payload.message ?? message;
       message = details.length ? [responseMessage, ...details].filter(Boolean).join("\n") : responseMessage;
     } catch {}
@@ -574,6 +582,7 @@ export async function fetchAdminInventory(branchId?: string): Promise<AdminInven
       reorderLevel: Number(item.reorderLevel),
       costPerUnit: Number(item.costPerUnit),
       caloriesPerUnit: Number(item.caloriesPerUnit ?? 0),
+      isActive: item.isActive !== false,
       quantityOnHand: Number(item.quantityOnHand),
       stockValue: Number(item.stockValue),
       lowStockAlert: Boolean(item.lowStockAlert),
@@ -619,6 +628,14 @@ export async function updateAdminInventoryItem(ingredientId: string, payload: Re
   const data = await adminFetch<{ ingredient: any }>(`/api/admin/inventory/items/${ingredientId}`, {
     method: "PATCH",
     body: JSON.stringify(payload)
+  });
+  return data.ingredient;
+}
+
+export async function updateAdminInventoryItemStatus(ingredientId: string, isActive: boolean) {
+  const data = await adminFetch<{ ingredient: any }>(`/api/admin/inventory/items/${ingredientId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive })
   });
   return data.ingredient;
 }
