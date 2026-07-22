@@ -452,7 +452,7 @@ model Ingredient {
   unit          String
   type          String              @default("RAW")
   isActive      Boolean             @default(true)
-  reorderLevel  Decimal             @db.Decimal(10, 2)
+  reorderLevel  Decimal             @db.Decimal(10, 3)
   costPerUnit   Decimal             @db.Decimal(10, 2)
   caloriesPerUnit Decimal            @db.Decimal(10, 2) @default(0)
   supplier      Supplier?           @relation(fields: [supplierId], references: [id])
@@ -469,7 +469,7 @@ model BranchInventory {
   id             String                 @id @default(cuid())
   branchId       String
   ingredientId   String
-  quantityOnHand Decimal                @db.Decimal(10, 2)
+  quantityOnHand Decimal                @db.Decimal(10, 3)
   lowStockAlert  Boolean                @default(false)
   branch         Branch                 @relation(fields: [branchId], references: [id], onDelete: Cascade)
   ingredient     Ingredient             @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
@@ -483,8 +483,8 @@ model InventoryTransaction {
   branchInventoryId String
   actorId          String?
   type             InventoryTransactionType
-  quantity         Decimal                  @db.Decimal(10, 2)
-  balanceAfter     Decimal                  @db.Decimal(10, 2)
+  quantity         Decimal                  @db.Decimal(10, 3)
+  balanceAfter     Decimal                  @db.Decimal(10, 3)
   referenceType    String?
   referenceId      String?
   note             String?
@@ -503,7 +503,7 @@ model InventoryTransaction {
 model ProductIngredient {
   productId      String
   ingredientId   String
-  quantityNeeded Decimal    @db.Decimal(10, 2)
+  quantityNeeded Decimal    @db.Decimal(10, 3)
   product        Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   ingredient     Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
@@ -517,7 +517,7 @@ model PackagingRule {
   serviceType           String     @default("DEFAULT")
   packagingIngredientId String
   quantityMode          String     @default("FIXED")
-  quantity              Decimal    @db.Decimal(10, 2)
+  quantity              Decimal    @db.Decimal(10, 3)
   itemStep              Int?
   product               Product?   @relation(fields: [productId], references: [id], onDelete: Cascade)
   category              Category?  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
@@ -532,7 +532,7 @@ model PackagingRule {
 model IngredientComponent {
   parentIngredientId    String
   componentIngredientId String
-  quantityNeeded        Decimal    @db.Decimal(10, 2)
+  quantityNeeded        Decimal    @db.Decimal(10, 3)
   parentIngredient      Ingredient @relation("PreparedIngredient", fields: [parentIngredientId], references: [id], onDelete: Cascade)
   componentIngredient   Ingredient @relation("ComponentIngredient", fields: [componentIngredientId], references: [id], onDelete: Cascade)
 

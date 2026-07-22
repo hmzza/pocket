@@ -1,6 +1,6 @@
 import { PrismaClient, DiscountType, PaymentMethod, PaymentStatus, RoleCode } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { INVENTORY_ITEMS, PREPARED_RECIPE_BY_SKU, PRODUCT_RECIPE_BY_SLUG } from "../apps/api/src/lib/inventory-config.js";
+import { INVENTORY_ITEMS, PACKAGING_RULES, PREPARED_RECIPE_BY_SKU, PRODUCT_RECIPE_BY_SLUG } from "../apps/api/src/lib/inventory-config.js";
 
 const prisma = new PrismaClient();
 
@@ -10,7 +10,7 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "6");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "7");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
@@ -954,6 +954,7 @@ async function main() {
           name: item.name,
           unit: item.unit,
           type: item.type,
+          isActive: true,
           reorderLevel: item.reorderLevel,
           costPerUnit: item.costPerUnit,
           caloriesPerUnit: item.caloriesPerUnit,
@@ -964,6 +965,7 @@ async function main() {
           name: item.name,
           unit: item.unit,
           type: item.type,
+          isActive: true,
           reorderLevel: item.reorderLevel,
           costPerUnit: item.costPerUnit,
           caloriesPerUnit: item.caloriesPerUnit,
@@ -1016,6 +1018,10 @@ async function main() {
   for (const product of products) {
     const recipe = PRODUCT_RECIPE_BY_SLUG[product.slug] ?? [];
 
+    await prisma.productIngredient.deleteMany({
+      where: { productId: product.id }
+    });
+
     for (const component of recipe) {
       const ingredient = ingredientBySku.get(component.ingredientSku);
       if (!ingredient) continue;
@@ -1044,6 +1050,10 @@ async function main() {
     const parent = ingredientBySku.get(preparedSku);
     if (!parent) continue;
 
+    await prisma.ingredientComponent.deleteMany({
+      where: { parentIngredientId: parent.id }
+    });
+
     for (const component of recipe) {
       const ingredient = ingredientBySku.get(component.ingredientSku);
       if (!ingredient) continue;
@@ -1066,6 +1076,28 @@ async function main() {
       });
     }
 
+  }
+
+  await prisma.packagingRule.deleteMany();
+  for (const rule of PACKAGING_RULES) {
+    const packaging = ingredientBySku.get(rule.packagingSku);
+    if (!packaging) continue;
+    const product = rule.productSlug ? products.find((entry) => entry.slug === rule.productSlug) : null;
+    const category = rule.categorySlug ? categoryMap[rule.categorySlug] : null;
+    if (rule.productSlug && !product) continue;
+    if (rule.categorySlug && !category) continue;
+
+    await prisma.packagingRule.create({
+      data: {
+        productId: product?.id ?? null,
+        categoryId: product ? null : category?.id ?? null,
+        serviceType: rule.serviceType,
+        packagingIngredientId: packaging.id,
+        quantityMode: rule.quantityMode,
+        quantity: rule.quantity,
+        itemStep: rule.quantityMode === "PER_ITEM_STEP" ? rule.itemStep ?? 1 : null
+      }
+    });
   }
 
   const classicPocket = products.find((product) => product.slug === "classic-pocket");
