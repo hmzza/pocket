@@ -1976,18 +1976,15 @@ router.patch("/inventory/items/:id", async (req, res, next) => {
 router.delete("/inventory/items/:id", async (req, res, next) => {
   try {
     const ingredientId = req.params.id;
-    const transactionCount = await prisma.inventoryTransaction.count({
-      where: {
-        branchInventory: {
-          ingredientId
-        }
-      }
-    });
-    if (transactionCount > 0) {
-      throw blockedDeleteError("Inventory item");
-    }
 
     await prisma.$transaction(async (transaction) => {
+      await transaction.inventoryTransaction.deleteMany({
+        where: {
+          branchInventory: {
+            ingredientId
+          }
+        }
+      });
       await transaction.productIngredient.deleteMany({ where: { ingredientId } });
       await transaction.ingredientComponent.deleteMany({
         where: {
