@@ -63,7 +63,7 @@ type ExpenseFormState = {
   title: string;
   category: string;
   amount: string;
-  paymentSource: (typeof MONEY_SOURCES)[number]["value"];
+  paymentSource: (typeof MONEY_SOURCES)[number]["value"] | "";
   expenseDate: string;
   vendor: string;
   billReference: string;
@@ -75,7 +75,7 @@ const EMPTY_EXPENSE_FORM: ExpenseFormState = {
   title: "",
   category: "Inventory",
   amount: "",
-  paymentSource: "CASH",
+  paymentSource: "",
   expenseDate: new Date().toISOString().slice(0, 10),
   vendor: "",
   billReference: "",
@@ -197,6 +197,7 @@ function ExpenseEditor({
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Paid from</label>
             <select value={value.paymentSource} onChange={(event) => onChange({ ...value, paymentSource: event.target.value as ExpenseFormState["paymentSource"] })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20">
+              <option value="" disabled>Select payment source</option>
               {MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
             </select>
           </div>
@@ -392,8 +393,8 @@ export function ExpenseManagement() {
   async function submitExpense() {
     const nextCategory = form.category.trim();
     const nextVendor = vendorChoice === "__custom__" ? form.vendor.trim() : vendorChoice.trim();
-    if (!form.branchId || !form.title.trim() || !nextCategory || !form.amount || !form.expenseDate) {
-      setError("Branch, title, category, amount, and date are required.");
+    if (!form.branchId || !form.title.trim() || !nextCategory || !form.amount || !form.expenseDate || !form.paymentSource) {
+      setError("Branch, title, category, amount, paid from, and date are required.");
       return;
     }
 
