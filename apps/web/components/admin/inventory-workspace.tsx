@@ -769,9 +769,9 @@ function ClosingSection({ data, form, setForm, saving, onSubmit, onDelete }: { d
         <p className="text-lg font-black text-pocket-navy">Daily Closing</p>
         <div className="mt-4 space-y-3">
           <Field label="Date"><Input type="date" value={form.closingDate} onChange={(event) => setForm((current) => ({ ...current, closingDate: event.target.value }))} /></Field>
-          <Field label="Cash counted"><Input type="number" min="0" step="0.01" value={form.cashCounted} onChange={(event) => setForm((current) => ({ ...current, cashCounted: event.target.value }))} /></Field>
-          <Field label="Easypaisa counted"><Input type="number" min="0" step="0.01" value={form.easypaisaCounted} onChange={(event) => setForm((current) => ({ ...current, easypaisaCounted: event.target.value }))} /></Field>
-          <Field label="JazzCash counted"><Input type="number" min="0" step="0.01" value={form.jazzcashCounted} onChange={(event) => setForm((current) => ({ ...current, jazzcashCounted: event.target.value }))} /></Field>
+          <Field label="Cash counted"><Input type="number" min="0" step="0.01" value={form.cashCounted} onChange={(event) => setForm((current) => ({ ...current, cashCounted: event.target.value }))} placeholder="Actual cash in drawer" /></Field>
+          <Field label="Easypaisa counted"><Input type="number" min="0" step="0.01" value={form.easypaisaCounted} onChange={(event) => setForm((current) => ({ ...current, easypaisaCounted: event.target.value }))} placeholder="Actual Easypaisa balance" /></Field>
+          <Field label="JazzCash counted"><Input type="number" min="0" step="0.01" value={form.jazzcashCounted} onChange={(event) => setForm((current) => ({ ...current, jazzcashCounted: event.target.value }))} placeholder="Actual JazzCash balance" /></Field>
           <Field label="Note"><Textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} /></Field>
           <Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : "Close day"}</Button>
         </div>
@@ -780,8 +780,20 @@ function ClosingSection({ data, form, setForm, saving, onSubmit, onDelete }: { d
         <div className="grid gap-4 md:grid-cols-3">
           {MONEY_SOURCES.map((source) => {
             const expected = data?.expected[source.value] ?? 0;
-            const counted = source.value === "CASH" ? numberValue(form.cashCounted) : source.value === "EASYPAISA" ? numberValue(form.easypaisaCounted) : numberValue(form.jazzcashCounted);
-            return <Card key={source.value} className="p-5"><p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">{source.label}</p><p className="mt-2 text-2xl font-black text-pocket-navy">{formatCurrency(expected)}</p><p className="mt-1 text-sm text-pocket-navy/60">Diff {formatCurrency(counted - expected)}</p></Card>;
+            const countedText = source.value === "CASH" ? form.cashCounted : source.value === "EASYPAISA" ? form.easypaisaCounted : form.jazzcashCounted;
+            const hasCount = countedText !== "";
+            const counted = hasCount ? numberValue(countedText) : 0;
+            const difference = counted - expected;
+            return (
+              <Card key={source.value} className="p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">{source.label}</p>
+                <p className="mt-2 text-sm text-pocket-navy/60">Expected {formatCurrency(expected)}</p>
+                <p className="mt-2 text-2xl font-black text-pocket-navy">{hasCount ? formatCurrency(counted) : "Enter count"}</p>
+                <p className={`mt-1 text-sm font-semibold ${!hasCount ? "text-pocket-navy/45" : difference < 0 ? "text-red-600" : difference > 0 ? "text-emerald-700" : "text-pocket-navy/60"}`}>
+                  {hasCount ? `Difference ${formatCurrency(difference)}` : "Difference pending"}
+                </p>
+              </Card>
+            );
           })}
         </div>
         <Card className="p-5"><p className="text-lg font-black text-pocket-navy">Recent Closings</p><div className="mt-4 space-y-3">{(data?.recentClosings ?? []).map((closing) => <div key={closing.id} className="rounded-lg border border-pocket-navy/10 p-3"><p className="font-bold text-pocket-navy">{new Date(closing.closingDate).toLocaleDateString("en-PK")}</p><p className="text-sm text-pocket-navy/60">Cash {formatCurrency(closing.cashCounted)} · Easypaisa {formatCurrency(closing.easypaisaCounted)} · JazzCash {formatCurrency(closing.jazzcashCounted)}</p>{closing.note ? <p className="text-sm text-pocket-navy/60">{closing.note}</p> : null}</div>)}</div></Card>
@@ -891,14 +903,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
           setTransfers(transferResult.value);
         }
         if (closingResult.status === "fulfilled") {
-          const closingData = closingResult.value;
-          setClosing(closingData);
-          setClosingForm((current) => ({
-            ...current,
-            cashCounted: current.cashCounted || String(closingData.expected.CASH),
-            easypaisaCounted: current.easypaisaCounted || String(closingData.expected.EASYPAISA),
-            jazzcashCounted: current.jazzcashCounted || String(closingData.expected.JAZZCASH)
-          }));
+          setClosing(closingResult.value);
         }
       }
     } catch (loadError) {
@@ -1171,7 +1176,12 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
 
   async function saveClosing() {
     if (!closingForm.branchId) return;
+    if (!closingForm.cashCounted || !closingForm.easypaisaCounted || !closingForm.jazzcashCounted) {
+      setError("Enter counted Cash, Easypaisa, and JazzCash amounts before closing.");
+      return;
+    }
     setSaving(true);
+    setError("");
     try {
       await saveAdminDailyClosing({
         branchId: closingForm.branchId,

@@ -4009,7 +4009,7 @@ const expenseSchema = z.object({
   title: z.string().min(2).max(120),
   category: z.string().min(2).max(60),
   amount: z.number().positive(),
-  paymentSource: z.enum(MONEY_SOURCES).default("CASH"),
+  paymentSource: z.enum(MONEY_SOURCES),
   expenseDate: z.string().datetime(),
   vendor: z.string().max(100).optional().or(z.literal("")),
   billReference: z.string().max(100).optional().or(z.literal("")),
