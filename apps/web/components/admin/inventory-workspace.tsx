@@ -1151,7 +1151,12 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       <ItemEditor open={itemEditorOpen} value={itemForm} editingItem={editingItem} saving={saving} onChange={setItemForm} onClose={() => setItemEditorOpen(false)} onSubmit={() => void saveItem()} />
       <SummaryCards data={data} forecast={forecast} onRefresh={() => void loadAll()} onAddItem={openCreateItem} />
       <TabNav activeTab={activeTab} onChange={setActiveTab} />
-      {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+      {error ? (
+        <Card className="border-red-200 bg-red-50 p-4">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-red-700">Action needed</p>
+          <pre className="mt-2 whitespace-pre-wrap break-words font-sans text-sm font-semibold text-red-700">{error}</pre>
+        </Card>
+      ) : null}
       <Card className="p-5">
         <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search inventory, type, or linked product" />
       </Card>
