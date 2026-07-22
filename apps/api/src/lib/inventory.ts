@@ -148,13 +148,14 @@ export async function readInventoryData(
   const [productIngredients, packagingRules, products] = await Promise.all([
     productIds.length
       ? client.productIngredient.findMany({
-          where: { productId: { in: productIds } },
+          where: { productId: { in: productIds }, ingredient: { isActive: true } },
           include: {
             ingredient: { include: inventoryIngredientInclude }
           }
         })
       : Promise.resolve([]),
     client.packagingRule.findMany({
+      where: { packagingIngredient: { isActive: true } },
       include: {
         packagingIngredient: true
       }
@@ -173,6 +174,7 @@ export async function readInventoryData(
   const neededIngredientIds = new Set<string>();
   function collectIngredientIds(ingredient: any, seen = new Set<string>()) {
     if (!ingredient || seen.has(ingredient.id)) return;
+    if (ingredient.isActive === false) return;
     seen.add(ingredient.id);
     neededIngredientIds.add(ingredient.id);
     for (const component of ingredient.preparedComponents ?? []) {
@@ -200,7 +202,7 @@ export async function readInventoryData(
   }
 
   const branchInventories = await client.branchInventory.findMany({
-    where: { branchId },
+    where: { branchId, ingredient: { isActive: true } },
     include: {
       ingredient: true
     }
@@ -236,6 +238,7 @@ export function computeInventoryChanges({
 
   function addIngredientUsage(ingredient: any, quantity: number, seen = new Set<string>()) {
     if (!ingredient) return;
+    if (ingredient.isActive === false) return;
     if (ingredient.type === "PREPARED" && ingredient.preparedComponents?.length && !seen.has(ingredient.id)) {
       const nextSeen = new Set(seen);
       nextSeen.add(ingredient.id);

@@ -451,6 +451,7 @@ model Ingredient {
   sku           String              @unique
   unit          String
   type          String              @default("RAW")
+  isActive      Boolean             @default(true)
   reorderLevel  Decimal             @db.Decimal(10, 2)
   costPerUnit   Decimal             @db.Decimal(10, 2)
   caloriesPerUnit Decimal            @db.Decimal(10, 2) @default(0)

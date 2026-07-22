@@ -25,6 +25,7 @@ import {
   saveAdminDailyClosing,
   saveAdminPackagingRule,
   updateAdminInventoryItem,
+  updateAdminInventoryItemStatus,
   updateAdminInventoryTransaction,
   updateAdminPreparedRecipe,
   updateAdminProductPackagingRules,
@@ -34,6 +35,7 @@ import type { AdminDailyClosingData, AdminInventoryData, AdminInventoryForecast,
 import { formatCurrency } from "@/lib/utils";
 
 type InventoryTab = "stock" | "add-stock" | "vendors" | "prep" | "recipes" | "rules" | "transfers" | "closing" | "wastage" | "forecast" | "logs";
+type StockStatusFilter = "all" | "active" | "inactive";
 
 const INVENTORY_UNITS = ["kg", "litre", "bottles", "pieces", "slices", "loafs"];
 const ITEM_TYPES = ["RAW", "PREPARED", "PACKAGING", "RETAIL"] as const;
@@ -320,17 +322,38 @@ function SummaryCards({ data, forecast, onRefresh, onAddItem }: { data: AdminInv
   );
 }
 
-function StockTable({ items, loading, onEdit, onAddStock, onWastage, onDelete }: { items: AdminInventoryItem[]; loading: boolean; onEdit: (item: AdminInventoryItem) => void; onAddStock: (item: AdminInventoryItem) => void; onWastage: (item: AdminInventoryItem) => void; onDelete: (item: AdminInventoryItem) => void }) {
+function StockTable({
+  items,
+  loading,
+  onEdit,
+  onAddStock,
+  onWastage,
+  onToggleStatus,
+  onDelete
+}: {
+  items: AdminInventoryItem[];
+  loading: boolean;
+  onEdit: (item: AdminInventoryItem) => void;
+  onAddStock: (item: AdminInventoryItem) => void;
+  onWastage: (item: AdminInventoryItem) => void;
+  onToggleStatus: (item: AdminInventoryItem) => void;
+  onDelete: (item: AdminInventoryItem) => void;
+}) {
   if (loading) return <Card className="p-5 text-sm text-pocket-navy/60">Loading stock...</Card>;
   return (
     <Card className="overflow-hidden">
-      <div className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
+      <div className="grid gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60 lg:grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr]">
         <span>Item</span><span>Type</span><span>On hand</span><span>Unit cost</span><span>Value</span><span>Actions</span>
       </div>
       {items.map((item) => (
-        <div key={item.id} className="grid grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
+        <div key={item.id} className={`grid gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0 lg:grid-cols-[1.4fr_0.7fr_0.8fr_0.8fr_0.8fr_1.2fr] ${item.isActive ? "" : "bg-pocket-cream/45"}`}>
           <div>
-            <p className="font-bold text-pocket-navy">{item.name}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-bold text-pocket-navy">{item.name}</p>
+              <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.12em] ${item.isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                {item.isActive ? "Active" : "Inactive"}
+              </span>
+            </div>
             <p className="mt-1 text-xs text-pocket-navy/60">{item.linkedProducts.length ? `Used in ${item.linkedProducts.length} product${item.linkedProducts.length === 1 ? "" : "s"}` : "Not linked to a product yet"}</p>
           </div>
           <span className="font-semibold text-pocket-navy">{ITEM_TYPE_LABELS[item.type as keyof typeof ITEM_TYPE_LABELS] ?? item.type}</span>
@@ -338,9 +361,10 @@ function StockTable({ items, loading, onEdit, onAddStock, onWastage, onDelete }:
           <span>{formatCurrency(item.costPerUnit)}</span>
           <span>{formatCurrency(item.stockValue)}</span>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => onAddStock(item)}>Add</Button>
-            <Button size="sm" variant="outline" onClick={() => onWastage(item)}>Waste</Button>
+            <Button size="sm" variant="outline" onClick={() => onAddStock(item)} disabled={!item.isActive}>Add</Button>
+            <Button size="sm" variant="outline" onClick={() => onWastage(item)} disabled={!item.isActive}>Waste</Button>
             <Button size="sm" variant="ghost" onClick={() => onEdit(item)}><Pencil className="h-4 w-4" /></Button>
+            <Button size="sm" variant="outline" onClick={() => onToggleStatus(item)}>{item.isActive ? "Disable" : "Enable"}</Button>
             <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(item)}><Trash2 className="h-4 w-4" /></Button>
           </div>
         </div>
@@ -822,6 +846,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [closing, setClosing] = useState<AdminDailyClosingData | null>(null);
   const [vendors, setVendors] = useState<AdminVendor[]>([]);
   const [search, setSearch] = useState("");
+  const [stockStatusFilter, setStockStatusFilter] = useState<StockStatusFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [itemEditorOpen, setItemEditorOpen] = useState(false);
@@ -851,7 +876,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       if (recipeResult.status === "fulfilled") setRecipes(recipeResult.value);
       if (vendorResult.status === "fulfilled") setVendors(vendorResult.value.vendors);
       if (ruleResult.status === "fulfilled") setRules(ruleResult.value);
-      const first = inventoryData.items[0]?.ingredientId ?? "";
+      const first = inventoryData.items.find((item) => item.isActive)?.ingredientId ?? "";
       const branchId = inventoryData.branches[0]?.id ?? "";
       setStockForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
       setWastageForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
@@ -889,10 +914,17 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
 
   const items = useMemo(() => {
     const source = data?.items ?? [];
-    if (!search.trim()) return source;
+    const statusFiltered = stockStatusFilter === "active"
+      ? source.filter((item) => item.isActive)
+      : stockStatusFilter === "inactive"
+        ? source.filter((item) => !item.isActive)
+        : source;
+    if (!search.trim()) return statusFiltered;
     const value = search.toLowerCase();
-    return source.filter((item) => `${item.name} ${item.sku} ${item.type} ${item.linkedProducts.map((product) => product.productName).join(" ")}`.toLowerCase().includes(value));
-  }, [data, search]);
+    return statusFiltered.filter((item) => `${item.name} ${item.sku} ${item.type} ${item.isActive ? "active" : "inactive"} ${item.linkedProducts.map((product) => product.productName).join(" ")}`.toLowerCase().includes(value));
+  }, [data, search, stockStatusFilter]);
+
+  const activeItems = useMemo(() => (data?.items ?? []).filter((item) => item.isActive), [data]);
 
   function openCreateItem() {
     setEditingItem(null);
@@ -938,6 +970,10 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   async function submitStock() {
     const branchId = data?.branches[0]?.id;
     if (!branchId || !stockForm.ingredientId) return;
+    if (!activeItems.some((item) => item.ingredientId === stockForm.ingredientId)) {
+      setError("Enable this inventory item before adding stock.");
+      return;
+    }
     setSaving(true);
     try {
       await createAdminInventoryTransaction({
@@ -962,6 +998,10 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   async function submitWastage() {
     const branchId = data?.branches[0]?.id;
     if (!branchId || !wastageForm.ingredientId) return;
+    if (!activeItems.some((item) => item.ingredientId === wastageForm.ingredientId)) {
+      setError("Enable this inventory item before recording wastage.");
+      return;
+    }
     setSaving(true);
     try {
       await createAdminInventoryTransaction({
@@ -1029,6 +1069,24 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       await loadAll();
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete item.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggleItemStatus(item: AdminInventoryItem) {
+    const nextActive = !item.isActive;
+    const confirmed = nextActive
+      ? true
+      : window.confirm(`Disable ${item.name}? It will stay in stock history but disappear from new stock, recipe, wastage, rule, forecast, and POS setup selections.`);
+    if (!confirmed) return;
+    setSaving(true);
+    setError("");
+    try {
+      await updateAdminInventoryItemStatus(item.ingredientId, nextActive);
+      await loadAll();
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : "Failed to update item status.");
     } finally {
       setSaving(false);
     }
@@ -1158,16 +1216,23 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
         </Card>
       ) : null}
       <Card className="p-5">
-        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search inventory, type, or linked product" />
+        <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search inventory, type, status, or linked product" />
+          <select value={stockStatusFilter} onChange={(event) => setStockStatusFilter(event.target.value as StockStatusFilter)} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+            <option value="all">All statuses</option>
+            <option value="active">Active only</option>
+            <option value="inactive">Inactive only</option>
+          </select>
+        </div>
       </Card>
-      {activeTab === "stock" ? <StockTable items={items} loading={loading} onEdit={openEditItem} onAddStock={(item) => { setStockForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("add-stock"); }} onWastage={(item) => { setWastageForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("wastage"); }} onDelete={(item) => void deleteItem(item)} /> : null}
-      {activeTab === "add-stock" ? <AddStockForm items={items} vendors={vendors} form={stockForm} setForm={setStockForm} saving={saving} onSubmit={() => void submitStock()} /> : null}
+      {activeTab === "stock" ? <StockTable items={items} loading={loading} onEdit={openEditItem} onAddStock={(item) => { setStockForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("add-stock"); }} onWastage={(item) => { setWastageForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("wastage"); }} onToggleStatus={(item) => void toggleItemStatus(item)} onDelete={(item) => void deleteItem(item)} /> : null}
+      {activeTab === "add-stock" ? <AddStockForm items={activeItems} vendors={vendors} form={stockForm} setForm={setStockForm} saving={saving} onSubmit={() => void submitStock()} /> : null}
       {activeTab === "vendors" ? <VendorManagement /> : null}
       {activeTab === "prep" ? <PrepItemsSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
       {activeTab === "rules" ? <RulesSection data={rules} form={ruleForm} setForm={setRuleForm} saving={saving} onSubmit={() => void saveRule()} onDelete={(ruleId) => void deleteRule(ruleId)} /> : null}
       {activeTab === "transfers" ? <TransfersSection data={transfers} form={transferForm} setForm={setTransferForm} saving={saving} onSubmit={() => void saveTransfer()} onDelete={(transferId) => void deleteTransfer(transferId)} /> : null}
       {activeTab === "closing" ? <ClosingSection data={closing} form={closingForm} setForm={setClosingForm} saving={saving} onSubmit={() => void saveClosing()} onDelete={(closingId) => void deleteClosing(closingId)} /> : null}
-      {activeTab === "wastage" ? <WastageForm items={items} form={wastageForm} setForm={setWastageForm} saving={saving} onSubmit={() => void submitWastage()} /> : null}
+      {activeTab === "wastage" ? <WastageForm items={activeItems} form={wastageForm} setForm={setWastageForm} saving={saving} onSubmit={() => void submitWastage()} /> : null}
       {activeTab === "forecast" ? <ForecastSection forecast={forecast} loading={loading} /> : null}
       {activeTab === "recipes" ? <RecipesCostingSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
       {activeTab === "logs" ? <LogsSection entries={data?.recentTransactions ?? []} edit={logEdit} setEdit={setLogEdit} saving={saving} onSave={() => void saveLogEdit()} /> : null}

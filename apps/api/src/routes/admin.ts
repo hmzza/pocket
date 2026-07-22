@@ -182,18 +182,68 @@ const PACKAGING_SERVICE_TYPES = [DEFAULT_PACKAGING_SERVICE, ...Object.values(Ser
 const MONEY_SOURCES = ["CASH", "EASYPAISA", "JAZZCASH"] as const;
 const PACKAGING_QUANTITY_MODES = ["FIXED", "PER_ITEM_STEP"] as const;
 
+function adminActionError({
+  message,
+  statusCode,
+  code,
+  details,
+  entity,
+  action
+}: {
+  message: string;
+  statusCode: number;
+  code: string;
+  details?: unknown;
+  entity?: string;
+  action?: string;
+}) {
+  return Object.assign(new Error(message), {
+    statusCode,
+    code,
+    details,
+    entity,
+    action
+  });
+}
+
 function blockedDeleteError(entityLabel: string) {
-  return Object.assign(
-    new Error(`${entityLabel} cannot be deleted because it is linked to existing history. Remove dependent setup records first or keep it for history.`),
-    { statusCode: 409 }
-  );
+  return adminActionError({
+    message: `${entityLabel} cannot be deleted because it is linked to protected history.`,
+    statusCode: 409,
+    code: "DELETE_BLOCKED_BY_HISTORY",
+    details: {
+      reason: "This record is connected to history that must remain consistent.",
+      nextStep: "Use Disable for temporary removal, or delete the protected history first if you really want a permanent cleanup."
+    },
+    entity: entityLabel,
+    action: "delete"
+  });
 }
 
 function rethrowDeleteError(error: unknown, entityLabel: string): never {
   if (error instanceof Prisma.PrismaClientKnownRequestError && ["P2003", "P2014"].includes(error.code)) {
     throw blockedDeleteError(entityLabel);
   }
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    throw adminActionError({
+      message: `Could not delete ${entityLabel}.`,
+      statusCode: error.code === "P2025" ? 404 : 500,
+      code: error.code,
+      details: error.message,
+      entity: entityLabel,
+      action: "delete"
+    });
+  }
   throw error;
+}
+
+async function ignoreMissingOptionalTable(task: () => Promise<unknown>) {
+  try {
+    await task();
+  } catch (error) {
+    if (isMissingTableError(error)) return;
+    throw error;
+  }
 }
 
 function skuPrefix(value: string, fallback: string) {
@@ -610,6 +660,7 @@ function buildIngredientCostLines(
   source: "product" | "prep" | "packaging-rule";
 }> {
   if (!ingredient) return [];
+  if (ingredient.isActive === false) return [];
   const type = ingredient.type ?? "RAW";
   const components = ingredient.preparedComponents ?? [];
 
@@ -651,11 +702,12 @@ function buildProductCostSummary(product: any) {
   const recipeItems: IngredientCostLine[] = (product.productIngredients ?? []).flatMap((entry: any) =>
     buildIngredientCostLines(entry.ingredient, parseDecimal(entry.quantityNeeded))
   );
-  const packagingRuleItems: PackagingRuleCostLine[] = (product.packagingRules ?? []).map((rule: any) => {
+  const packagingRuleItems: PackagingRuleCostLine[] = (product.packagingRules ?? []).flatMap((rule: any) => {
     const ingredient = rule.packagingIngredient;
+    if (ingredient?.isActive === false) return [];
     const quantity = parseDecimal(rule.quantity);
     const unitCost = parseDecimal(ingredient?.costPerUnit);
-    return {
+    return [{
       ingredientId: rule.packagingIngredientId,
       ingredientName: ingredient?.name ?? "Unknown packaging",
       ingredientType: ingredient?.type ?? "PACKAGING",
@@ -666,7 +718,7 @@ function buildProductCostSummary(product: any) {
       calories: 0,
       source: "packaging-rule" as const,
       serviceType: rule.serviceType
-    };
+    }];
   });
 
   const legacyPackagingCost = recipeItems
@@ -1181,6 +1233,7 @@ router.get("/products", async (_req, res, next) => {
     },
     branchPricing: { include: { branch: true } },
     productIngredients: {
+      where: { ingredient: { isActive: true } },
       include: { ingredient: { include: ingredientCostInclude } },
       orderBy: { ingredient: { name: "asc" as const } }
     }
@@ -1191,6 +1244,7 @@ router.get("/products", async (_req, res, next) => {
       include: {
         ...includeBase,
         packagingRules: {
+          where: { packagingIngredient: { isActive: true } },
           include: { packagingIngredient: true },
           orderBy: [{ serviceType: "asc" }, { packagingIngredient: { name: "asc" } }]
         }
@@ -1613,6 +1667,7 @@ router.delete("/categories/:id", async (req, res, next) => {
 const inventoryQuerySchema = z.object({
   branchId: z.string().cuid().optional(),
   search: z.string().trim().optional(),
+  status: z.enum(["all", "active", "inactive"]).default("all"),
   lowStock: z
     .union([z.literal("true"), z.literal("false"), z.boolean()])
     .optional()
@@ -1637,6 +1692,10 @@ const inventoryItemUpdateSchema = z.object({
   reorderLevel: z.number().nonnegative().optional(),
   costPerUnit: z.number().nonnegative().optional(),
   caloriesPerUnit: z.number().nonnegative().optional()
+});
+
+const inventoryItemStatusSchema = z.object({
+  isActive: z.boolean()
 });
 
 const inventoryMovementSchema = z
@@ -1692,10 +1751,17 @@ const inventoryMovementSchema = z
 router.get("/inventory", async (req, res, next) => {
   try {
     const query = inventoryQuerySchema.parse(req.query);
+    const ingredientStatusWhere: Prisma.IngredientWhereInput =
+      query.status === "active"
+        ? { isActive: true }
+        : query.status === "inactive"
+          ? { isActive: false }
+          : {};
 
-    const itemWhere = {
+    const itemWhere: Prisma.BranchInventoryWhereInput = {
       ...(query.branchId ? { branchId: query.branchId } : {}),
       ...(query.lowStock ? { lowStockAlert: true } : {}),
+      ...(query.status !== "all" ? { ingredient: ingredientStatusWhere } : {}),
       ...(query.search
         ? {
             OR: [
@@ -1706,7 +1772,10 @@ router.get("/inventory", async (req, res, next) => {
         : {})
     };
 
-    const summaryWhere = query.branchId ? { branchId: query.branchId } : {};
+    const summaryWhere: Prisma.BranchInventoryWhereInput = {
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...(query.status !== "all" ? { ingredient: ingredientStatusWhere } : {})
+    };
 
     const [branches, items, summaryBase, recentTransactions] = await Promise.all([
       prisma.branch.findMany({
@@ -1784,6 +1853,7 @@ router.get("/inventory", async (req, res, next) => {
         reorderLevel: parseDecimal(item.ingredient.reorderLevel),
         costPerUnit: parseDecimal(item.ingredient.costPerUnit),
         type: item.ingredient.type,
+        isActive: item.ingredient.isActive,
         caloriesPerUnit: parseDecimal(item.ingredient.caloriesPerUnit),
         linkedProducts: item.ingredient.productUsage.map((usage) => ({
           productId: usage.productId,
@@ -1844,6 +1914,7 @@ router.post("/inventory/items", async (req, res, next) => {
               sku: existingIngredient.sku,
               unit: payload.unit.trim(),
               type: payload.type,
+              isActive: true,
               reorderLevel: payload.reorderLevel,
               costPerUnit: payload.costPerUnit,
               caloriesPerUnit
@@ -1855,6 +1926,7 @@ router.post("/inventory/items", async (req, res, next) => {
               sku: normalizedSku,
               unit: payload.unit.trim(),
               type: payload.type,
+              isActive: true,
               reorderLevel: payload.reorderLevel,
               costPerUnit: payload.costPerUnit,
               caloriesPerUnit
@@ -1973,9 +2045,49 @@ router.patch("/inventory/items/:id", async (req, res, next) => {
   }
 });
 
+router.patch("/inventory/items/:id/status", async (req, res, next) => {
+  try {
+    const payload = inventoryItemStatusSchema.parse(req.body);
+    const ingredient = await prisma.ingredient.update({
+      where: { id: req.params.id },
+      data: { isActive: payload.isActive }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: payload.isActive ? "inventory.item_enable" : "inventory.item_disable",
+      entityType: "ingredient",
+      entityId: ingredient.id,
+      payload
+    });
+
+    return res.json({ ingredient });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return next(adminActionError({
+        message: "Could not update inventory item status.",
+        statusCode: error.code === "P2025" ? 404 : 500,
+        code: error.code,
+        details: error.message,
+        entity: "ingredient",
+        action: "status"
+      }));
+    }
+    return next(error);
+  }
+});
+
 router.delete("/inventory/items/:id", async (req, res, next) => {
   try {
     const ingredientId = req.params.id;
+    const existing = await prisma.ingredient.findUnique({
+      where: { id: ingredientId },
+      select: { id: true }
+    });
+
+    if (!existing) {
+      return res.json({ deleted: true, alreadyDeleted: true });
+    }
 
     await prisma.$transaction(async (transaction) => {
       await transaction.inventoryTransaction.deleteMany({
@@ -1991,7 +2103,7 @@ router.delete("/inventory/items/:id", async (req, res, next) => {
           OR: [{ parentIngredientId: ingredientId }, { componentIngredientId: ingredientId }]
         }
       });
-      await transaction.packagingRule.deleteMany({ where: { packagingIngredientId: ingredientId } });
+      await ignoreMissingOptionalTable(() => transaction.packagingRule.deleteMany({ where: { packagingIngredientId: ingredientId } }));
       await transaction.branchInventory.deleteMany({ where: { ingredientId } });
       await transaction.ingredient.delete({ where: { id: ingredientId } });
     });
@@ -2006,11 +2118,24 @@ router.delete("/inventory/items/:id", async (req, res, next) => {
 
     return res.json({ deleted: true });
   } catch (error) {
-    try {
-      rethrowDeleteError(error, "Inventory item");
-    } catch (nextError) {
-      return next(nextError);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return next(adminActionError({
+        message: "Could not delete inventory item.",
+        statusCode: error.code === "P2025" ? 404 : 500,
+        code: error.code,
+        details: error.message,
+        entity: "ingredient",
+        action: "delete"
+      }));
     }
+    return next(adminActionError({
+      message: "Could not delete inventory item.",
+      statusCode: 500,
+      code: "INVENTORY_ITEM_DELETE_FAILED",
+      details: error instanceof Error ? error.message : String(error),
+      entity: "ingredient",
+      action: "delete"
+    }));
   }
 });
 
@@ -2032,6 +2157,16 @@ router.post("/inventory/transactions", async (req, res, next) => {
 
     if (!inventory) {
       return res.status(404).json({ message: "Inventory item not found for the selected branch." });
+    }
+    if (!inventory.ingredient.isActive) {
+      return next(adminActionError({
+        message: "Inventory item is disabled.",
+        statusCode: 400,
+        code: "INVENTORY_ITEM_DISABLED",
+        details: "Enable this item before recording stock additions, wastage, returns, or adjustments.",
+        entity: "ingredient",
+        action: "stock_movement"
+      }));
     }
 
     let quantityDelta = 0;
@@ -2341,7 +2476,7 @@ router.get("/inventory/rules", async (_req, res, next) => {
       }),
       prisma.product.findMany({ where: { isActive: true }, select: { id: true, name: true, categoryId: true }, orderBy: { name: "asc" } }),
       prisma.category.findMany({ where: { isActive: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-      prisma.ingredient.findMany({ where: { type: "PACKAGING" }, orderBy: { name: "asc" } })
+      prisma.ingredient.findMany({ where: { type: "PACKAGING", isActive: true }, orderBy: { name: "asc" } })
     ]);
     return res.json({
       serviceTypes: PACKAGING_SERVICE_TYPES,
@@ -2376,6 +2511,20 @@ router.get("/inventory/rules", async (_req, res, next) => {
 router.post("/inventory/rules", async (req, res, next) => {
   try {
     const payload = packagingRuleSchema.parse(req.body);
+    const packagingItem = await prisma.ingredient.findFirst({
+      where: { id: payload.packagingIngredientId, type: "PACKAGING", isActive: true },
+      select: { id: true }
+    });
+    if (!packagingItem) {
+      return next(adminActionError({
+        message: "Select an active packaging item for this rule.",
+        statusCode: 400,
+        code: "PACKAGING_ITEM_UNAVAILABLE",
+        details: "Disabled or deleted packaging items cannot be used in new packaging rules.",
+        entity: "packaging_rule",
+        action: payload.id ? "update" : "create"
+      }));
+    }
     const data = {
       productId: payload.productId || null,
       categoryId: payload.productId ? null : payload.categoryId || null,
@@ -2891,11 +3040,12 @@ router.delete("/loans/:id/repayments/:repaymentId", async (req, res, next) => {
 router.get("/inventory/recipes", async (_req, res, next) => {
   try {
     const [ingredients, preparedItems, products] = await Promise.all([
-      prisma.ingredient.findMany({ orderBy: { name: "asc" } }),
+      prisma.ingredient.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
       prisma.ingredient.findMany({
-        where: { type: "PREPARED" },
+        where: { type: "PREPARED", isActive: true },
         include: {
           preparedComponents: {
+            where: { componentIngredient: { isActive: true } },
             include: { componentIngredient: true },
             orderBy: { componentIngredient: { name: "asc" } }
           }
@@ -2907,10 +3057,12 @@ router.get("/inventory/recipes", async (_req, res, next) => {
           category: true,
           branchPricing: true,
           productIngredients: {
+            where: { ingredient: { isActive: true } },
             include: { ingredient: { include: ingredientCostInclude } },
             orderBy: { ingredient: { name: "asc" } }
           },
           packagingRules: {
+            where: { packagingIngredient: { isActive: true } },
             include: { packagingIngredient: true },
             orderBy: [{ serviceType: "asc" }, { packagingIngredient: { name: "asc" } }]
           }
@@ -2966,6 +3118,22 @@ router.get("/inventory/recipes", async (_req, res, next) => {
 router.patch("/inventory/recipes/products/:id/packaging", async (req, res, next) => {
   try {
     const payload = packagingRulesUpdateSchema.parse(req.body);
+    const ingredientIds = [...new Set(payload.rules.map((rule) => rule.ingredientId))];
+    if (ingredientIds.length) {
+      const activeCount = await prisma.ingredient.count({
+        where: { id: { in: ingredientIds }, type: "PACKAGING", isActive: true }
+      });
+      if (activeCount !== ingredientIds.length) {
+        return next(adminActionError({
+          message: "Packaging recipe contains a disabled or deleted item.",
+          statusCode: 400,
+          code: "PACKAGING_ITEM_UNAVAILABLE",
+          details: "Only active packaging items can be selected for new or edited packaging rules.",
+          entity: "product",
+          action: "recipe_packaging_update"
+        }));
+      }
+    }
     await prisma.$transaction(async (transaction) => {
       for (const rule of payload.rules) {
         const existing = await transaction.packagingRule.findFirst({
@@ -3011,6 +3179,22 @@ router.patch("/inventory/recipes/products/:id/packaging", async (req, res, next)
 router.patch("/inventory/recipes/products/:id", async (req, res, next) => {
   try {
     const payload = recipeUpdateSchema.parse(req.body);
+    const ingredientIds = [...new Set(payload.components.map((component) => component.ingredientId))];
+    if (ingredientIds.length) {
+      const activeCount = await prisma.ingredient.count({
+        where: { id: { in: ingredientIds }, isActive: true }
+      });
+      if (activeCount !== ingredientIds.length) {
+        return next(adminActionError({
+          message: "Recipe contains a disabled or deleted item.",
+          statusCode: 400,
+          code: "RECIPE_ITEM_UNAVAILABLE",
+          details: "Only active ingredients and prep items can be selected for new or edited recipes.",
+          entity: "product",
+          action: "recipe_update"
+        }));
+      }
+    }
     await prisma.$transaction(async (transaction) => {
       for (const component of payload.components) {
         await transaction.productIngredient.upsert({
@@ -3049,6 +3233,22 @@ router.patch("/inventory/recipes/products/:id", async (req, res, next) => {
 router.patch("/inventory/recipes/prepared/:id", async (req, res, next) => {
   try {
     const payload = recipeUpdateSchema.parse(req.body);
+    const ingredientIds = [...new Set(payload.components.map((component) => component.ingredientId))];
+    if (ingredientIds.length) {
+      const activeCount = await prisma.ingredient.count({
+        where: { id: { in: ingredientIds }, isActive: true }
+      });
+      if (activeCount !== ingredientIds.length) {
+        return next(adminActionError({
+          message: "Prep recipe contains a disabled or deleted item.",
+          statusCode: 400,
+          code: "RECIPE_ITEM_UNAVAILABLE",
+          details: "Only active ingredients and prep items can be selected for new or edited prep recipes.",
+          entity: "ingredient",
+          action: "recipe_update"
+        }));
+      }
+    }
     await prisma.$transaction(async (transaction) => {
       for (const component of payload.components) {
         await transaction.ingredientComponent.upsert({
@@ -3106,11 +3306,17 @@ router.get("/inventory/forecast", async (_req, res, next) => {
           }
         }
       }),
-      prisma.productIngredient.findMany({ include: { ingredient: { include: ingredientCostInclude } } }),
-      prisma.packagingRule.findMany({ include: { packagingIngredient: true } }),
+      prisma.productIngredient.findMany({
+        where: { ingredient: { isActive: true } },
+        include: { ingredient: { include: ingredientCostInclude } }
+      }),
+      prisma.packagingRule.findMany({
+        where: { packagingIngredient: { isActive: true } },
+        include: { packagingIngredient: true }
+      }),
       prisma.product.findMany({ select: { id: true, categoryId: true } }),
       prisma.branchInventory.findMany({
-        where: { branchId: branch.id },
+        where: { branchId: branch.id, ingredient: { isActive: true } },
         include: { ingredient: true }
       }),
       prisma.inventoryTransaction.findMany({
@@ -3136,6 +3342,7 @@ router.get("/inventory/forecast", async (_req, res, next) => {
 
     function addForecastUsage(ingredient: any, quantity: number, seen = new Set<string>()) {
       if (!ingredient) return;
+      if (ingredient.isActive === false) return;
       if (ingredient.type === "PREPARED" && ingredient.preparedComponents?.length && !seen.has(ingredient.id)) {
         const nextSeen = new Set(seen);
         nextSeen.add(ingredient.id);
