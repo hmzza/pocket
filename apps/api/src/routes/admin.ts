@@ -1571,22 +1571,66 @@ router.patch("/products/:id", async (req, res, next) => {
 router.delete("/products/:id", async (req, res, next) => {
   try {
     const productId = req.params.id;
-    const orderItemCount = await prisma.orderItem.count({ where: { productId } });
-    if (orderItemCount > 0) {
-      throw blockedDeleteError("Product");
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { id: true, name: true }
+    });
+
+    if (!product) {
+      return res.json({
+        mode: "deleted",
+        alreadyDeleted: true,
+        message: "Product already deleted."
+      });
     }
 
-    await prisma.$transaction(async (transaction) => {
-      await transaction.productBundleComponent.deleteMany({
+    const cleanup = await prisma.$transaction(async (transaction) => {
+      const addOnOptions = await transaction.addOnOption.findMany({
+        where: { group: { productId } },
+        select: { id: true }
+      });
+      const addOnOptionIds = addOnOptions.map((option) => option.id);
+      const orderItemAddOns = addOnOptionIds.length
+        ? await transaction.orderItemAddOn.deleteMany({ where: { optionId: { in: addOnOptionIds } } })
+        : { count: 0 };
+      const orderItems = await transaction.orderItem.updateMany({
+        where: { productId },
+        data: { productId: null }
+      });
+      const orderItemBundleComponents = await transaction.orderItemBundleComponent.updateMany({
+        where: { productId },
+        data: { productId: null }
+      });
+      const bundleComponents = await transaction.productBundleComponent.deleteMany({
         where: {
           OR: [{ productId }, { componentProductId: productId }]
         }
       });
-      await transaction.branchProduct.deleteMany({ where: { productId } });
-      await transaction.productIngredient.deleteMany({ where: { productId } });
-      await transaction.packagingRule.deleteMany({ where: { productId } });
-      await transaction.productImage.deleteMany({ where: { productId } });
+      const branchPricing = await transaction.branchProduct.deleteMany({ where: { productId } });
+      const productIngredients = await transaction.productIngredient.deleteMany({ where: { productId } });
+      let packagingRules = { count: 0 };
+      await ignoreMissingOptionalTable(async () => {
+        packagingRules = await transaction.packagingRule.deleteMany({ where: { productId } });
+      });
+      const productImages = await transaction.productImage.deleteMany({ where: { productId } });
+      const cartItems = await transaction.cartItem.deleteMany({ where: { productId } });
+      const favorites = await transaction.favorite.deleteMany({ where: { productId } });
+      const reviews = await transaction.review.deleteMany({ where: { productId } });
       await transaction.product.delete({ where: { id: productId } });
+
+      return {
+        orderItemsDetached: orderItems.count,
+        orderItemBundleComponentsDetached: orderItemBundleComponents.count,
+        orderItemAddOnsDeleted: orderItemAddOns.count,
+        bundleComponentsDeleted: bundleComponents.count,
+        branchPricingDeleted: branchPricing.count,
+        productIngredientsDeleted: productIngredients.count,
+        packagingRulesDeleted: packagingRules.count,
+        productImagesDeleted: productImages.count,
+        cartItemsDeleted: cartItems.count,
+        favoritesDeleted: favorites.count,
+        reviewsDeleted: reviews.count
+      };
     });
 
     await writeAuditLog({
@@ -1594,12 +1638,13 @@ router.delete("/products/:id", async (req, res, next) => {
       action: "product.delete",
       entityType: "product",
       entityId: productId,
-      payload: { mode: "deleted" }
+      payload: { mode: "deleted", productName: product.name, cleanup }
     });
 
     return res.json({
       mode: "deleted",
-      message: "Product deleted."
+      message: "Product deleted.",
+      cleanup
     });
   } catch (error) {
     try {
