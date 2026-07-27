@@ -7,7 +7,7 @@ import { ProductCard } from "@/components/site/product-card";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { getProductBySlug } from "@/lib/api";
-import { formatCurrency } from "@/lib/utils";
+import { formatCompactCurrency } from "@/lib/utils";
 
 export async function generateMetadata({ params }: { params: { slug: string } }) {
   const data = await getProductBySlug(params.slug);
@@ -46,7 +46,7 @@ export default async function ProductPage({ params }: { params: { slug: string }
 
           <div className="flex items-center justify-between gap-4 rounded-lg border border-pocket-navy/10 bg-white p-5 shadow-panel">
             <div>
-              <p className="text-4xl font-black text-pocket-orange">{formatCurrency(product.price)}</p>
+              <p className="min-w-0 break-words text-[clamp(1.5rem,5vw,2.25rem)] font-black leading-tight tracking-tight text-pocket-orange">{formatCompactCurrency(product.price)}</p>
             </div>
             <AddToCartButton product={product} />
           </div>
@@ -73,7 +73,7 @@ export default async function ProductPage({ params }: { params: { slug: string }
                       {group.options.map((option) => (
                         <div key={option.id} className="flex items-center justify-between rounded-md border border-pocket-navy/10 px-4 py-3">
                           <p className="font-medium text-pocket-navy">{option.name}</p>
-                          <p className="font-bold text-pocket-orange">{formatCurrency(option.priceDelta)}</p>
+                          <p className="min-w-0 break-words text-right font-bold text-pocket-orange">{formatCompactCurrency(option.priceDelta)}</p>
                         </div>
                       ))}
                     </div>

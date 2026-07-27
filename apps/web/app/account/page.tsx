@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useLiveProducts } from "@/components/site/use-live-products";
 import { Card } from "@/components/ui/card";
 import { useStore } from "@/components/store/store-provider";
-import { formatCurrency } from "@/lib/utils";
+import { formatCompactCurrency } from "@/lib/utils";
 
 export default function AccountPage() {
   const { favorites, recentlyViewed } = useStore();
@@ -39,7 +39,7 @@ export default function AccountPage() {
                 favoriteProducts.map((product) => (
                   <Link key={product.id} href={`/menu/${product.slug}`} className="rounded-md border border-pocket-navy/10 p-4 transition hover:bg-pocket-cream">
                     <p className="font-bold text-pocket-navy">{product.name}</p>
-                    <p className="mt-1 text-sm text-pocket-navy/60">{formatCurrency(product.price)}</p>
+                    <p className="mt-1 break-words text-sm text-pocket-navy/60">{formatCompactCurrency(product.price)}</p>
                   </Link>
                 ))
               ) : (

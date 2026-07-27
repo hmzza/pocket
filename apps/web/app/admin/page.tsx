@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownRight, ArrowUpRight, ArrowRight, CalendarDays, Clock3, Package2, Receipt, Users2, Wallet } from "lucide-react";
+import { ArrowRight, CalendarDays, Clock3, Package2, Receipt, Wallet } from "lucide-react";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard, fetchAdminSettings, fetchAdminSession } from "@/lib/admin-client";
 import { MONTHLY_BREAKEVEN_TARGET, estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns } from "@/lib/finance";
 import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
-import { cn, formatCompactNumber, formatCurrency } from "@/lib/utils";
+import { cn, formatCompactCurrency, formatCompactNumber } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" },
@@ -226,53 +226,48 @@ export default function AdminPage() {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <InsightCard
                 label="Revenue"
-                value={formatCurrency(dashboard.summary.revenue)}
-                helper={`Previous ${formatCurrency(dashboard.summary.previousRevenue)}`}
+                value={formatCompactCurrency(dashboard.summary.revenue)}
+                helper={`Previous ${formatCompactCurrency(dashboard.summary.previousRevenue)}`}
                 delta={dashboard.summary.revenueDelta}
-                icon={Wallet}
               />
               <InsightCard
                 label="Net after Foodpanda cut"
-                value={formatCurrency(netRevenueAfterFoodpandaCut)}
-                helper={`${formatCurrency(foodpandaRevenue)} Foodpanda gross · ${formatCurrency(foodpandaPayout.estimated)} expected net`}
+                value={formatCompactCurrency(netRevenueAfterFoodpandaCut)}
+                helper={`${formatCompactCurrency(foodpandaRevenue)} Foodpanda gross · ${formatCompactCurrency(foodpandaPayout.estimated)} expected net`}
                 delta={null}
-                icon={ArrowDownRight}
               />
               <InsightCard
                 label="Orders"
                 value={formatCompactNumber(dashboard.summary.orders)}
                 helper={`Previous ${formatCompactNumber(dashboard.summary.previousOrders)}`}
                 delta={dashboard.summary.ordersDelta}
-                icon={Receipt}
               />
               <InsightCard
                 label="Average Ticket"
-                value={formatCurrency(dashboard.summary.averageOrderValue)}
-                helper={`Previous ${formatCurrency(dashboard.summary.previousAverageOrderValue)}`}
+                value={formatCompactCurrency(dashboard.summary.averageOrderValue)}
+                helper={`Previous ${formatCompactCurrency(dashboard.summary.previousAverageOrderValue)}`}
                 delta={dashboard.summary.averageOrderValueDelta}
-                icon={Package2}
               />
               <InsightCard
                 label="Active Customers"
                 value={formatCompactNumber(dashboard.summary.activeCustomers)}
                 helper={`${dashboard.summary.repeatCustomers} repeat customers`}
                 delta={null}
-                icon={Users2}
               />
             </div>
 
             <div className="grid gap-4 xl:grid-cols-3">
               <Card className="p-5">
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Foodpanda payout estimate</p>
-                <p className="mt-3 text-3xl font-black text-pocket-navy">{formatCurrency(foodpandaPayout.estimated)}</p>
+                <p className="mt-3 min-w-0 break-words text-[clamp(1rem,1.6vw,1.625rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCompactCurrency(foodpandaPayout.estimated)}</p>
                 <p className="mt-2 text-sm text-pocket-navy/60">
-                  Gross {formatCurrency(foodpandaPayout.gross)} · expected return after the 40-42% platform fee.
+                  Gross {formatCompactCurrency(foodpandaPayout.gross)} · expected return after the 40-42% platform fee.
                 </p>
                 <div className="mt-4 rounded-2xl bg-pocket-cream px-4 py-4">
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-semibold text-pocket-navy">Return range</span>
-                    <span className="font-bold text-pocket-navy">
-                      {formatCurrency(foodpandaPayout.minimum)} - {formatCurrency(foodpandaPayout.maximum)}
+                    <span className="max-w-[58%] break-words text-right font-bold leading-tight tracking-tight text-pocket-navy">
+                      {formatCompactCurrency(foodpandaPayout.minimum)} - {formatCompactCurrency(foodpandaPayout.maximum)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm text-pocket-navy/60">This is the amount expected to land with Pocket after Foodpanda keeps its share.</p>
@@ -284,7 +279,7 @@ export default function AdminPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Finance page</p>
                   <p className="mt-3 text-2xl font-black text-pocket-navy">Monthly breakeven</p>
                   <p className="mt-2 text-sm text-pocket-navy/60">
-                    Track the {formatCurrency(monthlyTarget)} monthly target and see when profit starts.
+                    Track the {formatCompactCurrency(monthlyTarget)} monthly target and see when profit starts.
                   </p>
                 </div>
                 <Button className="w-fit" onClick={() => window.location.assign("/admin/finances")}>
@@ -355,14 +350,14 @@ export default function AdminPage() {
                 <div className="mt-4 space-y-3">
                   {dashboard.topProducts.map((item, index) => (
                     <div key={item.productName} className="rounded-xl bg-pocket-cream px-4 py-3">
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
+                      <div className="flex min-w-0 items-center justify-between gap-4">
+                        <div className="min-w-0">
                           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">#{index + 1}</p>
                           <p className="mt-1 font-bold text-pocket-navy">{item.productName}</p>
                         </div>
-                        <div className="text-right">
+                        <div className="min-w-0 max-w-[52%] text-right">
                           <p className="font-black text-pocket-navy">{item.quantity} sold</p>
-                          <p className="text-sm text-pocket-navy/60">{formatCurrency(item.revenue)}</p>
+                          <p className="break-words text-sm text-pocket-navy/60">{formatCompactCurrency(item.revenue)}</p>
                         </div>
                       </div>
                     </div>
@@ -380,8 +375,8 @@ export default function AdminPage() {
                       <div key={entry.label}>
                         <div className="mb-1.5 flex items-center justify-between text-sm">
                           <span className="font-semibold text-pocket-navy">{entry.label}</span>
-                          <span className="text-pocket-navy/70">
-                            {formatCurrency(entry.revenue)} · {entry.count} orders
+                          <span className="max-w-[68%] break-words text-right text-pocket-navy/70">
+                            {formatCompactCurrency(entry.revenue)} · {entry.count} orders
                           </span>
                         </div>
                         <div className="h-3 overflow-hidden rounded-full bg-pocket-cream">
@@ -404,16 +399,16 @@ export default function AdminPage() {
                 <div className="mt-4 space-y-3">
                   {dashboard.recentOrders.map((order) => (
                     <div key={order.id} className="rounded-xl border border-pocket-navy/10 px-4 py-3">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
+                      <div className="flex min-w-0 items-start justify-between gap-4">
+                        <div className="min-w-0">
                           <p className="font-bold text-pocket-navy">{order.orderNumber}</p>
                           <p className="text-sm text-pocket-navy/60">{order.customerName}</p>
                           <p className="mt-1 text-xs uppercase tracking-[0.2em] text-pocket-navy/45">
                             {order.branch} · {order.channel}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-black text-pocket-orange">{formatCurrency(order.totalAmount)}</p>
+                        <div className="min-w-0 max-w-[48%] text-right">
+                          <p className="break-words font-black text-pocket-orange">{formatCompactCurrency(order.totalAmount)}</p>
                           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-navy/50">
                             {order.serviceType}
                           </p>
@@ -453,38 +448,32 @@ function InsightCard({
   label,
   value,
   helper,
-  delta,
-  icon: Icon
+  delta
 }: {
   label: string;
   value: string;
   helper: string;
   delta: number | null;
-  icon: typeof Wallet;
 }) {
   const positive = delta == null ? true : delta >= 0;
 
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <Card className="min-w-0 p-5">
+      <div className="flex min-w-0 items-start justify-between gap-4">
+        <div className="min-w-0">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{label}</p>
-          <p className="mt-3 text-3xl font-black text-pocket-navy">{value}</p>
-          <p className="mt-2 text-sm text-pocket-navy/60">{helper}</p>
-        </div>
-        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-pocket-cream text-pocket-orange">
-          <Icon className="h-5 w-5" />
+          <p className="mt-3 min-w-0 whitespace-nowrap text-[clamp(0.9rem,1.35vw,1.5rem)] font-black leading-tight tracking-tight text-pocket-navy">{value}</p>
+          <p className="mt-2 break-words text-sm text-pocket-navy/60">{helper}</p>
         </div>
       </div>
       {delta == null ? null : (
         <div
           className={cn(
-            "mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold",
+            "mt-4 inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold",
             positive ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
           )}
         >
-          {positive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
-          {Math.abs(delta)}% vs previous period
+          <span className="break-words">{Math.abs(delta)}% vs previous period</span>
         </div>
       )}
     </Card>
@@ -513,16 +502,16 @@ function BreakdownCard({
   const maxRevenue = Math.max(...items.map((entry) => entry.revenue), 1);
 
   return (
-    <Card className="p-5">
+    <Card className="min-w-0 p-5">
       <p className="text-lg font-black text-pocket-navy">{title}</p>
       <p className="text-sm text-pocket-navy/60">{helper}</p>
       <div className="mt-4 space-y-3">
         {items.map((item) => (
           <div key={item.label}>
-            <div className="mb-1.5 flex items-center justify-between text-sm">
+            <div className="mb-1.5 flex min-w-0 items-center justify-between gap-3 text-sm">
               <span className="font-semibold text-pocket-navy">{item.label}</span>
-              <span className="text-pocket-navy/70">
-                {item.count} · {formatCurrency(item.revenue)}
+              <span className="max-w-[68%] break-words text-right text-pocket-navy/70">
+                {item.count} · {formatCompactCurrency(item.revenue)}
               </span>
             </div>
             <div className="h-2.5 overflow-hidden rounded-full bg-pocket-cream">

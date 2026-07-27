@@ -18,7 +18,7 @@ import {
   updateAdminSetting
 } from "@/lib/admin-client";
 import type { AdminExpense, AdminExpenseData, AdminRangePreset, AdminVendor } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" },
@@ -504,7 +504,7 @@ export function ExpenseManagement() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Total spend</p>
-          <p className="mt-3 text-3xl font-black text-pocket-navy">{formatCurrency(data?.summary.totalAmount ?? 0)}</p>
+          <p className="mt-3 min-w-0 break-words text-[clamp(1rem,1.6vw,1.625rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCompactCurrency(data?.summary.totalAmount ?? 0)}</p>
           <p className="mt-2 text-sm text-pocket-navy/60">{data?.range.label ?? "Selected period"} expense outflow.</p>
         </Card>
         <Card className="p-5">
@@ -514,7 +514,7 @@ export function ExpenseManagement() {
         </Card>
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Average ticket</p>
-          <p className="mt-3 text-3xl font-black text-pocket-navy">{formatCurrency(data?.summary.averageAmount ?? 0)}</p>
+          <p className="mt-3 min-w-0 break-words text-[clamp(1rem,1.6vw,1.625rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCompactCurrency(data?.summary.averageAmount ?? 0)}</p>
           <p className="mt-2 text-sm text-pocket-navy/60">Average spend per recorded expense.</p>
         </Card>
         <Card className="flex flex-col gap-4 p-5">

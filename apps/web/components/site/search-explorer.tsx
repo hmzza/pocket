@@ -6,7 +6,7 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import type { Product } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCompactCurrency } from "@/lib/utils";
 
 export function SearchExplorer({ products }: { products: Product[] }) {
   const [query, setQuery] = useState("");
@@ -33,7 +33,7 @@ export function SearchExplorer({ products }: { products: Product[] }) {
                 <p className="text-base font-bold text-pocket-navy">{product.name}</p>
                 <p className="text-sm text-pocket-navy/70">{product.category.name} · {product.description}</p>
               </div>
-              <p className="text-base font-black text-pocket-orange">{formatCurrency(product.price)}</p>
+              <p className="min-w-0 break-words text-right text-base font-black text-pocket-orange">{formatCompactCurrency(product.price)}</p>
             </Card>
           </Link>
         ))}
@@ -41,4 +41,3 @@ export function SearchExplorer({ products }: { products: Product[] }) {
     </div>
   );
 }
-

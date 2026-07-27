@@ -4,7 +4,7 @@ import { Star } from "lucide-react";
 import { AddToCartButton } from "@/components/store/add-to-cart-button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { averageRating, formatCurrency } from "@/lib/utils";
+import { averageRating, formatCompactCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
 export function ProductCard({ product }: { product: Product }) {
@@ -39,7 +39,7 @@ export function ProductCard({ product }: { product: Product }) {
 
         <div className="mt-auto flex items-center justify-between gap-3 pt-2">
           <div>
-            <p className="text-2xl font-black text-pocket-navy">{formatCurrency(product.price)}</p>
+            <p className="min-w-0 break-words text-[clamp(1rem,4vw,1.5rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCompactCurrency(product.price)}</p>
           </div>
           <AddToCartButton product={product} />
         </div>

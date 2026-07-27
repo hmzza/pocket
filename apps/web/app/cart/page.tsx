@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { branch } from "@/lib/mock-data";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
-import { formatCurrency } from "@/lib/utils";
+import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 
 export default function CartPage() {
   const { cart, getCartProducts, updateQuantity } = useStore();
@@ -115,7 +115,7 @@ export default function CartPage() {
                   {product.selectedAddOns.length ? (
                     <p className="mt-2 text-sm text-pocket-navy/60">{product.selectedAddOns.map((option) => option.name).join(", ")}</p>
                   ) : null}
-                  <p className="mt-3 text-base font-bold text-pocket-orange">{formatCurrency(product.price)}</p>
+                  <p className="mt-3 break-words text-base font-bold text-pocket-orange">{formatCompactCurrency(product.price)}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="inline-flex items-center gap-2 rounded-md border border-pocket-navy/10 px-2 py-2">
@@ -170,25 +170,25 @@ export default function CartPage() {
             ) : null}
           </div>
           <div className="mt-5 space-y-3 text-sm">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <span>Subtotal</span>
-              <span>{formatCurrency(totals.subtotal)}</span>
+              <span className="min-w-0 break-words text-right">{formatCurrency(totals.subtotal)}</span>
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <span>Discount</span>
-              <span>-{formatCurrency(totals.discount)}</span>
+              <span className="min-w-0 break-words text-right">-{formatCurrency(totals.discount)}</span>
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <span>Tax</span>
-              <span>{formatCurrency(totals.tax)}</span>
+              <span className="min-w-0 break-words text-right">{formatCurrency(totals.tax)}</span>
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <span>Delivery</span>
-              <span>{formatCurrency(totals.delivery)}</span>
+              <span className="min-w-0 break-words text-right">{formatCurrency(totals.delivery)}</span>
             </div>
-            <div className="flex items-center justify-between border-t border-pocket-navy/10 pt-3 text-base font-black">
+            <div className="flex items-center justify-between gap-3 border-t border-pocket-navy/10 pt-3 text-base font-black">
               <span>Total</span>
-              <span className="text-pocket-orange">{formatCurrency(totals.total)}</span>
+              <span className="min-w-0 break-words text-right text-pocket-orange">{formatCurrency(totals.total)}</span>
             </div>
           </div>
           <Link href="/checkout" className="mt-6 inline-flex w-full">

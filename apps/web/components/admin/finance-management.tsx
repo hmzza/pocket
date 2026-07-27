@@ -9,7 +9,7 @@ import { fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminSet
 import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
 import { Input } from "@/components/ui/input";
 import type { AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
-import { formatCurrency, formatCompactNumber } from "@/lib/utils";
+import { formatCompactCurrency, formatCurrency, formatCompactNumber } from "@/lib/utils";
 
 function ProgressBar({ value }: { value: number }) {
   const pct = Math.max(0, Math.min(100, value));
@@ -83,10 +83,10 @@ function MetricCard({
   };
 
   return (
-    <Card className="p-5">
+    <Card className="min-w-0 p-5">
       <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{title}</p>
-      <p className={`mt-3 text-3xl font-black ${toneStyles[tone]}`}>{value}</p>
-      <p className="mt-2 text-sm text-pocket-navy/60">{description}</p>
+      <p className={`mt-3 min-w-0 break-words text-[clamp(1rem,1.6vw,1.625rem)] font-black leading-tight tracking-tight ${toneStyles[tone]}`}>{value}</p>
+      <p className="mt-2 break-words text-sm text-pocket-navy/60">{description}</p>
     </Card>
   );
 }
@@ -315,15 +315,15 @@ export function FinanceManagement() {
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <MetricCard title="Month revenue" value={formatCurrency(summary.monthRevenue)} description="Sales recorded in the current month." tone="positive" />
-        <MetricCard title="Month expenses" value={formatCurrency(summary.monthExpensesTotal)} description="Tracked expenses recorded in the same period." tone="negative" />
-        <MetricCard title="Operating profit" value={formatCurrency(summary.monthNet)} description="Revenue minus tracked expenses for the month." tone={summary.monthNet >= 0 ? "positive" : "negative"} />
-        <MetricCard title="Break-even gap" value={summary.remainingToBreakeven > 0 ? formatCurrency(summary.remainingToBreakeven) : "Reached"} description="Amount still needed before profit can start." tone={summary.remainingToBreakeven > 0 ? "warning" : "positive"} />
-        <MetricCard title="Foodpanda payout" value={formatCurrency(summary.foodpandaPayout.estimated)} description="Estimated amount left after Foodpanda keeps 40-42%." />
-        <MetricCard title="Today net" value={formatCurrency(summary.todayNet)} description="Today's revenue minus today's expenses." tone={summary.todayNet >= 0 ? "positive" : "negative"} />
-        <MetricCard title="Loan taken" value={formatCurrency(summary.loanSummary.totalLoanTaken)} description="Loan money received this month, separate from revenue." tone="warning" />
-        <MetricCard title="Loan repaid" value={formatCurrency(summary.loanSummary.totalLoanRepaid)} description="Loan repayments made this month." />
-        <MetricCard title="Loan balance" value={formatCurrency(summary.loanSummary.outstandingLoanBalance)} description="Outstanding tracked loan balance." tone={summary.loanSummary.outstandingLoanBalance > 0 ? "negative" : "positive"} />
+        <MetricCard title="Month revenue" value={formatCompactCurrency(summary.monthRevenue)} description="Sales recorded in the current month." tone="positive" />
+        <MetricCard title="Month expenses" value={formatCompactCurrency(summary.monthExpensesTotal)} description="Tracked expenses recorded in the same period." tone="negative" />
+        <MetricCard title="Operating profit" value={formatCompactCurrency(summary.monthNet)} description="Revenue minus tracked expenses for the month." tone={summary.monthNet >= 0 ? "positive" : "negative"} />
+        <MetricCard title="Break-even gap" value={summary.remainingToBreakeven > 0 ? formatCompactCurrency(summary.remainingToBreakeven) : "Reached"} description="Amount still needed before profit can start." tone={summary.remainingToBreakeven > 0 ? "warning" : "positive"} />
+        <MetricCard title="Foodpanda payout" value={formatCompactCurrency(summary.foodpandaPayout.estimated)} description="Estimated amount left after Foodpanda keeps 40-42%." />
+        <MetricCard title="Today net" value={formatCompactCurrency(summary.todayNet)} description="Today's revenue minus today's expenses." tone={summary.todayNet >= 0 ? "positive" : "negative"} />
+        <MetricCard title="Loan taken" value={formatCompactCurrency(summary.loanSummary.totalLoanTaken)} description="Loan money received this month, separate from revenue." tone="warning" />
+        <MetricCard title="Loan repaid" value={formatCompactCurrency(summary.loanSummary.totalLoanRepaid)} description="Loan repayments made this month." />
+        <MetricCard title="Loan balance" value={formatCompactCurrency(summary.loanSummary.outstandingLoanBalance)} description="Outstanding tracked loan balance." tone={summary.loanSummary.outstandingLoanBalance > 0 ? "negative" : "positive"} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
@@ -493,11 +493,11 @@ export function FinanceManagement() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl bg-pocket-cream px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-pocket-navy/50">Gross Foodpanda sales</p>
-              <p className="mt-1 text-2xl font-black text-pocket-navy">{formatCurrency(summary.foodpandaGross)}</p>
+              <p className="mt-1 min-w-0 break-words text-[clamp(1rem,1.6vw,1.5rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCurrency(summary.foodpandaGross)}</p>
             </div>
             <div className="rounded-2xl bg-pocket-cream px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-pocket-navy/50">Estimated payout</p>
-              <p className="mt-1 text-2xl font-black text-pocket-navy">{formatCurrency(summary.foodpandaPayout.estimated)}</p>
+              <p className="mt-1 min-w-0 break-words text-[clamp(1rem,1.6vw,1.5rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCurrency(summary.foodpandaPayout.estimated)}</p>
             </div>
             <div className="rounded-2xl bg-pocket-cream px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-pocket-navy/50">Payout range</p>

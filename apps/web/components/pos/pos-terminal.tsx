@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PosOrderQueue } from "@/components/pos/order-queue";
 import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCompactCurrency, formatCurrency } from "@/lib/utils";
 
 type TicketLine = {
   id: string;
@@ -913,7 +913,7 @@ export function PosTerminal() {
                     ) : null}
                     <p className={splitView ? "text-[11px] font-semibold uppercase tracking-[0.22em] text-amber-300/80" : "text-xs font-semibold uppercase tracking-[0.25em] text-amber-300/80"}>{product.categoryName}</p>
                     <p className={splitView ? "mt-1 pr-8 text-[0.86rem] font-black leading-tight" : "mt-1 pr-8 text-[0.95rem] font-black leading-tight xl:text-[0.98rem]"}>{product.name}</p>
-                    <p className={splitView ? "mt-1 text-[0.78rem] font-semibold text-amber-200" : "mt-1.5 text-sm font-semibold text-amber-200"}>{formatCurrency(product.price)}</p>
+                    <p className={splitView ? "mt-1 break-words text-[0.78rem] font-semibold leading-tight text-amber-200" : "mt-1.5 break-words text-sm font-semibold leading-tight text-amber-200"}>{formatCompactCurrency(product.price)}</p>
                     {product.bundleComponents.length ? <p className={splitView ? "mt-1 text-[0.64rem] text-amber-100/80" : "mt-1 text-[0.72rem] text-amber-100/80"}>Bundle meal</p> : null}
                     {product.addOnGroups.length ? <p className={splitView ? "mt-1 text-[0.64rem] text-white/60" : "mt-1 text-[0.72rem] text-white/60"}>Customization required</p> : null}
                   </button>
@@ -980,8 +980,8 @@ export function PosTerminal() {
                       </div>
                       <div className="flex shrink-0 items-start gap-1.5">
                         <div className="text-right">
-                          <p className={splitView ? "text-[0.6rem] font-bold leading-tight text-orange-600" : "text-[0.68rem] font-bold leading-tight text-orange-600"}>{formatCurrency(item.unitPrice * item.quantity)}</p>
-                          <p className={splitView ? "text-[0.5rem] leading-tight text-slate-500" : "text-[0.58rem] leading-tight text-slate-500"}>{formatCurrency(item.unitPrice)} each</p>
+                          <p className={splitView ? "break-words text-[0.6rem] font-bold leading-tight text-orange-600" : "break-words text-[0.68rem] font-bold leading-tight text-orange-600"}>{formatCompactCurrency(item.unitPrice * item.quantity)}</p>
+                          <p className={splitView ? "break-words text-[0.5rem] leading-tight text-slate-500" : "break-words text-[0.58rem] leading-tight text-slate-500"}>{formatCompactCurrency(item.unitPrice)} each</p>
                         </div>
                         <Button
                           variant="ghost"
@@ -1211,7 +1211,7 @@ export function PosTerminal() {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300">{productDialog.categoryName}</p>
                 <h3 className="mt-2 text-2xl font-black">{productDialog.name}</h3>
-                <p className="mt-2 text-amber-200">{formatCurrency(productDialog.price)}</p>
+              <p className="mt-2 break-words text-amber-200">{formatCompactCurrency(productDialog.price)}</p>
                 {productDialog.bundleComponents.length ? (
                   <p className="mt-2 text-sm text-amber-100/80">Contains: {formatBundleSummary(productDialog.bundleComponents)}</p>
                 ) : null}
@@ -1241,7 +1241,7 @@ export function PosTerminal() {
                           )}
                         >
                           <p className="font-semibold">{option.name}</p>
-                          <p className="text-sm text-white/60">{option.priceDelta ? `+${formatCurrency(option.priceDelta)}` : "Included"}</p>
+                          <p className="break-words text-sm text-white/60">{option.priceDelta ? `+${formatCompactCurrency(option.priceDelta)}` : "Included"}</p>
                         </button>
                       );
                     })}

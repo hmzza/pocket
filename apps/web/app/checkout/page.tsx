@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/components/store/store-provider";
 import { branch } from "@/lib/mock-data";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
-import { formatCurrency } from "@/lib/utils";
+import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 const paymentMethods = [
@@ -232,30 +232,30 @@ export default function CheckoutPage() {
                   ) : null}
                   <p className="text-pocket-navy/60">Qty {item.quantity}</p>
                 </div>
-                <p className="font-bold text-pocket-orange">{formatCurrency(item.price * item.quantity)}</p>
+                <p className="break-words text-right font-bold text-pocket-orange">{formatCompactCurrency(item.price * item.quantity)}</p>
               </div>
             ))}
           </div>
           <div className="mt-5 space-y-3 border-t border-pocket-navy/10 pt-4 text-sm">
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <span>Subtotal</span>
-              <span>{formatCurrency(totals.subtotal)}</span>
+              <span className="min-w-0 break-words text-right">{formatCurrency(totals.subtotal)}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <span>Discount</span>
-              <span>-{formatCurrency(totals.discount)}</span>
+              <span className="min-w-0 break-words text-right">-{formatCurrency(totals.discount)}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <span>Tax</span>
-              <span>{formatCurrency(totals.tax)}</span>
+              <span className="min-w-0 break-words text-right">{formatCurrency(totals.tax)}</span>
             </div>
-            <div className="flex justify-between">
+            <div className="flex justify-between gap-3">
               <span>Delivery</span>
-              <span>{formatCurrency(totals.delivery)}</span>
+              <span className="min-w-0 break-words text-right">{formatCurrency(totals.delivery)}</span>
             </div>
-            <div className="flex justify-between text-base font-black">
+            <div className="flex justify-between gap-3 text-base font-black">
               <span>Total</span>
-              <span className="text-pocket-orange">{formatCurrency(totals.total)}</span>
+              <span className="min-w-0 break-words text-right text-pocket-orange">{formatCurrency(totals.total)}</span>
             </div>
           </div>
           <div className="mt-5">

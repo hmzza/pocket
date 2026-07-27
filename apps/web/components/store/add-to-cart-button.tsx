@@ -5,7 +5,7 @@ import { ShoppingBag } from "lucide-react";
 import { useStore } from "./store-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCompactCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
 export function AddToCartButton({ product }: { product: Product }) {
@@ -76,7 +76,7 @@ export function AddToCartButton({ product }: { product: Product }) {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{product.category.name}</p>
                 <h3 className="mt-2 text-2xl font-black text-pocket-navy">{product.name}</h3>
-                <p className="mt-2 font-semibold text-pocket-orange">{formatCurrency(configuredPrice)}</p>
+                <p className="mt-2 break-words font-semibold text-pocket-orange">{formatCompactCurrency(configuredPrice)}</p>
               </div>
               <Button variant="ghost" onClick={() => setDialogOpen(false)}>
                 Close
@@ -124,7 +124,7 @@ export function AddToCartButton({ product }: { product: Product }) {
                         >
                           <p className="font-semibold text-pocket-navy">{option.name}</p>
                           <p className="text-sm text-pocket-navy/60">
-                            {option.priceDelta ? `+${formatCurrency(option.priceDelta)}` : "Included"}
+                            {option.priceDelta ? `+${formatCompactCurrency(option.priceDelta)}` : "Included"}
                           </p>
                         </button>
                       );

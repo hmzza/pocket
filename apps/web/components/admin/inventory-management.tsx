@@ -14,7 +14,7 @@ import {
   updateAdminInventoryItem
 } from "@/lib/admin-client";
 import type { AdminInventoryData, AdminInventoryItem } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 
 const INVENTORY_UNITS = ["kg", "slices", "litre", "bottles", "loafs", "pieces"];
 const STOCK_ACTIONS = [
@@ -437,7 +437,7 @@ function SummaryCards({
       </Card>
       <Card className="p-5">
         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Stock value</p>
-        <p className="mt-3 text-3xl font-black text-pocket-navy">{formatCurrency(summary?.totalStockValue ?? 0)}</p>
+        <p className="mt-3 min-w-0 break-words text-[clamp(1rem,1.6vw,1.625rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCompactCurrency(summary?.totalStockValue ?? 0)}</p>
         <p className="mt-2 text-sm text-pocket-navy/60">Quantity on hand multiplied by unit cost.</p>
       </Card>
       <Card className="flex items-center justify-between gap-4 p-5">
