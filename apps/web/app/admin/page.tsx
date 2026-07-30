@@ -1,528 +1,67 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CalendarDays, Clock3, Package2, Receipt, Wallet } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, CalendarDays, Download, PackagePlus, Receipt, Wallet } from "lucide-react";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchAdminDashboard, fetchAdminSettings, fetchAdminSession } from "@/lib/admin-client";
-import { MONTHLY_BREAKEVEN_TARGET, estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns } from "@/lib/finance";
-import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
+import { fetchAdminDashboard, fetchAdminExpenses } from "@/lib/admin-client";
+import type { AdminExpenseData, AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCompactNumber } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
-  { value: "today", label: "Today" },
-  { value: "7d", label: "7 Days" },
-  { value: "30d", label: "30 Days" },
-  { value: "month", label: "This Month" },
-  { value: "year", label: "This Year" },
-  { value: "custom", label: "Custom" }
+  { value: "today", label: "Today" }, { value: "7d", label: "7 Days" }, { value: "30d", label: "30 Days" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }, { value: "custom", label: "Custom" }
 ];
+const segments: Array<{ value: AdminOrderSegment; label: string }> = [{ value: "all", label: "All" }, { value: "inshop", label: "Inshop" }, { value: "foodpanda", label: "Foodpanda" }];
 
-const segments: Array<{ value: AdminOrderSegment; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "inshop", label: "Inshop" },
-  { value: "foodpanda", label: "Foodpanda" }
-];
+function KPI({ label, value, helper, accent = false }: { label: string; value: string; helper: string; accent?: boolean }) {
+  return <Card className={cn("min-w-0 p-4", accent && "border-pocket-orange/30 bg-pocket-orange/5")}><p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">{label}</p><p className="mt-2 min-w-0 truncate text-xl font-black text-pocket-navy">{value}</p><p className="mt-1 text-xs text-pocket-navy/60">{helper}</p></Card>;
+}
+
+function Breakdown({ title, entries }: { title: string; entries: Array<{ label: string; count: number; revenue: number }> }) {
+  const max = Math.max(...entries.map((entry) => entry.revenue), 1);
+  return <Card className="p-5"><p className="text-lg font-black text-pocket-navy">{title}</p><p className="mt-1 text-sm text-pocket-navy/60">High-level mix for the selected period.</p><div className="mt-5 space-y-4">{entries.length ? entries.map((entry) => <div key={entry.label}><div className="mb-1.5 flex items-center justify-between gap-3 text-sm"><span className="font-semibold text-pocket-navy">{entry.label}</span><span className="text-pocket-navy/60">{entry.count} · {formatCompactCurrency(entry.revenue)}</span></div><div className="h-2.5 overflow-hidden rounded-full bg-pocket-cream"><div className="h-full rounded-full bg-pocket-orange" style={{ width: `${Math.max(6, entry.revenue / max * 100)}%` }} /></div></div>) : <p className="text-sm text-pocket-navy/60">No data in this period.</p>}</div></Card>;
+}
 
 export default function AdminPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [expenses, setExpenses] = useState<AdminExpenseData | null>(null);
   const [preset, setPreset] = useState<AdminRangePreset>("today");
   const [segment, setSegment] = useState<AdminOrderSegment>("all");
-  const [isStaff, setIsStaff] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [monthlyTarget, setMonthlyTarget] = useState(MONTHLY_BREAKEVEN_TARGET);
 
   useEffect(() => {
+    if (preset === "custom" && (!startDate || !endDate)) return;
     let cancelled = false;
+    const params = preset === "custom" ? { preset, start: new Date(`${startDate}T00:00:00`).toISOString(), end: new Date(`${endDate}T23:59:59`).toISOString(), segment } : { preset, segment };
+    setLoading(true);
+    Promise.all([fetchAdminDashboard(params), fetchAdminExpenses(preset === "custom" ? { preset, start: params.start, end: params.end } : { preset })])
+      .then(([nextDashboard, nextExpenses]) => { if (!cancelled) { setDashboard(nextDashboard); setExpenses(nextExpenses); } })
+      .catch((loadError) => { if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Failed to load overview."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [preset, segment, startDate, endDate]);
 
-    async function loadDashboard() {
-      try {
-        setLoading(true);
-        setError("");
-        const [nextDashboard, settings, session] = await Promise.all([
-          fetchAdminDashboard(
-            preset === "custom" && startDate && endDate
-              ? {
-                  preset,
-                  start: new Date(`${startDate}T00:00:00`).toISOString(),
-                  end: new Date(`${endDate}T23:59:59`).toISOString(),
-                  segment
-                }
-              : { preset, segment }
-          ),
-          fetchAdminSettings().catch(() => []),
-          fetchAdminSession()
-        ]);
+  const foodpandaRevenue = useMemo(() => dashboard?.breakdowns.serviceTypes.find((entry) => entry.label.toLowerCase() === "foodpanda")?.revenue ?? 0, [dashboard]);
+  const directRevenue = Math.max(0, (dashboard?.summary.revenue ?? 0) - foodpandaRevenue);
+  const operatingExpenses = expenses?.summary.totalAmount ?? 0;
+  const netProfit = (dashboard?.summary.revenue ?? 0) - operatingExpenses;
+  const netMargin = dashboard?.summary.revenue ? netProfit / dashboard.summary.revenue * 100 : 0;
 
-        const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
-        const targetValue = Number(targetSetting?.value ?? MONTHLY_BREAKEVEN_TARGET);
-        if (Number.isFinite(targetValue) && targetValue > 0) {
-          setMonthlyTarget(targetValue);
-        }
-
-        setIsStaff(session.user.role === "POS_STAFF");
-
-        if (!cancelled) {
-          setDashboard(nextDashboard);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load dashboard.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    if (preset !== "custom" || (startDate && endDate)) {
-      void loadDashboard();
-    } else {
-      setLoading(false);
-      setDashboard(null);
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [preset, startDate, endDate, segment]);
-
-  const strongestChannel = useMemo(() => dashboard?.breakdowns.channels[0], [dashboard]);
-  const strongestServiceType = useMemo(() => dashboard?.breakdowns.serviceTypes[0], [dashboard]);
-  const strongestPayment = useMemo(() => dashboard?.breakdowns.payments[0], [dashboard]);
-  const foodpandaRevenue = useMemo(
-    () => getFoodpandaRevenueFromBreakdowns(dashboard?.breakdowns.serviceTypes ?? []),
-    [dashboard]
-  );
-  const foodpandaPayout = useMemo(() => estimateFoodpandaPayout(foodpandaRevenue), [foodpandaRevenue]);
-  const netRevenueAfterFoodpandaCut = useMemo(() => {
-    if (!dashboard) return 0;
-    return Math.max(0, dashboard.summary.revenue - foodpandaRevenue + foodpandaPayout.estimated);
-  }, [dashboard, foodpandaPayout.estimated, foodpandaRevenue]);
-  const visibleSegments = useMemo(() => (isStaff ? [] : segments), [isStaff]);
-  const visiblePresets = useMemo(() => (isStaff ? presets.filter((option) => option.value === "today") : presets), [isStaff]);
-
-  return (
-    <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
-      <AdminShell
-        title="Dashboard"
-        description="Period-aware sales, customer behaviour, channel mix, payment mix, top products, and operational alerts in one place."
-      >
-        <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,_#102a43,_#0f172a_55%,_#1f2937)] p-6 text-white shadow-[0_24px_64px_rgba(16,42,67,0.28)]">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-300">Performance Window</p>
-              <h2 className="mt-3 text-3xl font-black">Sales command center</h2>
-              <p className="mt-2 max-w-2xl text-sm text-white/70">
-                {isStaff
-                  ? "Staff accounts only see today's sales snapshot."
-                  : "Switch periods and filter sales between all orders, Inshop, and Foodpanda without opening separate reports."}
-              </p>
-            </div>
-            <div className="space-y-3">
-              {visibleSegments.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {visibleSegments.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setSegment(option.value)}
-                      className={cn(
-                        "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                        segment === option.value
-                          ? "border-white bg-white text-slate-950"
-                          : "border-white/15 bg-white/5 text-white hover:bg-white/10"
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              <div className="flex flex-wrap gap-2">
-                {visiblePresets.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setPreset(option.value)}
-                    className={cn(
-                      "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                      preset === option.value
-                        ? "border-amber-300 bg-amber-300 text-slate-950"
-                        : "border-white/15 bg-white/5 text-white hover:bg-white/10"
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              {preset === "custom" ? (
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(event) => setStartDate(event.target.value)}
-                    className="h-11 rounded-xl border border-white/15 bg-white/5 px-3 text-sm text-white"
-                  />
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(event) => setEndDate(event.target.value)}
-                    className="h-11 rounded-xl border border-white/15 bg-white/5 px-3 text-sm text-white"
-                  />
-                  <Button
-                    className="h-11 bg-amber-300 text-slate-950 hover:bg-amber-200"
-                    onClick={() => {
-                      if (!startDate || !endDate) return;
-                      setLoading(true);
-                    }}
-                  >
-                    Apply Range
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-          {dashboard ? (
-            <div className="mt-6 flex flex-wrap items-center gap-3 text-sm">
-              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                <CalendarDays className="h-4 w-4 text-amber-300" />
-                {dashboard.range.label} · {segments.find((option) => option.value === dashboard.range.segment)?.label ?? "All"}
-              </span>
-              {strongestChannel ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                  <Receipt className="h-4 w-4 text-amber-300" />
-                  Top channel: {strongestChannel.label}
-                </span>
-              ) : null}
-              {strongestServiceType ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                  <Package2 className="h-4 w-4 text-amber-300" />
-                  Top service: {strongestServiceType.label}
-                </span>
-              ) : null}
-              {strongestPayment ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2">
-                  <Wallet className="h-4 w-4 text-amber-300" />
-                  Top payment: {strongestPayment.label}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-        </Card>
-
-        {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
-
-        {loading || !dashboard ? (
-          <Card className="p-6 text-sm text-pocket-navy/60">Loading dashboard...</Card>
-        ) : (
-          <>
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <InsightCard
-                label="Revenue"
-                value={formatCompactCurrency(dashboard.summary.revenue)}
-                helper={`Previous ${formatCompactCurrency(dashboard.summary.previousRevenue)}`}
-                delta={dashboard.summary.revenueDelta}
-              />
-              <InsightCard
-                label="Net after Foodpanda cut"
-                value={formatCompactCurrency(netRevenueAfterFoodpandaCut)}
-                helper={`${formatCompactCurrency(foodpandaRevenue)} Foodpanda gross · ${formatCompactCurrency(foodpandaPayout.estimated)} expected net`}
-                delta={null}
-              />
-              <InsightCard
-                label="Orders"
-                value={formatCompactNumber(dashboard.summary.orders)}
-                helper={`Previous ${formatCompactNumber(dashboard.summary.previousOrders)}`}
-                delta={dashboard.summary.ordersDelta}
-              />
-              <InsightCard
-                label="Average Ticket"
-                value={formatCompactCurrency(dashboard.summary.averageOrderValue)}
-                helper={`Previous ${formatCompactCurrency(dashboard.summary.previousAverageOrderValue)}`}
-                delta={dashboard.summary.averageOrderValueDelta}
-              />
-              <InsightCard
-                label="Active Customers"
-                value={formatCompactNumber(dashboard.summary.activeCustomers)}
-                helper={`${dashboard.summary.repeatCustomers} repeat customers`}
-                delta={null}
-              />
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-3">
-              <Card className="p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Foodpanda payout estimate</p>
-                <p className="mt-3 min-w-0 break-words text-[clamp(1rem,1.6vw,1.625rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCompactCurrency(foodpandaPayout.estimated)}</p>
-                <p className="mt-2 text-sm text-pocket-navy/60">
-                  Gross {formatCompactCurrency(foodpandaPayout.gross)} · expected return after the 40-42% platform fee.
-                </p>
-                <div className="mt-4 rounded-2xl bg-pocket-cream px-4 py-4">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-semibold text-pocket-navy">Return range</span>
-                    <span className="max-w-[58%] break-words text-right font-bold leading-tight tracking-tight text-pocket-navy">
-                      {formatCompactCurrency(foodpandaPayout.minimum)} - {formatCompactCurrency(foodpandaPayout.maximum)}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-pocket-navy/60">This is the amount expected to land with Pocket after Foodpanda keeps its share.</p>
-                </div>
-              </Card>
-
-              <Card className="flex flex-col justify-between gap-4 p-5">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Finance page</p>
-                  <p className="mt-3 text-2xl font-black text-pocket-navy">Monthly breakeven</p>
-                  <p className="mt-2 text-sm text-pocket-navy/60">
-                    Track the {formatCompactCurrency(monthlyTarget)} monthly target and see when profit starts.
-                  </p>
-                </div>
-                <Button className="w-fit" onClick={() => window.location.assign("/admin/finances")}>
-                  Open Finances
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Card>
-
-              <Card className="flex flex-col justify-between gap-4 p-5">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Website control</p>
-                  <p className="mt-3 text-2xl font-black text-pocket-navy">Website Control Panel</p>
-                  <p className="mt-2 text-sm text-pocket-navy/60">Manage homepage slider images, reorder media, and keep the website synced with live content.</p>
-                </div>
-                <Button className="w-fit" onClick={() => window.location.assign("/admin/website")}>
-                  Open Website Control
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Card>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-              <SalesChart
-                sales={dashboard.series}
-                title="Revenue trend"
-                description={`Revenue and order momentum for ${dashboard.range.label.toLowerCase()}.`}
-              />
-              <Card className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-1">
-                <StatStrip
-                  label="Customer Base"
-                  value={formatCompactNumber(dashboard.summary.totalCustomers)}
-                  helper="Total customer accounts on the platform."
-                />
-                <StatStrip
-                  label="Peak Hour"
-                  value={dashboard.breakdowns.hours.slice().sort((a, b) => b.count - a.count)[0]?.label ?? "N/A"}
-                  helper="Highest order count hour in the selected range."
-                />
-              </Card>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-3">
-              <BreakdownCard
-                title="Channel Mix"
-                items={dashboard.breakdowns.channels}
-                helper="How orders are split across POS and online."
-              />
-              <BreakdownCard
-                title="Service Mix"
-                items={dashboard.breakdowns.serviceTypes}
-                helper="Inshop includes current Inshop plus older takeaway and dine-in orders."
-              />
-              <BreakdownCard
-                title="Payment Mix"
-                items={dashboard.breakdowns.payments}
-                helper="Cash, card, and wallet contribution."
-              />
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-              <Card className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-lg font-black text-pocket-navy">Top products</p>
-                    <p className="text-sm text-pocket-navy/60">Best performers in the selected period.</p>
-                  </div>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {dashboard.topProducts.map((item, index) => (
-                    <div key={item.productName} className="rounded-xl bg-pocket-cream px-4 py-3">
-                      <div className="flex min-w-0 items-center justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">#{index + 1}</p>
-                          <p className="mt-1 font-bold text-pocket-navy">{item.productName}</p>
-                        </div>
-                        <div className="min-w-0 max-w-[52%] text-right">
-                          <p className="font-black text-pocket-navy">{item.quantity} sold</p>
-                          <p className="break-words text-sm text-pocket-navy/60">{formatCompactCurrency(item.revenue)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-
-              <Card className="p-5">
-                <p className="text-lg font-black text-pocket-navy">Weekday performance</p>
-                <p className="text-sm text-pocket-navy/60">Use this to spot strong and weak operating days.</p>
-                <div className="mt-5 space-y-3">
-                  {dashboard.breakdowns.weekdays.map((entry) => {
-                    const maxRevenue = Math.max(...dashboard.breakdowns.weekdays.map((item) => item.revenue), 1);
-                    return (
-                      <div key={entry.label}>
-                        <div className="mb-1.5 flex items-center justify-between text-sm">
-                          <span className="font-semibold text-pocket-navy">{entry.label}</span>
-                          <span className="max-w-[68%] break-words text-right text-pocket-navy/70">
-                            {formatCompactCurrency(entry.revenue)} · {entry.count} orders
-                          </span>
-                        </div>
-                        <div className="h-3 overflow-hidden rounded-full bg-pocket-cream">
-                          <div
-                            className="h-full rounded-full bg-pocket-orange"
-                            style={{ width: `${Math.max(6, (entry.revenue / maxRevenue) * 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Card>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
-              <Card className="p-5">
-                <p className="text-lg font-black text-pocket-navy">Recent orders</p>
-                <p className="text-sm text-pocket-navy/60">Latest order movement inside the selected window.</p>
-                <div className="mt-4 space-y-3">
-                  {dashboard.recentOrders.map((order) => (
-                    <div key={order.id} className="rounded-xl border border-pocket-navy/10 px-4 py-3">
-                      <div className="flex min-w-0 items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="font-bold text-pocket-navy">{order.orderNumber}</p>
-                          <p className="text-sm text-pocket-navy/60">{order.customerName}</p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-pocket-navy/45">
-                            {order.branch} · {order.channel}
-                          </p>
-                        </div>
-                        <div className="min-w-0 max-w-[48%] text-right">
-                          <p className="break-words font-black text-pocket-orange">{formatCompactCurrency(order.totalAmount)}</p>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-navy/50">
-                            {order.serviceType}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Card>
-
-              <Card className="p-5">
-                <p className="text-lg font-black text-pocket-navy">Low stock alerts</p>
-                <p className="text-sm text-pocket-navy/60">Live branch inventory watchlist.</p>
-                <div className="mt-4 space-y-3">
-                  {dashboard.lowStock.length ? (
-                    dashboard.lowStock.map((item) => (
-                      <div key={`${item.branch}-${item.ingredient}`} className="rounded-xl border border-pocket-orange/20 bg-pocket-orange/5 px-4 py-3">
-                        <p className="font-semibold text-pocket-navy">{item.ingredient}</p>
-                        <p className="text-sm text-pocket-navy/60">{item.branch}</p>
-                        <p className="mt-2 text-sm font-bold text-pocket-orange">{item.quantityOnHand} units on hand</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-pocket-navy/60">No active low-stock alerts.</p>
-                  )}
-                </div>
-              </Card>
-            </div>
-          </>
-        )}
-      </AdminShell>
-    </div>
-  );
-}
-
-function InsightCard({
-  label,
-  value,
-  helper,
-  delta
-}: {
-  label: string;
-  value: string;
-  helper: string;
-  delta: number | null;
-}) {
-  const positive = delta == null ? true : delta >= 0;
-
-  return (
-    <Card className="min-w-0 p-5">
-      <div className="flex min-w-0 items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{label}</p>
-          <p className="mt-3 min-w-0 whitespace-nowrap text-[clamp(0.9rem,1.35vw,1.5rem)] font-black leading-tight tracking-tight text-pocket-navy">{value}</p>
-          <p className="mt-2 break-words text-sm text-pocket-navy/60">{helper}</p>
-        </div>
-      </div>
-      {delta == null ? null : (
-        <div
-          className={cn(
-            "mt-4 inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold",
-            positive ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-          )}
-        >
-          <span className="break-words">{Math.abs(delta)}% vs previous period</span>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function StatStrip({ label, value, helper }: { label: string; value: string; helper: string }) {
-  return (
-    <div className="rounded-2xl bg-pocket-cream px-4 py-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">{label}</p>
-      <p className="mt-2 text-2xl font-black text-pocket-navy">{value}</p>
-      <p className="mt-1 text-sm text-pocket-navy/60">{helper}</p>
-    </div>
-  );
-}
-
-function BreakdownCard({
-  title,
-  helper,
-  items
-}: {
-  title: string;
-  helper: string;
-  items: Array<{ label: string; count: number; revenue: number }>;
-}) {
-  const maxRevenue = Math.max(...items.map((entry) => entry.revenue), 1);
-
-  return (
-    <Card className="min-w-0 p-5">
-      <p className="text-lg font-black text-pocket-navy">{title}</p>
-      <p className="text-sm text-pocket-navy/60">{helper}</p>
-      <div className="mt-4 space-y-3">
-        {items.map((item) => (
-          <div key={item.label}>
-            <div className="mb-1.5 flex min-w-0 items-center justify-between gap-3 text-sm">
-              <span className="font-semibold text-pocket-navy">{item.label}</span>
-              <span className="max-w-[68%] break-words text-right text-pocket-navy/70">
-                {item.count} · {formatCompactCurrency(item.revenue)}
-              </span>
-            </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-pocket-cream">
-              <div
-                className="h-full rounded-full bg-pocket-orange"
-                style={{ width: `${Math.max(6, (item.revenue / maxRevenue) * 100)}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
+  return <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6"><AdminShell title="Overview" description="A focused business snapshot: performance, mix, product momentum, and the few actions that need attention now.">
+    <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,_#102a43,_#0f172a_55%,_#1f2937)] p-5 text-white shadow-[0_24px_64px_rgba(16,42,67,0.28)]"><div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between"><div><p className="text-xs font-semibold uppercase tracking-[0.32em] text-amber-300">Performance window</p><h2 className="mt-2 text-3xl font-black">Business at a glance</h2><p className="mt-2 max-w-xl text-sm text-white/70">Keep the Overview for the signals that change a decision. Open Business Analytics for the full picture.</p></div><div className="space-y-3"><div className="flex flex-wrap gap-2">{segments.map((option) => <button key={option.value} type="button" onClick={() => setSegment(option.value)} className={cn("rounded-full border px-3 py-1.5 text-sm font-semibold", segment === option.value ? "border-white bg-white text-slate-950" : "border-white/15 bg-white/5 text-white hover:bg-white/10")}>{option.label}</button>)}</div><div className="flex flex-wrap gap-2">{presets.map((option) => <button key={option.value} type="button" onClick={() => setPreset(option.value)} className={cn("rounded-full border px-3 py-1.5 text-sm font-semibold", preset === option.value ? "border-amber-300 bg-amber-300 text-slate-950" : "border-white/15 bg-white/5 text-white hover:bg-white/10")}>{option.label}</button>)}</div>{preset === "custom" ? <div className="flex flex-wrap gap-2"><input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="h-10 rounded-xl border border-white/15 bg-white/5 px-3 text-sm text-white" /><input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="h-10 rounded-xl border border-white/15 bg-white/5 px-3 text-sm text-white" /></div> : null}</div></div>{dashboard ? <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm"><CalendarDays className="h-4 w-4 text-amber-300" />{dashboard.range.label}</div> : null}</Card>
+    {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+    {loading || !dashboard ? <Card className="p-6 text-sm text-pocket-navy/60">Loading overview...</Card> : <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><KPI label="Revenue" value={formatCompactCurrency(dashboard.summary.revenue)} helper={`${dashboard.summary.revenueDelta}% vs previous period`} accent /><KPI label="Net profit" value={formatCompactCurrency(netProfit)} helper={`${netMargin.toFixed(1)}% net margin · after expenses`} /><KPI label="Orders" value={formatCompactNumber(dashboard.summary.orders)} helper={`${dashboard.summary.ordersDelta}% vs previous period`} /><KPI label="Average order value" value={formatCompactCurrency(dashboard.summary.averageOrderValue)} helper="Revenue per order" /><KPI label="Food cost %" value="—" helper="Add recipe cost allocation" /></div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><KPI label="Gross margin %" value="—" helper="Add recipe cost allocation" /><KPI label="Net margin %" value={`${netMargin.toFixed(1)}%`} helper="Revenue less operating expenses" /><KPI label="Foodpanda %" value={`${dashboard.summary.revenue ? (foodpandaRevenue / dashboard.summary.revenue * 100).toFixed(1) : "0.0"}%`} helper="Share of total revenue" /><KPI label="Direct sales %" value={`${dashboard.summary.revenue ? (directRevenue / dashboard.summary.revenue * 100).toFixed(1) : "0.0"}%`} helper="Inshop and other direct channels" /><KPI label="Active customers" value={formatCompactNumber(dashboard.summary.activeCustomers)} helper={`${dashboard.summary.repeatCustomers} repeat customers`} /></div>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]"><SalesChart sales={dashboard.series} title="Revenue trend" description="Daily or period revenue movement." /><Card className="p-5"><p className="text-lg font-black text-pocket-navy">Quick actions</p><p className="mt-1 text-sm text-pocket-navy/60">Jump to the next operational task.</p><div className="mt-5 grid gap-3"><Link href="/admin/expenses"><Button className="w-full justify-between">Add Expense<Receipt className="h-4 w-4" /></Button></Link><Link href="/admin/products"><Button variant="outline" className="w-full justify-between">Add Product<PackagePlus className="h-4 w-4" /></Button></Link><Button variant="outline" className="w-full justify-between" onClick={() => window.location.assign("/api/admin/expenses/export?preset=30d")}>Export Reports<Download className="h-4 w-4" /></Button><Link href="/admin/finances"><Button variant="outline" className="w-full justify-between">Open Finance<Wallet className="h-4 w-4" /></Button></Link></div><Link href="/admin/analytics" className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-pocket-orange">Open full Business Analytics<ArrowRight className="h-4 w-4" /></Link></Card></div>
+      <div className="grid gap-6 xl:grid-cols-2"><Breakdown title="Revenue split" entries={dashboard.breakdowns.serviceTypes} /><Card className="p-5"><p className="text-lg font-black text-pocket-navy">Top 5 products</p><p className="mt-1 text-sm text-pocket-navy/60">The products driving this selected period.</p><div className="mt-5 space-y-3">{dashboard.topProducts.slice(0, 5).map((product, index) => <div key={product.productName} className="flex items-center justify-between gap-4 rounded-2xl bg-pocket-cream px-4 py-3"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.18em] text-pocket-orange">#{index + 1}</p><p className="mt-1 truncate font-bold text-pocket-navy">{product.productName}</p></div><div className="text-right"><p className="font-black text-pocket-navy">{product.quantity} sold</p><p className="text-xs text-pocket-navy/60">{formatCompactCurrency(product.revenue)}</p></div></div>)}{dashboard.topProducts.length === 0 ? <p className="text-sm text-pocket-navy/60">No product sales in this period.</p> : null}</div></Card></div>
+      <Card className="p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-lg font-black text-pocket-navy">Low stock alert</p><p className="mt-1 text-sm text-pocket-navy/60">Only the exceptions that need an operational response.</p></div><Link href="/admin/inventory"><Button variant="outline">Open Inventory<ArrowRight className="h-4 w-4" /></Button></Link></div><div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{dashboard.lowStock.length ? dashboard.lowStock.slice(0, 4).map((item) => <div key={`${item.branch}-${item.ingredient}`} className="rounded-2xl border border-pocket-orange/15 bg-pocket-orange/5 p-4"><p className="font-bold text-pocket-navy">{item.ingredient}</p><p className="mt-1 text-sm text-pocket-navy/60">{item.branch}</p><p className="mt-3 text-sm font-bold text-pocket-orange">{item.quantityOnHand} units on hand</p></div>) : <p className="text-sm text-pocket-navy/60">No active low-stock alerts.</p>}</div></Card>
+    </>}
+  </AdminShell></div>;
 }

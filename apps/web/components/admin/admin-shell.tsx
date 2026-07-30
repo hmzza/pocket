@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Banknote, Boxes, HandCoins, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
+import { Activity, Banknote, BarChart3, Bike, Boxes, HandCoins, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,9 @@ const links: Array<{
   disabled?: boolean;
 }> = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
+  { href: "/admin/analytics", label: "Business Analytics", icon: BarChart3 },
+  { href: "/admin/foodpanda", label: "Foodpanda", icon: Bike },
+  { href: "/admin/health", label: "Business Health", icon: Activity },
   { href: "/admin/products", label: "Products", icon: Boxes },
   { href: "/admin/website", label: "Website Control", icon: SlidersHorizontal },
   { href: "/admin/users", label: "Users", icon: Users },
@@ -26,7 +29,7 @@ const links: Array<{
   { href: "/admin/finances", label: "Finances", icon: Banknote }
 ];
 
-const staffRestrictedRoutes = ["/admin/products", "/admin/website", "/admin/users", "/admin/loans", "/admin/finances"];
+const staffRestrictedRoutes = ["/admin/analytics", "/admin/foodpanda", "/admin/health", "/admin/products", "/admin/website", "/admin/users", "/admin/loans", "/admin/finances"];
 
 type AdminSession = Awaited<ReturnType<typeof fetchAdminSession>>;
 
