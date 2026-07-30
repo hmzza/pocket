@@ -58,8 +58,8 @@ export function BIHeatmap({ entries }: { entries: BIEntry[] }) {
             className="min-w-0 overflow-hidden rounded-2xl border border-pocket-orange/10 p-3 sm:p-4"
             style={{ backgroundColor: `rgba(234, 88, 12, ${0.06 + intensity * 0.8})` }}
           >
-            <p className={cn("truncate text-[11px] font-bold uppercase tracking-[0.1em] sm:text-xs", intensity > 0.55 ? "text-white/80" : "text-pocket-navy/55")}>{entry.label}</p>
-            <p className={cn("mt-3 text-2xl font-black", intensity > 0.55 ? "text-white" : "text-pocket-navy")}>{entry.value}</p>
+            <p className={cn("whitespace-nowrap text-[11px] font-bold tracking-[0.04em] sm:text-xs", intensity > 0.55 ? "text-white/80" : "text-pocket-navy/55")}>{entry.label}</p>
+            <p className={cn("mt-3 text-xl font-black sm:text-2xl", intensity > 0.55 ? "text-white" : "text-pocket-navy")}>{entry.value}</p>
             <p className={cn("mt-1 text-xs", intensity > 0.55 ? "text-white/70" : "text-pocket-navy/50")}>orders</p>
           </div>
         );
@@ -78,12 +78,12 @@ export function BILine({ entries, formatValue = (value) => String(value) }: {
     <div className="overflow-x-auto pb-2">
       <div className="flex min-w-max items-end gap-3">
         {entries.map((entry) => (
-          <div key={entry.label} className="flex w-16 shrink-0 flex-col items-center gap-2 sm:w-20">
+          <div key={entry.label} className="flex w-20 shrink-0 flex-col items-center gap-2 sm:w-24">
             <div className="flex h-44 w-full items-end rounded-t-xl bg-pocket-cream/70">
               <div className="w-full rounded-t-xl bg-pocket-orange" style={{ height: `${Math.max(8, (entry.value / max) * 100)}%` }} />
             </div>
-            <p className="w-full truncate text-center text-[11px] font-semibold uppercase tracking-wide text-pocket-navy/50">{entry.label}</p>
-            <p className="w-full whitespace-nowrap text-center text-[11px] font-bold text-pocket-navy sm:text-xs">{formatValue(entry.value)}</p>
+            <p className="w-full truncate text-center text-[10px] font-semibold uppercase tracking-wide text-pocket-navy/50 sm:text-[11px]">{entry.label}</p>
+            <p className="w-full overflow-hidden text-ellipsis whitespace-nowrap text-center text-[10px] font-bold leading-tight text-pocket-navy sm:text-[11px]">{formatValue(entry.value)}</p>
           </div>
         ))}
       </div>

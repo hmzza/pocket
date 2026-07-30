@@ -82,7 +82,7 @@ export default function BusinessAnalyticsPage() {
       const key = `${String(hour).padStart(2, "0")}:00`;
       const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
       const suffix = hour < 12 ? "AM" : "PM";
-      return { label: `${displayHour}:00 ${suffix}`, value: byHour.get(key) ?? 0 };
+      return { label: `${displayHour} ${suffix}`, value: byHour.get(key) ?? 0 };
     });
   }, [dashboard]);
 
