@@ -162,7 +162,7 @@ export type DashboardData = {
     channels: Array<{ label: string; count: number; revenue: number }>;
     serviceTypes: Array<{ label: string; count: number; revenue: number }>;
     payments: Array<{ label: string; count: number; revenue: number }>;
-    branches: Array<{ label: string; count: number; revenue: number }>;
+    branches: Array<{ label: string; count: number; revenue: number; foodpandaRevenue?: number }>;
     weekdays: Array<{ label: string; count: number; revenue: number }>;
     hours: Array<{ label: string; count: number; revenue: number }>;
   };

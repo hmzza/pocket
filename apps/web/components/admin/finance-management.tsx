@@ -6,7 +6,7 @@ import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
-import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
+import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
 import { Input } from "@/components/ui/input";
 import type { AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, formatCompactNumber } from "@/lib/utils";
@@ -100,7 +100,7 @@ function normalizeLabel(value: string) {
 }
 
 function buildBranchPerformance(
-  revenueEntries: Array<{ label: string; revenue: number }>,
+  revenueEntries: Array<{ label: string; revenue: number; foodpandaRevenue?: number }>,
   expenseData: AdminExpenseData["expenses"]
 ) {
   const expenseMap = new Map<string, { amount: number; count: number }>();
@@ -116,11 +116,14 @@ function buildBranchPerformance(
   return revenueEntries
     .map((entry) => {
       const expense = expenseMap.get(normalizeLabel(entry.label)) ?? { amount: 0, count: 0 };
-      const net = entry.revenue - expense.amount;
+      const platformCommission = (entry.foodpandaRevenue ?? 0) * 0.4;
+      const net = entry.revenue - platformCommission - expense.amount;
 
       return {
         label: entry.label,
         revenue: entry.revenue,
+        foodpandaRevenue: entry.foodpandaRevenue ?? 0,
+        platformCommission,
         expense: expense.amount,
         expenseCount: expense.count,
         net
@@ -229,12 +232,18 @@ export function FinanceManagement() {
 
   const summary = useMemo(() => {
     const breakevenTarget = monthlyTarget || MONTHLY_BREAKEVEN_TARGET;
-    const monthRevenue = monthDashboard?.summary.revenue ?? 0;
+    const monthGrossRevenue = monthDashboard?.summary.revenue ?? 0;
     const monthExpensesTotal = monthExpenses?.summary.totalAmount ?? 0;
-    const weekRevenue = weekDashboard?.summary.revenue ?? 0;
+    const weekGrossRevenue = weekDashboard?.summary.revenue ?? 0;
     const weekExpensesTotal = weekExpenses?.summary.totalAmount ?? 0;
-    const todayRevenue = todayDashboard?.summary.revenue ?? 0;
+    const todayGrossRevenue = todayDashboard?.summary.revenue ?? 0;
     const todayExpensesTotal = todayExpenses?.summary.totalAmount ?? 0;
+    const foodpandaGross = getFoodpandaRevenueFromBreakdowns(monthFoodpandaDashboard?.breakdowns.serviceTypes ?? []);
+    const monthRevenue = getRevenueAfterFoodpandaCut(monthGrossRevenue, foodpandaGross);
+    const weekFoodpandaGross = getFoodpandaRevenueFromBreakdowns(weekDashboard?.breakdowns.serviceTypes ?? []);
+    const todayFoodpandaGross = getFoodpandaRevenueFromBreakdowns(todayDashboard?.breakdowns.serviceTypes ?? []);
+    const weekRevenue = getRevenueAfterFoodpandaCut(weekGrossRevenue, weekFoodpandaGross);
+    const todayRevenue = getRevenueAfterFoodpandaCut(todayGrossRevenue, todayFoodpandaGross);
     const monthNet = monthRevenue - monthExpensesTotal;
     const weekNet = weekRevenue - weekExpensesTotal;
     const todayNet = todayRevenue - todayExpensesTotal;
@@ -243,7 +252,6 @@ export function FinanceManagement() {
     const surplusAfterBreakeven = monthRevenue - breakevenTarget;
     const expenseRatio = monthRevenue > 0 ? (monthExpensesTotal / monthRevenue) * 100 : 0;
     const operatingMargin = monthRevenue > 0 ? (monthNet / monthRevenue) * 100 : 0;
-    const foodpandaGross = getFoodpandaRevenueFromBreakdowns(monthFoodpandaDashboard?.breakdowns.serviceTypes ?? []);
     const foodpandaPayout = estimateFoodpandaPayout(foodpandaGross);
     const loanSummary = monthLoans?.summary ?? { totalLoanTaken: 0, totalLoanRepaid: 0, outstandingLoanBalance: 0 };
     const paymentMix = [...(monthDashboard?.breakdowns.payments ?? [])].sort((left, right) => right.revenue - left.revenue);
@@ -252,6 +260,7 @@ export function FinanceManagement() {
 
     return {
       monthRevenue,
+      monthGrossRevenue,
       monthExpensesTotal,
       monthNet,
       weekRevenue,
@@ -315,12 +324,13 @@ export function FinanceManagement() {
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <MetricCard title="Month revenue" value={formatCompactCurrency(summary.monthRevenue)} description="Sales recorded in the current month." tone="positive" />
+        <MetricCard title="Month gross revenue" value={formatCompactCurrency(summary.monthGrossRevenue)} description="Total order sales before Foodpanda commission." tone="positive" />
+        <MetricCard title="Month net revenue" value={formatCompactCurrency(summary.monthRevenue)} description="Revenue after subtracting the 40% Foodpanda commission." tone="positive" />
         <MetricCard title="Month expenses" value={formatCompactCurrency(summary.monthExpensesTotal)} description="Tracked expenses recorded in the same period." tone="negative" />
-        <MetricCard title="Operating profit" value={formatCompactCurrency(summary.monthNet)} description="Revenue minus tracked expenses for the month." tone={summary.monthNet >= 0 ? "positive" : "negative"} />
+        <MetricCard title="Operating profit" value={formatCompactCurrency(summary.monthNet)} description="Net revenue minus tracked operating expenses." tone={summary.monthNet >= 0 ? "positive" : "negative"} />
         <MetricCard title="Break-even gap" value={summary.remainingToBreakeven > 0 ? formatCompactCurrency(summary.remainingToBreakeven) : "Reached"} description="Amount still needed before profit can start." tone={summary.remainingToBreakeven > 0 ? "warning" : "positive"} />
         <MetricCard title="Foodpanda payout" value={formatCompactCurrency(summary.foodpandaPayout.estimated)} description="Estimated amount left after Foodpanda keeps 40-42%." />
-        <MetricCard title="Today net" value={formatCompactCurrency(summary.todayNet)} description="Today's revenue minus today's expenses." tone={summary.todayNet >= 0 ? "positive" : "negative"} />
+        <MetricCard title="Today net" value={formatCompactCurrency(summary.todayNet)} description="Today's net revenue minus today's expenses." tone={summary.todayNet >= 0 ? "positive" : "negative"} />
         <MetricCard title="Loan taken" value={formatCompactCurrency(summary.loanSummary.totalLoanTaken)} description="Loan money received this month, separate from revenue." tone="warning" />
         <MetricCard title="Loan repaid" value={formatCompactCurrency(summary.loanSummary.totalLoanRepaid)} description="Loan repayments made this month." />
         <MetricCard title="Loan balance" value={formatCompactCurrency(summary.loanSummary.outstandingLoanBalance)} description="Outstanding tracked loan balance." tone={summary.loanSummary.outstandingLoanBalance > 0 ? "negative" : "positive"} />
@@ -339,7 +349,7 @@ export function FinanceManagement() {
             <ProgressBar value={summary.breakevenProgress} />
           </div>
           <div className="mt-3 flex items-center justify-between text-sm text-pocket-navy/70">
-            <span>{formatCurrency(summary.monthRevenue)} collected</span>
+            <span>{formatCurrency(summary.monthRevenue)} net revenue</span>
               <span>{formatCurrency(summary.breakevenTarget)} target</span>
             </div>
           <p className="mt-3 text-sm text-pocket-navy/60">
@@ -369,7 +379,7 @@ export function FinanceManagement() {
           <p className="text-sm text-pocket-navy/60">Daily and weekly view of money in versus money out.</p>
           <div className="mt-4 space-y-3 rounded-2xl bg-pocket-cream px-4 py-4">
             <div className="flex items-center justify-between text-sm">
-              <span className="font-semibold text-pocket-navy">Today revenue</span>
+              <span className="font-semibold text-pocket-navy">Today net revenue</span>
               <span className="font-bold text-pocket-navy">{formatCurrency(summary.todayRevenue)}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
@@ -381,7 +391,7 @@ export function FinanceManagement() {
               <span className={`font-bold ${summary.todayNet >= 0 ? "text-emerald-700" : "text-red-700"}`}>{formatCurrency(summary.todayNet)}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
-              <span className="font-semibold text-pocket-navy">7-day revenue</span>
+              <span className="font-semibold text-pocket-navy">7-day net revenue</span>
               <span className="font-bold text-pocket-navy">{formatCurrency(summary.weekRevenue)}</span>
             </div>
             <div className="flex items-center justify-between text-sm">
@@ -421,7 +431,7 @@ export function FinanceManagement() {
                   <div
                     className="h-full rounded-full bg-pocket-orange"
                     style={{
-                      width: `${Math.max(8, (entry.revenue / Math.max(summary.monthRevenue, 1)) * 100)}%`
+                      width: `${Math.max(8, (entry.revenue / Math.max(summary.monthGrossRevenue, 1)) * 100)}%`
                     }}
                   />
                 </div>
@@ -434,7 +444,7 @@ export function FinanceManagement() {
 
         <Card className="p-5">
           <p className="text-lg font-black text-pocket-navy">Branch performance</p>
-          <p className="text-sm text-pocket-navy/60">Revenue, expenses, and net by branch for the current month.</p>
+          <p className="text-sm text-pocket-navy/60">Net by branch after Foodpanda commission and tracked expenses.</p>
           <div className="mt-4 space-y-3">
             {summary.branchPerformance.map((entry) => (
               <div key={entry.label} className="rounded-2xl border border-pocket-navy/10 bg-pocket-cream px-4 py-3">
@@ -445,10 +455,14 @@ export function FinanceManagement() {
                   </div>
                   <p className={`font-bold ${entry.net >= 0 ? "text-emerald-700" : "text-red-700"}`}>{formatCurrency(entry.net)}</p>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-pocket-navy/50">Revenue</p>
+                    <p className="text-xs uppercase tracking-wide text-pocket-navy/50">Gross revenue</p>
                     <p className="font-semibold text-pocket-navy">{formatCurrency(entry.revenue)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-pocket-navy/50">Foodpanda cut</p>
+                    <p className="font-semibold text-pocket-navy">{formatCurrency(entry.platformCommission)}</p>
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-wide text-pocket-navy/50">Expenses</p>
@@ -530,7 +544,7 @@ export function FinanceManagement() {
           </Button>
         </div>
         <div className="mt-4">
-          <SalesChart sales={monthDashboard.series} title="Month revenue trend" description="Revenue momentum for the current month." />
+          <SalesChart sales={monthDashboard.series} title="Month gross revenue trend" description="Order sales before Foodpanda commission." />
         </div>
       </Card>
     </div>

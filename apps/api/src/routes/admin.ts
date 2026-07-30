@@ -1039,6 +1039,7 @@ router.get("/dashboard", async (req, res, next) => {
       serviceTypes: new Map<string, { label: string; count: number; revenue: number }>(),
       payments: new Map<string, { label: string; count: number; revenue: number }>(),
       branches: new Map<string, { label: string; count: number; revenue: number }>(),
+      branchFoodpandaRevenue: new Map<string, number>(),
       weekdays: new Map<string, { label: string; count: number; revenue: number; sort: number }>(),
       hours: new Map<string, { label: string; count: number; revenue: number; sort: number }>(),
       products: new Map<string, { productName: string; quantity: number; revenue: number }>()
@@ -1056,6 +1057,11 @@ router.get("/dashboard", async (req, res, next) => {
       const hour = getPakistanHour(order.placedAt);
       const weekdayKey = String(weekdayIndex);
       const hourKey = String(hour);
+
+      if (serviceBreakdown.key === "FOODPANDA") {
+        const branchFoodpandaRevenue = breakdownMaps.branchFoodpandaRevenue.get(branchKey) ?? 0;
+        breakdownMaps.branchFoodpandaRevenue.set(branchKey, branchFoodpandaRevenue + orderRevenue);
+      }
 
       for (const [map, key, label] of [
         [breakdownMaps.channels, channelKey, channelKey],
@@ -1149,7 +1155,12 @@ router.get("/dashboard", async (req, res, next) => {
         channels: Array.from(breakdownMaps.channels.values()).sort((left, right) => right.revenue - left.revenue),
         serviceTypes: Array.from(breakdownMaps.serviceTypes.values()).sort((left, right) => right.revenue - left.revenue),
         payments: Array.from(breakdownMaps.payments.values()).sort((left, right) => right.revenue - left.revenue),
-        branches: Array.from(breakdownMaps.branches.values()).sort((left, right) => right.revenue - left.revenue),
+        branches: Array.from(breakdownMaps.branches.values())
+          .sort((left, right) => right.revenue - left.revenue)
+          .map((entry) => ({
+            ...entry,
+            foodpandaRevenue: Number((breakdownMaps.branchFoodpandaRevenue.get(entry.label) ?? 0).toFixed(2))
+          })),
         weekdays: Array.from(breakdownMaps.weekdays.values())
           .sort((left, right) => left.sort - right.sort)
           .map(({ sort: _sort, ...entry }) => entry),

@@ -478,7 +478,8 @@ export async function fetchAdminDashboard(params?: {
       branches: dashboard.breakdowns.branches.map((entry: any) => ({
         label: entry.label,
         count: entry.count,
-        revenue: Number(entry.revenue)
+        revenue: Number(entry.revenue),
+        foodpandaRevenue: Number(entry.foodpandaRevenue ?? 0)
       })),
       weekdays: dashboard.breakdowns.weekdays.map((entry: any) => ({
         label: entry.label,
