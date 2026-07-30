@@ -49,7 +49,7 @@ export function BIHeatmap({ entries }: { entries: BIEntry[] }) {
   const max = Math.max(...entries.map((entry) => entry.value), 1);
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-9">
       {entries.map((entry) => {
         const intensity = entry.value / max;
         return (
@@ -78,12 +78,12 @@ export function BILine({ entries, formatValue = (value) => String(value) }: {
     <div className="overflow-x-auto pb-2">
       <div className="flex min-w-max items-end gap-3">
         {entries.map((entry) => (
-          <div key={entry.label} className="flex w-12 flex-col items-center gap-2">
+          <div key={entry.label} className="flex w-16 shrink-0 flex-col items-center gap-2 sm:w-20">
             <div className="flex h-44 w-full items-end rounded-t-xl bg-pocket-cream/70">
               <div className="w-full rounded-t-xl bg-pocket-orange" style={{ height: `${Math.max(8, (entry.value / max) * 100)}%` }} />
             </div>
-            <p className="text-center text-[11px] font-semibold uppercase tracking-wide text-pocket-navy/50">{entry.label}</p>
-            <p className="text-center text-xs font-bold text-pocket-navy">{formatValue(entry.value)}</p>
+            <p className="w-full truncate text-center text-[11px] font-semibold uppercase tracking-wide text-pocket-navy/50">{entry.label}</p>
+            <p className="w-full whitespace-nowrap text-center text-[11px] font-bold text-pocket-navy sm:text-xs">{formatValue(entry.value)}</p>
           </div>
         ))}
       </div>

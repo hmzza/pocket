@@ -8,39 +8,102 @@ import { BIBarList, BIHeatmap, BILine, BISection, FutureMetric } from "@/compone
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard } from "@/lib/admin-client";
-import type { DashboardData } from "@/lib/types";
+import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
 import { formatCompactCurrency, formatCompactNumber } from "@/lib/utils";
 
 function Kpi({ label, value, helper }: { label: string; value: string; helper: string }) {
   return <Card className="p-5"><p className="text-xs font-semibold uppercase tracking-[0.22em] text-pocket-orange">{label}</p><p className="mt-3 text-2xl font-black text-pocket-navy">{value}</p><p className="mt-1 text-sm text-pocket-navy/60">{helper}</p></Card>;
 }
 
+const periodOptions: Array<{ value: AdminRangePreset; label: string }> = [
+  { value: "today", label: "Today" },
+  { value: "7d", label: "1 Week" },
+  { value: "month", label: "1 Month" },
+  { value: "custom", label: "Custom" }
+];
+
+const segmentOptions: Array<{ value: AdminOrderSegment; label: string }> = [
+  { value: "all", label: "All sources" },
+  { value: "inshop", label: "Inshop" },
+  { value: "foodpanda", label: "Foodpanda" }
+];
+
 export default function BusinessAnalyticsPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [period, setPeriod] = useState<AdminRangePreset>("month");
+  const [segment, setSegment] = useState<AdminOrderSegment>("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchAdminDashboard({ preset: "30d", segment: "all" })
-      .then(setDashboard)
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Failed to load analytics."))
-      .finally(() => setLoading(false));
-  }, []);
+    if (period === "custom" && (!startDate || !endDate)) {
+      setDashboard(null);
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    const params = period === "custom"
+      ? {
+          preset: period,
+          start: new Date(`${startDate}T00:00:00`).toISOString(),
+          end: new Date(`${endDate}T23:59:59`).toISOString(),
+          segment
+        }
+      : { preset: period, segment };
+
+    fetchAdminDashboard(params)
+      .then((nextDashboard) => {
+        if (!cancelled) setDashboard(nextDashboard);
+      })
+      .catch((loadError) => {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Failed to load analytics.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [period, segment, startDate, endDate]);
 
   const peakHours = useMemo(() => [...(dashboard?.breakdowns.hours ?? [])].sort((a, b) => b.count - a.count).slice(0, 5), [dashboard]);
   const peakDays = useMemo(() => [...(dashboard?.breakdowns.weekdays ?? [])].sort((a, b) => b.count - a.count).slice(0, 5), [dashboard]);
   const repeatRate = dashboard?.summary.activeCustomers ? (dashboard.summary.repeatCustomers / dashboard.summary.activeCustomers) * 100 : 0;
+  const heatmapHours = useMemo(() => {
+    const byHour = new Map((dashboard?.breakdowns.hours ?? []).map((entry) => [entry.label, entry.count]));
+    return Array.from({ length: 18 }, (_, index) => {
+      const hour = index + 6;
+      const label = `${String(hour).padStart(2, "0")}:00`;
+      return { label, value: byHour.get(label) ?? 0 };
+    });
+  }, [dashboard]);
+
+  const selectedPeriodLabel = period === "today" ? "Today" : period === "7d" ? "1 week" : period === "month" ? "1 month" : period === "custom" && startDate && endDate ? `${startDate} to ${endDate}` : "Custom range";
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
       <AdminShell title="Business Analytics" description="Understand when, where, and how customers buy so every operating decision has context.">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-pocket-navy/10 bg-white p-4 shadow-panel">
-          <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-pocket-cream text-pocket-orange"><BarChart3 className="h-5 w-5" /></div><div><p className="font-bold text-pocket-navy">Last 30 days</p><p className="text-sm text-pocket-navy/60">Sales, customers, channels, and peak trading windows</p></div></div>
-          <Link href="/admin"><Button variant="outline">Back to Overview<ArrowRight className="h-4 w-4" /></Button></Link>
+        <div className="rounded-2xl border border-pocket-navy/10 bg-white p-4 shadow-panel">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-pocket-cream text-pocket-orange"><BarChart3 className="h-5 w-5" /></div><div><p className="font-bold text-pocket-navy">{selectedPeriodLabel}</p><p className="text-sm text-pocket-navy/60">Sales, customers, channels, and peak trading windows</p></div></div>
+            <Link href="/admin"><Button variant="outline">Back to Overview<ArrowRight className="h-4 w-4" /></Button></Link>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {periodOptions.map((option) => <button key={option.value} type="button" onClick={() => setPeriod(option.value)} className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${period === option.value ? "border-pocket-orange bg-pocket-orange text-white" : "border-pocket-navy/15 text-pocket-navy hover:bg-pocket-cream"}`}>{option.label}</button>)}
+            <span className="mx-1 hidden h-6 w-px bg-pocket-navy/10 sm:block" />
+            {segmentOptions.map((option) => <button key={option.value} type="button" onClick={() => setSegment(option.value)} className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${segment === option.value ? "border-pocket-navy bg-pocket-navy text-white" : "border-pocket-navy/15 text-pocket-navy hover:bg-pocket-cream"}`}>{option.label}</button>)}
+          </div>
+          {period === "custom" ? <div className="mt-3 flex flex-wrap gap-2"><label className="sr-only" htmlFor="analytics-start">Start date</label><input id="analytics-start" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="h-10 rounded-xl border border-pocket-navy/15 px-3 text-sm text-pocket-navy" /><label className="sr-only" htmlFor="analytics-end">End date</label><input id="analytics-end" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="h-10 rounded-xl border border-pocket-navy/15 px-3 text-sm text-pocket-navy" /></div> : null}
         </div>
 
         {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
-        {loading || !dashboard ? <Card className="p-6 text-sm text-pocket-navy/60">Loading business analytics...</Card> : (
+        {period === "custom" && (!startDate || !endDate) ? <Card className="p-6 text-sm text-pocket-navy/60">Choose a start and end date to load this range.</Card> : loading || !dashboard ? <Card className="p-6 text-sm text-pocket-navy/60">Loading business analytics...</Card> : (
           <>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <Kpi label="Revenue" value={formatCompactCurrency(dashboard.summary.revenue)} helper="Selected period" />
@@ -56,7 +119,7 @@ export default function BusinessAnalyticsPage() {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-2">
-              <BISection title="Hourly heatmap" description="Busiest hours by order count. Darker cells indicate more demand."><BIHeatmap entries={dashboard.breakdowns.hours.map((entry) => ({ label: entry.label, value: entry.count }))} /></BISection>
+              <BISection title="Hourly heatmap" description="Busiest hours by order count. Darker cells indicate more demand."><BIHeatmap entries={heatmapHours} /></BISection>
               <BISection title="Sales by day of week" description="Use this pattern to plan staffing and prep levels."><BIBarList entries={dashboard.breakdowns.weekdays.map((entry) => ({ label: entry.label, value: entry.revenue, detail: `${entry.count} orders` }))} formatValue={formatCompactCurrency} /></BISection>
             </div>
 
