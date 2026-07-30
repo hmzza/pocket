@@ -6,7 +6,7 @@ import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
-import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
+import { estimateFoodpandaPayout, FOODPANDA_COMMISSION_RATE, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
 import { Input } from "@/components/ui/input";
 import type { AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, formatCompactNumber } from "@/lib/utils";
@@ -116,7 +116,7 @@ function buildBranchPerformance(
   return revenueEntries
     .map((entry) => {
       const expense = expenseMap.get(normalizeLabel(entry.label)) ?? { amount: 0, count: 0 };
-      const platformCommission = (entry.foodpandaRevenue ?? 0) * 0.4;
+      const platformCommission = (entry.foodpandaRevenue ?? 0) * FOODPANDA_COMMISSION_RATE;
       const net = entry.revenue - platformCommission - expense.amount;
 
       return {
@@ -325,11 +325,11 @@ export function FinanceManagement() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard title="Month gross revenue" value={formatCompactCurrency(summary.monthGrossRevenue)} description="Total order sales before Foodpanda commission." tone="positive" />
-        <MetricCard title="Month net revenue" value={formatCompactCurrency(summary.monthRevenue)} description="Revenue after subtracting the 40% Foodpanda commission." tone="positive" />
+        <MetricCard title="Month net revenue" value={formatCompactCurrency(summary.monthRevenue)} description="Revenue after subtracting the fixed 38% Foodpanda commission." tone="positive" />
         <MetricCard title="Month expenses" value={formatCompactCurrency(summary.monthExpensesTotal)} description="Tracked expenses recorded in the same period." tone="negative" />
         <MetricCard title="Operating profit" value={formatCompactCurrency(summary.monthNet)} description="Net revenue minus tracked operating expenses." tone={summary.monthNet >= 0 ? "positive" : "negative"} />
         <MetricCard title="Break-even gap" value={summary.remainingToBreakeven > 0 ? formatCompactCurrency(summary.remainingToBreakeven) : "Reached"} description="Amount still needed before profit can start." tone={summary.remainingToBreakeven > 0 ? "warning" : "positive"} />
-        <MetricCard title="Foodpanda payout" value={formatCompactCurrency(summary.foodpandaPayout.estimated)} description="Estimated amount left after Foodpanda keeps 40-42%." />
+        <MetricCard title="Foodpanda payout" value={formatCompactCurrency(summary.foodpandaPayout.estimated)} description="Amount left after the fixed 38% Foodpanda commission." />
         <MetricCard title="Today net" value={formatCompactCurrency(summary.todayNet)} description="Today's net revenue minus today's expenses." tone={summary.todayNet >= 0 ? "positive" : "negative"} />
         <MetricCard title="Loan taken" value={formatCompactCurrency(summary.loanSummary.totalLoanTaken)} description="Loan money received this month, separate from revenue." tone="warning" />
         <MetricCard title="Loan repaid" value={formatCompactCurrency(summary.loanSummary.totalLoanRepaid)} description="Loan repayments made this month." />
@@ -503,7 +503,7 @@ export function FinanceManagement() {
 
         <Card className="p-5">
           <p className="text-lg font-black text-pocket-navy">Foodpanda split estimate</p>
-          <p className="text-sm text-pocket-navy/60">Estimated left side after Foodpanda keeps 40-42%.</p>
+          <p className="text-sm text-pocket-navy/60">Gross sales, fixed 38% commission, and retained payout.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl bg-pocket-cream px-4 py-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-pocket-navy/50">Gross Foodpanda sales</p>

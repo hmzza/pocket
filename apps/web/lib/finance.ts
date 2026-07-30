@@ -1,12 +1,12 @@
 export const MONTHLY_BREAKEVEN_TARGET = 530000;
 
-export const FOODPANDA_PAYOUT_RATIO = {
-  min: 0.58,
-  estimate: 0.59,
-  max: 0.6
-};
+export const FOODPANDA_COMMISSION_RATE = 0.38;
 
-export const FOODPANDA_COMMISSION_RATE = 0.4;
+export const FOODPANDA_PAYOUT_RATIO = {
+  min: 1 - FOODPANDA_COMMISSION_RATE,
+  estimate: 1 - FOODPANDA_COMMISSION_RATE,
+  max: 1 - FOODPANDA_COMMISSION_RATE
+};
 
 export function estimateFoodpandaPayout(grossRevenue: number) {
   const gross = Math.max(0, grossRevenue);
