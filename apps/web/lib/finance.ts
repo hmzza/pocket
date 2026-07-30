@@ -6,6 +6,8 @@ export const FOODPANDA_PAYOUT_RATIO = {
   max: 0.6
 };
 
+export const FOODPANDA_COMMISSION_RATE = 0.4;
+
 export function estimateFoodpandaPayout(grossRevenue: number) {
   const gross = Math.max(0, grossRevenue);
   const minimum = Number((gross * FOODPANDA_PAYOUT_RATIO.min).toFixed(2));
@@ -26,4 +28,8 @@ export function getFoodpandaRevenueFromBreakdowns(
   breakdowns: Array<{ label: string; revenue: number }>
 ) {
   return breakdowns.find((entry) => entry.label.toLowerCase() === "foodpanda")?.revenue ?? 0;
+}
+
+export function getRevenueAfterFoodpandaCut(totalRevenue: number, foodpandaRevenue: number) {
+  return Math.max(0, totalRevenue - Math.max(0, foodpandaRevenue) * FOODPANDA_COMMISSION_RATE);
 }

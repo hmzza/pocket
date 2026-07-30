@@ -8,6 +8,7 @@ import { BIBarList, BIHeatmap, BILine, BISection, FutureMetric } from "@/compone
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard } from "@/lib/admin-client";
+import { FOODPANDA_COMMISSION_RATE, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut } from "@/lib/finance";
 import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
 import { formatCompactCurrency, formatCompactNumber, toPakistanDateIso } from "@/lib/utils";
 
@@ -74,7 +75,8 @@ export default function BusinessAnalyticsPage() {
 
   const peakHours = useMemo(() => [...(dashboard?.breakdowns.hours ?? [])].sort((a, b) => b.count - a.count).slice(0, 5), [dashboard]);
   const peakDays = useMemo(() => [...(dashboard?.breakdowns.weekdays ?? [])].sort((a, b) => b.count - a.count).slice(0, 5), [dashboard]);
-  const repeatRate = dashboard?.summary.activeCustomers ? (dashboard.summary.repeatCustomers / dashboard.summary.activeCustomers) * 100 : 0;
+  const foodpandaRevenue = getFoodpandaRevenueFromBreakdowns(dashboard?.breakdowns.serviceTypes ?? []);
+  const revenueAfterFoodpandaCut = dashboard ? getRevenueAfterFoodpandaCut(dashboard.summary.revenue, foodpandaRevenue) : 0;
   const heatmapHours = useMemo(() => {
     const byHour = new Map((dashboard?.breakdowns.hours ?? []).map((entry) => [entry.label, entry.count]));
     const businessHours = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1];
@@ -109,10 +111,10 @@ export default function BusinessAnalyticsPage() {
           <>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <Kpi label="Revenue" value={formatCompactCurrency(dashboard.summary.revenue)} helper="Selected period" />
+              <Kpi label="Revenue after Foodpanda cut" value={formatCompactCurrency(revenueAfterFoodpandaCut)} helper={`${formatCompactCurrency(foodpandaRevenue * FOODPANDA_COMMISSION_RATE)} Foodpanda commission`} />
               <Kpi label="Orders" value={formatCompactNumber(dashboard.summary.orders)} helper="Completed order records" />
               <Kpi label="Average order" value={formatCompactCurrency(dashboard.summary.averageOrderValue)} helper="Revenue per order" />
               <Kpi label="Active customers" value={formatCompactNumber(dashboard.summary.activeCustomers)} helper="Customers who ordered" />
-              <Kpi label="Repeat rate" value={`${repeatRate.toFixed(1)}%`} helper={`${dashboard.summary.repeatCustomers} repeat customers`} />
             </div>
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)]">
@@ -132,7 +134,7 @@ export default function BusinessAnalyticsPage() {
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
               <BISection title="Customer behaviour" description="The shape of the active customer base.">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1"><Kpi label="New / one-time" value={formatCompactNumber(Math.max(0, dashboard.summary.activeCustomers - dashboard.summary.repeatCustomers))} helper="Customers with one order in period" /><Kpi label="Repeat customers" value={formatCompactNumber(dashboard.summary.repeatCustomers)} helper={`${repeatRate.toFixed(1)}% of active base`} /><FutureMetric label="Customer lifetime value" description="Needs customer-level margin and historical cohort tracking." /></div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1"><Kpi label="Active customers" value={formatCompactNumber(dashboard.summary.activeCustomers)} helper="Customers who ordered in period" /><FutureMetric label="Customer lifetime value" description="Needs customer-level margin and historical cohort tracking." /></div>
               </BISection>
               <BISection title="Average order value trend" description="AOV follows the same daily series, making mix changes easy to spot."><BILine entries={dashboard.series.map((entry) => ({ label: entry.label, value: entry.orders ? entry.revenue / entry.orders : 0 }))} formatValue={formatCompactCurrency} /></BISection>
             </div>
