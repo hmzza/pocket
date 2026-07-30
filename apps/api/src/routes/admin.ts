@@ -14,6 +14,8 @@ import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
 
 const router = Router();
+const REPORT_TIME_ZONE = "Asia/Karachi";
+const PAKISTAN_UTC_OFFSET_MS = 5 * 60 * 60 * 1000;
 const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/images/", import.meta.url));
 const API_UPLOADS_VENDOR_RATE_LISTS_DIR = fileURLToPath(new URL("../../public/uploads/vendor-rate-lists/", import.meta.url));
 const VENDORS_WORKBOOK_PATH = fileURLToPath(new URL("../../../../data/vendors.xlsx", import.meta.url));
@@ -39,33 +41,76 @@ const dashboardQuerySchema = dashboardQueryBaseSchema.superRefine((value, contex
 });
 
 function startOfDay(date: Date) {
-  const value = new Date(date);
-  value.setHours(0, 0, 0, 0);
-  return value;
+  const parts = getPakistanDateParts(date);
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day) - PAKISTAN_UTC_OFFSET_MS);
 }
 
 function endOfDay(date: Date) {
-  const value = new Date(date);
-  value.setHours(23, 59, 59, 999);
-  return value;
+  return new Date(startOfDay(date).getTime() + 24 * 60 * 60 * 1000 - 1);
 }
 
 function addDays(date: Date, days: number) {
   const value = new Date(date);
-  value.setDate(value.getDate() + days);
+  value.setUTCDate(value.getUTCDate() + days);
   return value;
 }
 
 function addMonths(date: Date, months: number) {
   const value = new Date(date);
-  value.setMonth(value.getMonth() + months);
+  value.setUTCMonth(value.getUTCMonth() + months);
   return value;
 }
 
 function addYears(date: Date, years: number) {
   const value = new Date(date);
-  value.setFullYear(value.getFullYear() + years);
+  value.setUTCFullYear(value.getUTCFullYear() + years);
   return value;
+}
+
+function getPakistanDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: REPORT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+    second: Number(values.second)
+  };
+}
+
+function getPakistanDateKey(date: Date) {
+  const parts = getPakistanDateParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function getPakistanHour(date: Date) {
+  return getPakistanDateParts(date).hour;
+}
+
+function getPakistanWeekdayIndex(date: Date) {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: REPORT_TIME_ZONE, weekday: "short" }).format(date);
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+}
+
+function formatPakistanDate(date: Date, options: Intl.DateTimeFormatOptions) {
+  return new Intl.DateTimeFormat("en-PK", { ...options, timeZone: REPORT_TIME_ZONE }).format(date);
+}
+
+function startOfPakistanMonth(date: Date) {
+  const parts = getPakistanDateParts(date);
+  return new Date(Date.UTC(parts.year, parts.month - 1, 1) - PAKISTAN_UTC_OFFSET_MS);
 }
 
 function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
@@ -78,7 +123,7 @@ function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
       preset: query.preset,
       start,
       end,
-      label: `${start.toLocaleDateString("en-PK")} to ${end.toLocaleDateString("en-PK")}`
+      label: `${formatPakistanDate(start, { dateStyle: "medium" })} to ${formatPakistanDate(end, { dateStyle: "medium" })}`
     };
   }
 
@@ -101,20 +146,21 @@ function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
       };
     }
     case "month": {
-      const monthDate = query.monthKey ? new Date(`${query.monthKey}-01T00:00:00`) : now;
-      const start = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
-      const end = query.monthKey ? endOfDay(addDays(addMonths(start, 1), -1)) : now;
+      const monthDate = query.monthKey ? new Date(`${query.monthKey}-01T00:00:00Z`) : now;
+      const start = startOfPakistanMonth(monthDate);
+      const end = query.monthKey ? new Date(addMonths(start, 1).getTime() - 1) : now;
       return {
         preset: query.preset,
         start,
         end,
         label: query.monthKey
-          ? new Intl.DateTimeFormat("en-PK", { month: "long", year: "numeric" }).format(start)
+          ? formatPakistanDate(start, { month: "long", year: "numeric" })
           : "This month"
       };
     }
     case "year": {
-      const start = new Date(now.getFullYear(), 0, 1);
+      const parts = getPakistanDateParts(now);
+      const start = new Date(Date.UTC(parts.year, 0, 1) - PAKISTAN_UTC_OFFSET_MS);
       return {
         preset: query.preset,
         start,
@@ -862,47 +908,50 @@ function buildSalesSeries(orders: Array<{ placedAt: Date; totalAmount: Prisma.De
     }
 
     for (const order of orders) {
-      const bucket = ensureBucket(String(order.placedAt.getHours()), `${order.placedAt.getHours().toString().padStart(2, "0")}:00`, order.placedAt.getHours());
+      const hour = getPakistanHour(order.placedAt);
+      const bucket = ensureBucket(String(hour), `${hour.toString().padStart(2, "0")}:00`, hour);
       bucket.revenue += Number(order.totalAmount);
       bucket.orders += 1;
     }
   } else if (durationDays <= 45) {
     for (let cursor = startOfDay(start); cursor <= end; cursor = addDays(cursor, 1)) {
-      const key = cursor.toISOString().slice(0, 10);
-      ensureBucket(key, new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(cursor), cursor.getTime());
+      const key = getPakistanDateKey(cursor);
+      ensureBucket(key, formatPakistanDate(cursor, { month: "short", day: "numeric" }), cursor.getTime());
     }
 
     for (const order of orders) {
-      const key = order.placedAt.toISOString().slice(0, 10);
+      const key = getPakistanDateKey(order.placedAt);
       const sortKey = startOfDay(order.placedAt).getTime();
-      const bucket = ensureBucket(key, new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(order.placedAt), sortKey);
+      const bucket = ensureBucket(key, formatPakistanDate(order.placedAt, { month: "short", day: "numeric" }), sortKey);
       bucket.revenue += Number(order.totalAmount);
       bucket.orders += 1;
     }
   } else if (durationDays <= 180) {
     for (let cursor = startOfDay(start); cursor <= end; cursor = addDays(cursor, 7)) {
-      const key = cursor.toISOString().slice(0, 10);
-      ensureBucket(key, `Week of ${new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(cursor)}`, cursor.getTime());
+      const key = getPakistanDateKey(cursor);
+      ensureBucket(key, `Week of ${formatPakistanDate(cursor, { month: "short", day: "numeric" })}`, cursor.getTime());
     }
 
     for (const order of orders) {
       const diffDays = Math.floor((startOfDay(order.placedAt).getTime() - startOfDay(start).getTime()) / (1000 * 60 * 60 * 24));
       const bucketStart = addDays(startOfDay(start), Math.floor(diffDays / 7) * 7);
-      const key = bucketStart.toISOString().slice(0, 10);
-      const bucket = ensureBucket(key, `Week of ${new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric" }).format(bucketStart)}`, bucketStart.getTime());
+      const key = getPakistanDateKey(bucketStart);
+      const bucket = ensureBucket(key, `Week of ${formatPakistanDate(bucketStart, { month: "short", day: "numeric" })}`, bucketStart.getTime());
       bucket.revenue += Number(order.totalAmount);
       bucket.orders += 1;
     }
   } else {
-    for (let cursor = new Date(start.getFullYear(), start.getMonth(), 1); cursor <= end; cursor = addMonths(cursor, 1)) {
-      const key = `${cursor.getFullYear()}-${cursor.getMonth()}`;
-      ensureBucket(key, new Intl.DateTimeFormat("en-PK", { month: "short", year: "numeric" }).format(cursor), cursor.getTime());
+    for (let cursor = startOfPakistanMonth(start); cursor <= end; cursor = addMonths(cursor, 1)) {
+      const parts = getPakistanDateParts(cursor);
+      const key = `${parts.year}-${parts.month}`;
+      ensureBucket(key, formatPakistanDate(cursor, { month: "short", year: "numeric" }), cursor.getTime());
     }
 
     for (const order of orders) {
-      const key = `${order.placedAt.getFullYear()}-${order.placedAt.getMonth()}`;
-      const sortKey = new Date(order.placedAt.getFullYear(), order.placedAt.getMonth(), 1).getTime();
-      const bucket = ensureBucket(key, new Intl.DateTimeFormat("en-PK", { month: "short", year: "numeric" }).format(order.placedAt), sortKey);
+      const parts = getPakistanDateParts(order.placedAt);
+      const key = `${parts.year}-${parts.month}`;
+      const sortKey = startOfPakistanMonth(order.placedAt).getTime();
+      const bucket = ensureBucket(key, formatPakistanDate(order.placedAt, { month: "short", year: "numeric" }), sortKey);
       bucket.revenue += Number(order.totalAmount);
       bucket.orders += 1;
     }
@@ -995,8 +1044,10 @@ router.get("/dashboard", async (req, res, next) => {
       const serviceBreakdown = getServiceBreakdown(order.serviceType);
       const paymentKey = order.paymentMethod;
       const branchKey = order.branch?.name ?? "Unknown branch";
-      const weekdayKey = String(order.placedAt.getDay());
-      const hourKey = String(order.placedAt.getHours());
+      const weekdayIndex = getPakistanWeekdayIndex(order.placedAt);
+      const hour = getPakistanHour(order.placedAt);
+      const weekdayKey = String(weekdayIndex);
+      const hourKey = String(hour);
 
       for (const [map, key, label] of [
         [breakdownMaps.channels, channelKey, channelKey],
@@ -1011,20 +1062,20 @@ router.get("/dashboard", async (req, res, next) => {
       }
 
       const weekdayEntry = breakdownMaps.weekdays.get(weekdayKey) ?? {
-        label: weekdayLabels[order.placedAt.getDay()] ?? "Unknown",
+        label: weekdayLabels[weekdayIndex] ?? "Unknown",
         count: 0,
         revenue: 0,
-        sort: order.placedAt.getDay()
+        sort: weekdayIndex
       };
       weekdayEntry.count += 1;
       weekdayEntry.revenue += orderRevenue;
       breakdownMaps.weekdays.set(weekdayKey, weekdayEntry);
 
       const hourEntry = breakdownMaps.hours.get(hourKey) ?? {
-        label: `${order.placedAt.getHours().toString().padStart(2, "0")}:00`,
+        label: `${hour.toString().padStart(2, "0")}:00`,
         count: 0,
         revenue: 0,
-        sort: order.placedAt.getHours()
+        sort: hour
       };
       hourEntry.count += 1;
       hourEntry.revenue += orderRevenue;

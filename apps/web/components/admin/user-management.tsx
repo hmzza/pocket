@@ -41,6 +41,7 @@ const roleOptions: Array<{ value: UserFormState["roleCode"]; label: string; desc
 function formatRelativeDate(value: string) {
   const date = new Date(value);
   return new Intl.DateTimeFormat("en-PK", {
+    timeZone: "Asia/Karachi",
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);

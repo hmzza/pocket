@@ -95,7 +95,7 @@ export default function AdminCustomersPage() {
                       <span className="text-pocket-navy/60">Last order</span>
                       <span className="font-medium text-pocket-navy">
                         {customer.lastOrderDate
-                          ? new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric", year: "numeric" }).format(new Date(customer.lastOrderDate))
+                          ? new Intl.DateTimeFormat("en-PK", { timeZone: "Asia/Karachi", month: "short", day: "numeric", year: "numeric" }).format(new Date(customer.lastOrderDate))
                           : "No orders yet"}
                       </span>
                     </div>

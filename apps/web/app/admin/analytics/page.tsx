@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard } from "@/lib/admin-client";
 import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
-import { formatCompactCurrency, formatCompactNumber } from "@/lib/utils";
+import { formatCompactCurrency, formatCompactNumber, toPakistanDateIso } from "@/lib/utils";
 
 function Kpi({ label, value, helper }: { label: string; value: string; helper: string }) {
   return <Card className="p-5"><p className="text-xs font-semibold uppercase tracking-[0.22em] text-pocket-orange">{label}</p><p className="mt-3 text-2xl font-black text-pocket-navy">{value}</p><p className="mt-1 text-sm text-pocket-navy/60">{helper}</p></Card>;
@@ -50,8 +50,8 @@ export default function BusinessAnalyticsPage() {
     const params = period === "custom"
       ? {
           preset: period,
-          start: new Date(`${startDate}T00:00:00`).toISOString(),
-          end: new Date(`${endDate}T23:59:59`).toISOString(),
+          start: toPakistanDateIso(startDate),
+          end: toPakistanDateIso(endDate, true),
           segment
         }
       : { preset: period, segment };
@@ -77,10 +77,12 @@ export default function BusinessAnalyticsPage() {
   const repeatRate = dashboard?.summary.activeCustomers ? (dashboard.summary.repeatCustomers / dashboard.summary.activeCustomers) * 100 : 0;
   const heatmapHours = useMemo(() => {
     const byHour = new Map((dashboard?.breakdowns.hours ?? []).map((entry) => [entry.label, entry.count]));
-    return Array.from({ length: 18 }, (_, index) => {
-      const hour = index + 6;
-      const label = `${String(hour).padStart(2, "0")}:00`;
-      return { label, value: byHour.get(label) ?? 0 };
+    const businessHours = [12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1];
+    return businessHours.map((hour) => {
+      const key = `${String(hour).padStart(2, "0")}:00`;
+      const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+      const suffix = hour < 12 ? "AM" : "PM";
+      return { label: `${displayHour}:00 ${suffix}`, value: byHour.get(key) ?? 0 };
     });
   }, [dashboard]);
 
@@ -119,7 +121,7 @@ export default function BusinessAnalyticsPage() {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-2">
-              <BISection title="Hourly heatmap" description="Busiest hours by order count. Darker cells indicate more demand."><BIHeatmap entries={heatmapHours} /></BISection>
+              <BISection title="Hourly heatmap" description="Pakistan time · 12:30 PM–11:59 PM weekdays, extending to 1:00 AM on Friday and Saturday."><BIHeatmap entries={heatmapHours} /></BISection>
               <BISection title="Sales by day of week" description="Use this pattern to plan staffing and prep levels."><BIBarList entries={dashboard.breakdowns.weekdays.map((entry) => ({ label: entry.label, value: entry.revenue, detail: `${entry.count} orders` }))} formatValue={formatCompactCurrency} /></BISection>
             </div>
 

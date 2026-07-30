@@ -171,8 +171,8 @@ function formatServiceType(value: string) {
 function formatReceiptDateTime(value: string) {
   const date = new Date(value);
   return {
-    date: new Intl.DateTimeFormat("en-PK", { day: "2-digit", month: "short", year: "numeric" }).format(date),
-    time: new Intl.DateTimeFormat("en-PK", { hour: "2-digit", minute: "2-digit" }).format(date)
+    date: new Intl.DateTimeFormat("en-PK", { timeZone: "Asia/Karachi", day: "2-digit", month: "short", year: "numeric" }).format(date),
+    time: new Intl.DateTimeFormat("en-PK", { timeZone: "Asia/Karachi", hour: "2-digit", minute: "2-digit" }).format(date)
   };
 }
 

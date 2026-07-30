@@ -363,6 +363,7 @@ export function OrderManagement() {
                     <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-pocket-orange">{order.channel.replaceAll("_", " ")}</p>
                     <p className="mt-1 text-xs font-medium uppercase tracking-wide text-pocket-navy/40">
                       {new Intl.DateTimeFormat("en-PK", {
+                        timeZone: "Asia/Karachi",
                         month: "short",
                         day: "numeric",
                         hour: "numeric",

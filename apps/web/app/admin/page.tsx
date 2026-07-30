@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard, fetchAdminExpenses } from "@/lib/admin-client";
 import type { AdminExpenseData, AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
-import { cn, formatCompactCurrency, formatCompactNumber } from "@/lib/utils";
+import { cn, formatCompactCurrency, formatCompactNumber, toPakistanDateIso } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" }, { value: "7d", label: "7 Days" }, { value: "30d", label: "30 Days" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }, { value: "custom", label: "Custom" }
@@ -38,7 +38,7 @@ export default function AdminPage() {
   useEffect(() => {
     if (preset === "custom" && (!startDate || !endDate)) return;
     let cancelled = false;
-    const params = preset === "custom" ? { preset, start: new Date(`${startDate}T00:00:00`).toISOString(), end: new Date(`${endDate}T23:59:59`).toISOString(), segment } : { preset, segment };
+    const params = preset === "custom" ? { preset, start: toPakistanDateIso(startDate), end: toPakistanDateIso(endDate, true), segment } : { preset, segment };
     setLoading(true);
     Promise.all([fetchAdminDashboard(params), fetchAdminExpenses(preset === "custom" ? { preset, start: params.start, end: params.end } : { preset })])
       .then(([nextDashboard, nextExpenses]) => { if (!cancelled) { setDashboard(nextDashboard); setExpenses(nextExpenses); } })

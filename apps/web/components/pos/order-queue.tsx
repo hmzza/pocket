@@ -28,6 +28,7 @@ const scopeOptions: Array<{ value: QueueScope; label: string }> = [
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-PK", {
+    timeZone: "Asia/Karachi",
     day: "numeric",
     month: "short",
     hour: "numeric",
