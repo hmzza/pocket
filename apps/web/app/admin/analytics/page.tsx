@@ -19,7 +19,7 @@ function Kpi({ label, value, helper }: { label: string; value: string; helper: s
 const periodOptions: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" },
   { value: "7d", label: "1 Week" },
-  { value: "month", label: "1 Month" },
+  { value: "month", label: "This Month" },
   { value: "custom", label: "Custom" }
 ];
 
@@ -88,7 +88,7 @@ export default function BusinessAnalyticsPage() {
     });
   }, [dashboard]);
 
-  const selectedPeriodLabel = period === "today" ? "Today" : period === "7d" ? "1 week" : period === "month" ? "1 month" : period === "custom" && startDate && endDate ? `${startDate} to ${endDate}` : "Custom range";
+  const selectedPeriodLabel = period === "today" ? "Today" : period === "7d" ? "1 week" : period === "month" ? "This month" : period === "custom" && startDate && endDate ? `${startDate} to ${endDate}` : "Custom range";
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
