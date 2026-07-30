@@ -49,16 +49,16 @@ export function BIHeatmap({ entries }: { entries: BIEntry[] }) {
   const max = Math.max(...entries.map((entry) => entry.value), 1);
 
   return (
-    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-9">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
       {entries.map((entry) => {
         const intensity = entry.value / max;
         return (
           <div
             key={entry.label}
-            className="rounded-2xl border border-pocket-orange/10 p-4"
+            className="min-w-0 overflow-hidden rounded-2xl border border-pocket-orange/10 p-3 sm:p-4"
             style={{ backgroundColor: `rgba(234, 88, 12, ${0.06 + intensity * 0.8})` }}
           >
-            <p className={cn("text-xs font-bold uppercase tracking-[0.16em]", intensity > 0.55 ? "text-white/80" : "text-pocket-navy/55")}>{entry.label}</p>
+            <p className={cn("truncate text-[11px] font-bold uppercase tracking-[0.1em] sm:text-xs", intensity > 0.55 ? "text-white/80" : "text-pocket-navy/55")}>{entry.label}</p>
             <p className={cn("mt-3 text-2xl font-black", intensity > 0.55 ? "text-white" : "text-pocket-navy")}>{entry.value}</p>
             <p className={cn("mt-1 text-xs", intensity > 0.55 ? "text-white/70" : "text-pocket-navy/50")}>orders</p>
           </div>
