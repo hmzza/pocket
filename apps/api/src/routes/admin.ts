@@ -840,8 +840,16 @@ function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda"): Prisma
 }
 
 function getServiceBreakdown(value: ServiceType | string) {
-  if (value === ServiceType.INSHOP || value === ServiceType.TAKEAWAY || value === ServiceType.DINE_IN) {
-    return { key: "INSHOP", label: "Dine-in" };
+  if (value === ServiceType.INSHOP) {
+    return { key: "INSHOP", label: "Inshop" };
+  }
+
+  if (value === ServiceType.TAKEAWAY) {
+    return { key: "TAKEAWAY", label: "Takeaway" };
+  }
+
+  if (value === ServiceType.DINE_IN) {
+    return { key: "DINE_IN", label: "Dine-in" };
   }
 
   if (value === ServiceType.FOODPANDA) {
