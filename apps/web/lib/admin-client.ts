@@ -92,6 +92,8 @@ export async function fetchAdminProducts() {
     description: product.description,
     ingredients: product.ingredients ?? [],
     basePrice: Number(product.branchPricing?.[0]?.price ?? product.basePrice),
+    foodPackagingCost: product.foodPackagingCost == null ? null : Number(product.foodPackagingCost),
+    costSettingsUpdatedAt: product.costSettingsUpdatedAt ?? null,
     calories: product.calories ?? undefined,
     featured: Boolean(product.featured),
     bestSeller: Boolean(product.bestSeller),
@@ -260,6 +262,53 @@ export async function updateAdminProduct(productId: string, payload: Record<stri
     body: JSON.stringify(payload)
   });
   return data.product;
+}
+
+export async function updateAdminProductCostSettings(productId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ product: any }>(`/api/admin/products/${productId}/cost-settings`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.product;
+}
+
+export async function downloadAdminProductAnalyticsExport(params: {
+  preset: AdminRangePreset;
+  start?: string;
+  end?: string;
+  category?: string;
+  search?: string;
+  sort?: "revenue" | "profit" | "units" | "margin";
+}) {
+  const searchParams = new URLSearchParams({ preset: params.preset });
+  if (params.start) searchParams.set("start", params.start);
+  if (params.end) searchParams.set("end", params.end);
+  if (params.category && params.category !== "all") searchParams.set("category", params.category);
+  if (params.search) searchParams.set("search", params.search);
+  if (params.sort) searchParams.set("sort", params.sort);
+
+  const response = await fetch(`${API_URL}/api/admin/products/analytics/export?${searchParams.toString()}`, { credentials: "include" });
+  if (!response.ok) {
+    let message = "Product analytics export failed.";
+    try {
+      const payload = await response.json();
+      message = payload.message ?? message;
+    } catch {}
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^\"]+)"?/i);
+  const fileName = match?.[1] ?? "pocket-product-analytics.xlsx";
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 export async function deleteAdminProduct(productId: string) {

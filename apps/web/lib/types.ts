@@ -563,6 +563,8 @@ export type AdminProduct = {
   description: string;
   ingredients: string[];
   basePrice: number;
+  foodPackagingCost?: number | null;
+  costSettingsUpdatedAt?: string | null;
   calories?: number;
   featured: boolean;
   bestSeller: boolean;

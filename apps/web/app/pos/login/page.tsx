@@ -40,7 +40,7 @@ export default function PosLoginPage() {
   }
 
   return (
-    <div className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.2),_transparent_25%),linear-gradient(135deg,_#111827,_#0f172a)] px-4">
+    <div className="pos-terminal grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.2),_transparent_25%),linear-gradient(135deg,_#111827,_#0f172a)] px-4">
       <Card className="w-full max-w-md rounded-3xl border-white/10 bg-white/95 p-7">
         <p className="text-xs font-semibold uppercase tracking-[0.35em] text-orange-600">Pocket POS</p>
         <h1 className="mt-3 text-3xl font-black text-slate-900">Counter Login</h1>

@@ -778,12 +778,14 @@ function buildProductCostSummary(product: any) {
   const totalCost = recipeCost + packagingCost;
   const calories = recipeItems.reduce((sum, entry) => sum + entry.calories, 0);
   const salePrice = parseDecimal(product.branchPricing?.[0]?.price ?? product.basePrice);
-  const profit = salePrice - totalCost;
+  const configuredFoodPackagingCost = product.foodPackagingCost == null ? totalCost : parseDecimal(product.foodPackagingCost);
+  const profit = salePrice - configuredFoodPackagingCost;
 
   return {
     recipeCost: roundMoney(recipeCost),
     packagingCost: roundMoney(packagingCost),
-    totalCost: roundMoney(totalCost),
+    totalCost: roundMoney(configuredFoodPackagingCost),
+    foodPackagingCost: roundMoney(configuredFoodPackagingCost),
     salePrice: roundMoney(salePrice),
     grossProfit: roundMoney(profit),
     marginPercent: salePrice ? Number(((profit / salePrice) * 100).toFixed(1)) : 0,
@@ -1348,6 +1350,99 @@ router.get("/products", async (_req, res, next) => {
   }
 });
 
+const productAnalyticsExportQuerySchema = dashboardQueryBaseSchema.extend({
+  category: z.string().trim().optional(),
+  search: z.string().trim().optional(),
+  sort: z.enum(["revenue", "profit", "units", "margin"]).default("revenue")
+}).superRefine((value, context) => {
+  if (value.preset === "custom" && (!value.start || !value.end)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Custom range requires start and end dates.",
+      path: ["start"]
+    });
+  }
+});
+
+const productAnalyticsExportInclude = {
+  category: true,
+  branchPricing: true,
+  productIngredients: {
+    where: { ingredient: { isActive: true } },
+    include: { ingredient: { include: ingredientCostInclude } }
+  },
+  packagingRules: {
+    where: { packagingIngredient: { isActive: true } },
+    include: { packagingIngredient: true }
+  }
+} as const;
+
+router.get("/products/analytics/export", async (req, res, next) => {
+  try {
+    const query = productAnalyticsExportQuerySchema.parse(req.query);
+    const range = buildDashboardRange(query);
+    const [products, orders] = await Promise.all([
+      prisma.product.findMany({
+        include: productAnalyticsExportInclude,
+        orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
+      }),
+      prisma.order.findMany({
+        where: {
+          placedAt: { gte: range.start, lte: range.end },
+          ...buildAdminSegmentWhere(query.segment)
+        },
+        select: {
+          status: true,
+          items: { select: { productName: true, quantity: true } }
+        }
+      })
+    ]);
+    const unitsByProduct = new Map<string, number>();
+    for (const order of orders) {
+      if (["CANCELLED", "REFUNDED"].includes(order.status)) continue;
+      for (const item of order.items) {
+        const key = item.productName.trim().toLowerCase();
+        unitsByProduct.set(key, (unitsByProduct.get(key) ?? 0) + item.quantity);
+      }
+    }
+
+    const rows = products
+      .filter((product) => (!query.category || product.category.name === query.category) && (!query.search || product.name.toLowerCase().includes(query.search.toLowerCase())))
+      .map((product) => {
+        const quantity = unitsByProduct.get(product.name.trim().toLowerCase()) ?? 0;
+        const costSummary = buildProductCostSummary(product);
+        const revenue = costSummary.salePrice * quantity;
+        const totalFoodCost = costSummary.totalCost * quantity;
+        const grossProfit = revenue - totalFoodCost;
+        const grossMargin = revenue ? (grossProfit / revenue) * 100 : 0;
+        return {
+          "Product Name": product.name,
+          Category: product.category.name,
+          "Selling Price": costSummary.salePrice,
+          "Food & Packaging Cost": costSummary.totalCost,
+          "Quantity Sold": quantity,
+          "Revenue Generated": Number(revenue.toFixed(2)),
+          "Total Food Cost": Number(totalFoodCost.toFixed(2)),
+          "Gross Profit": Number(grossProfit.toFixed(2)),
+          "Gross Margin %": Number(grossMargin.toFixed(1)),
+          _sort: query.sort === "units" ? quantity : query.sort === "profit" ? grossProfit : query.sort === "margin" ? grossMargin : revenue
+        };
+      })
+      .sort((left, right) => right._sort - left._sort)
+      .map(({ _sort: _ignored, ...row }) => row);
+
+    const workbook = XLSX.utils.book_new();
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(workbook, sheet, "Product Analytics");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="pocket-product-analytics-${query.preset}.xlsx"`);
+    return res.send(buffer);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 const productSchema = z.object({
   categoryId: z.string().cuid(),
   slug: z.string().trim().min(1).optional(),
@@ -1380,6 +1475,12 @@ const productSchema = z.object({
     )
     .optional()
 });
+
+const productCostSettingsSchema = z.object({
+  sellingPrice: z.number().nonnegative().optional(),
+  foodPackagingCost: z.number().nonnegative().optional(),
+  isActive: z.boolean().optional()
+}).refine((value) => Object.keys(value).length > 0, "At least one cost setting is required.");
 
 function normalizeProductImages(
   images: Array<{ url: string; alt?: string; sortOrder?: number }> | undefined,
@@ -1498,6 +1599,62 @@ router.post("/products", async (req, res, next) => {
     });
 
     return res.status(201).json({ product });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/products/:id/cost-settings", async (req, res, next) => {
+  try {
+    const payload = productCostSettingsSchema.parse(req.body);
+    const product = await prisma.$transaction(async (transaction) => {
+      const updatedProduct = await transaction.product.update({
+        where: { id: req.params.id },
+        data: {
+          ...(typeof payload.sellingPrice === "number" ? { basePrice: payload.sellingPrice } : {}),
+          ...(typeof payload.foodPackagingCost === "number" ? { foodPackagingCost: payload.foodPackagingCost } : {}),
+          ...(typeof payload.isActive === "boolean" ? { isActive: payload.isActive } : {}),
+          costSettingsUpdatedAt: new Date()
+        },
+        select: {
+          id: true,
+          name: true,
+          basePrice: true,
+          foodPackagingCost: true,
+          isActive: true,
+          costSettingsUpdatedAt: true
+        }
+      });
+
+      if (typeof payload.sellingPrice === "number" || typeof payload.isActive === "boolean") {
+        await transaction.branchProduct.updateMany({
+          where: { productId: updatedProduct.id },
+          data: {
+            ...(typeof payload.sellingPrice === "number" ? { price: payload.sellingPrice } : {}),
+            ...(typeof payload.isActive === "boolean" ? { isAvailable: payload.isActive } : {})
+          }
+        });
+      }
+
+      return updatedProduct;
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "product.cost-settings.update",
+      entityType: "product",
+      entityId: product.id,
+      payload
+    });
+
+    return res.json({
+      product: {
+        ...product,
+        basePrice: parseDecimal(product.basePrice),
+        foodPackagingCost: product.foodPackagingCost == null ? null : parseDecimal(product.foodPackagingCost),
+        costSettingsUpdatedAt: product.costSettingsUpdatedAt?.toISOString() ?? null
+      }
+    });
   } catch (error) {
     return next(error);
   }

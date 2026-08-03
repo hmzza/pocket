@@ -186,6 +186,8 @@ model Product {
     ingredients      String[]
     nutritionInfo    Json?
     basePrice        Decimal            @db.Decimal(10, 2)
+    foodPackagingCost Decimal?          @db.Decimal(10, 2)
+    costSettingsUpdatedAt DateTime?
     compareAtPrice   Decimal?           @db.Decimal(10, 2)
     calories         Int?
     featured         Boolean            @default(false)

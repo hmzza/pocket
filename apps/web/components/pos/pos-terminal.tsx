@@ -790,7 +790,7 @@ export function PosTerminal() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_22%),linear-gradient(135deg,_#111827,_#1f2937_55%,_#0f172a)] px-4 py-5 text-white md:px-5">
+    <div className="pos-terminal min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_22%),linear-gradient(135deg,_#111827,_#1f2937_55%,_#0f172a)] px-4 py-5 text-white md:px-5">
       <div className="mx-auto max-w-[1680px] space-y-5">
         <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
           <div>
@@ -806,7 +806,7 @@ export function PosTerminal() {
                 void loadCatalog(nextBranchId);
               }}
               disabled={orderCompleted}
-              className="h-10 rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm"
+              className="pos-dark-field h-10 rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm"
             >
               {branches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
@@ -866,13 +866,13 @@ export function PosTerminal() {
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder="Search menu"
-                    className={splitView ? "w-full bg-transparent text-[11px] outline-none placeholder:text-white/40" : "w-full bg-transparent text-xs outline-none placeholder:text-white/40"}
+                    className={splitView ? "pos-dark-field w-full bg-transparent text-[11px] outline-none placeholder:text-white/40" : "pos-dark-field w-full bg-transparent text-xs outline-none placeholder:text-white/40"}
                   />
                 </label>
                 <select
                   value={categoryId}
                   onChange={(event) => setCategoryId(event.target.value)}
-                  className={splitView ? "h-8 rounded-2xl border border-white/10 bg-slate-950/60 px-3 text-[11px]" : "h-9 rounded-2xl border border-white/10 bg-slate-950/60 px-3 text-xs"}
+                  className={splitView ? "pos-dark-field h-8 rounded-2xl border border-white/10 bg-slate-950/60 px-3 text-[11px]" : "pos-dark-field h-9 rounded-2xl border border-white/10 bg-slate-950/60 px-3 text-xs"}
                 >
                   <option value="ALL">All categories</option>
                   {categories.map((category) => (
@@ -1249,7 +1249,7 @@ export function PosTerminal() {
                 </div>
               ))}
               <div className="grid gap-3">
-                <Input inputMode="numeric" value={productQuantity} onChange={(event) => setProductQuantity(event.target.value)} />
+                <Input className="pos-dark-field" inputMode="numeric" value={productQuantity} onChange={(event) => setProductQuantity(event.target.value)} />
               </div>
               <div className="sticky bottom-0 bg-slate-900 pt-2">
                 <Button className="w-full" onClick={confirmConfiguredProduct}>Add to Ticket</Button>

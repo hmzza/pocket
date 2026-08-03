@@ -61,3 +61,42 @@
   }
 }
 
+/* POS controls are used at speed and need stronger contrast than the general dashboard. */
+.pos-terminal input:not(.pos-dark-field),
+.pos-terminal textarea,
+.pos-terminal select:not(.pos-dark-field) {
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
+.pos-terminal input:not(.pos-dark-field)::placeholder,
+.pos-terminal textarea::placeholder {
+  color: #475569 !important;
+  opacity: 1;
+}
+
+.pos-terminal .border-slate-200 {
+  border-color: #94a3b8 !important;
+}
+
+.pos-terminal .border-slate-300 {
+  border-color: #64748b !important;
+}
+
+.pos-terminal .text-slate-400,
+.pos-terminal .text-slate-500 {
+  color: #475569 !important;
+}
+
+.pos-terminal .text-slate-600 {
+  color: #334155 !important;
+}
+
+.pos-terminal .pos-dark-field {
+  color: #f8fafc !important;
+}
+
+.pos-terminal .pos-dark-field::placeholder {
+  color: rgba(255, 255, 255, 0.72) !important;
+  opacity: 1;
+}

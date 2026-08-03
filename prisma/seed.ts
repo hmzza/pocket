@@ -17,7 +17,7 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "7");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "8");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
@@ -409,7 +409,7 @@ async function main() {
       description: "Juicy chicken with classic shawarma sauce, iceberg, carrot, cucumber, and cheese.",
       categorySlug: "shawarma",
       ingredients: ["Chicken", "Classic shawarma sauce", "Iceberg", "Carrot", "Cucumber", "Cheese"],
-      basePrice: 450,
+      basePrice: 480,
       calories: 560,
       featured: true,
       bestSeller: true,
@@ -425,7 +425,7 @@ async function main() {
       description: "Juicy chicken with spicy jalapeno sauce, iceberg, carrot, cucumber, and cheese.",
       categorySlug: "shawarma",
       ingredients: ["Chicken", "Spicy jalapeno sauce", "Iceberg", "Carrot", "Cucumber", "Cheese"],
-      basePrice: 550,
+      basePrice: 580,
       calories: 590,
       featured: true,
       bestSeller: true,
@@ -456,7 +456,7 @@ async function main() {
       description: "Crispy french fries with spicy masala.",
       categorySlug: "fries",
       ingredients: ["French fries", "Spicy masala"],
-      basePrice: 180,
+      basePrice: 280,
       calories: 360,
       featured: false,
       bestSeller: true,
@@ -471,7 +471,7 @@ async function main() {
       description: "Loaded with cheese sauce, jalapeno, olives, corn, and juicy chicken.",
       categorySlug: "fries",
       ingredients: ["French fries", "Cheese sauce", "Jalapeno", "Olives", "Corn", "Chicken"],
-      basePrice: 399,
+      basePrice: 430,
       calories: 640,
       featured: true,
       bestSeller: true,
@@ -639,7 +639,7 @@ async function main() {
       description: "Ice cream shake.",
       categorySlug: "ice-cream-shakes",
       ingredients: ["Chocolate ice cream", "Milk"],
-      basePrice: 300,
+      basePrice: 350,
       calories: 410,
       featured: true,
       bestSeller: true,
@@ -654,7 +654,7 @@ async function main() {
       description: "Ice cream shake.",
       categorySlug: "ice-cream-shakes",
       ingredients: ["Vanilla ice cream", "Milk"],
-      basePrice: 300,
+      basePrice: 350,
       calories: 390,
       featured: false,
       bestSeller: false,
@@ -669,7 +669,7 @@ async function main() {
       description: "Ice cream shake.",
       categorySlug: "ice-cream-shakes",
       ingredients: ["Mango", "Ice cream", "Milk"],
-      basePrice: 300,
+      basePrice: 350,
       calories: 400,
       featured: false,
       bestSeller: true,
@@ -684,7 +684,7 @@ async function main() {
       description: "Ice cream shake.",
       categorySlug: "ice-cream-shakes",
       ingredients: ["Oreo", "Ice cream", "Milk"],
-      basePrice: 300,
+      basePrice: 350,
       calories: 430,
       featured: false,
       bestSeller: false,
@@ -699,7 +699,7 @@ async function main() {
       description: "Ice cream shake.",
       categorySlug: "ice-cream-shakes",
       ingredients: ["Strawberry", "Ice cream", "Milk"],
-      basePrice: 300,
+      basePrice: 350,
       calories: 395,
       featured: false,
       bestSeller: false,
@@ -893,12 +893,16 @@ async function main() {
     }
 
     if (seed.slug === "loaded-fries") {
-      await prisma.addOnGroup.deleteMany({
-        where: {
-          productId: product.id,
-          name: "Extras"
-        }
+      const legacyExtrasGroup = await prisma.addOnGroup.findFirst({
+        where: { productId: product.id, name: "Extras" },
+        select: { id: true }
       });
+      if (legacyExtrasGroup) {
+        await prisma.addOnOption.updateMany({
+          where: { groupId: legacyExtrasGroup.id },
+          data: { isActive: false }
+        });
+      }
     }
 
     if (seed.slug === "thela-fries") {
@@ -928,6 +932,35 @@ async function main() {
     }
 
     products.push(product);
+  }
+
+  // Initial editable cost settings. These map the current catalog names to the
+  // supplied menu names (for example, Thela Fries is the current Theyla Fries).
+  const productCostDefaults = [
+    { slugs: ["classic-pocket"], sellingPrice: 480, foodPackagingCost: 200 },
+    { slugs: ["spicy-pocket"], sellingPrice: 580, foodPackagingCost: 205 },
+    { slugs: ["pocket-mai-rocket"], sellingPrice: 750, foodPackagingCost: 238 },
+    { slugs: ["thela-fries"], sellingPrice: 280, foodPackagingCost: 120 },
+    { slugs: ["loaded-fries"], sellingPrice: 430, foodPackagingCost: 270 },
+    { slugs: ["chocolate", "vanilla", "mango", "oreo", "strawberry"], sellingPrice: 350, foodPackagingCost: 135 },
+    { slugs: ["kiwi-passion", "strawberry-cherry", "watermelon-guava"], sellingPrice: 400, foodPackagingCost: 125 }
+  ];
+
+  for (const defaults of productCostDefaults) {
+    const matchingProducts = await prisma.product.findMany({ where: { slug: { in: defaults.slugs } }, select: { id: true } });
+    if (!matchingProducts.length) continue;
+    await prisma.product.updateMany({
+      where: { id: { in: matchingProducts.map((product) => product.id) } },
+      data: {
+        basePrice: defaults.sellingPrice,
+        foodPackagingCost: defaults.foodPackagingCost,
+        costSettingsUpdatedAt: new Date()
+      }
+    });
+    await prisma.branchProduct.updateMany({
+      where: { branchId: branch.id, productId: { in: matchingProducts.map((product) => product.id) } },
+      data: { price: defaults.sellingPrice }
+    });
   }
 
   await prisma.product.updateMany({
