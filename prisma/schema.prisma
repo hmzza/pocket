@@ -116,6 +116,7 @@ model User {
   cart          ShoppingCart?
   inventoryTransactions InventoryTransaction[] @relation("InventoryActor")
   expenses      Expense[]     @relation("ExpenseActor")
+  fixedExpenses FixedExpense[] @relation("FixedExpenseActor")
   moneyTransfers MoneyTransfer[] @relation("MoneyTransferActor")
   dailyClosings DailyClosing[] @relation("DailyClosingActor")
   loans         Loan[]        @relation("LoanActor")
@@ -143,6 +144,7 @@ model Branch {
   orders         Order[]
   inventories    BranchInventory[]
   expenses       Expense[]
+  fixedExpenses  FixedExpense[]
   moneyTransfers MoneyTransfer[]
   dailyClosings  DailyClosing[]
   loans          Loan[]
@@ -555,6 +557,42 @@ model Expense {
   updatedAt     DateTime @updatedAt
   branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   createdBy     User?    @relation("ExpenseActor", fields: [createdById], references: [id], onDelete: SetNull)
+  fixedExpenseOccurrence FixedExpenseOccurrence?
+}
+
+model FixedExpense {
+  id          String   @id @default(cuid())
+  branchId    String
+  createdById String?
+  name        String
+  category    String
+  monthlyAmount Decimal @db.Decimal(10, 2)
+  dueDay      Int
+  autoRepeat  Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy   User?    @relation("FixedExpenseActor", fields: [createdById], references: [id], onDelete: SetNull)
+  occurrences FixedExpenseOccurrence[]
+
+  @@index([branchId, isActive])
+}
+
+model FixedExpenseOccurrence {
+  id            String      @id @default(cuid())
+  fixedExpenseId String
+  expenseId     String      @unique
+  monthKey      String
+  status        String      @default("UNPAID")
+  paidAt        DateTime?
+  fixedExpense  FixedExpense @relation(fields: [fixedExpenseId], references: [id], onDelete: Cascade)
+  expense       Expense      @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([fixedExpenseId, monthKey])
+  @@index([monthKey, status])
 }
 
 model MoneyTransfer {

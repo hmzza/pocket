@@ -3,6 +3,7 @@
 import type {
   AdminCustomer,
   AdminExpenseData,
+  AdminFixedExpenseData,
   AdminDailyClosingData,
   AdminInventoryForecast,
   AdminRecipeData,
@@ -922,6 +923,81 @@ export async function deleteAdminExpense(expenseId: string) {
   await adminFetch(`/api/admin/expenses/${expenseId}`, {
     method: "DELETE"
   });
+}
+
+export async function fetchAdminFixedExpenses(monthKey?: string): Promise<AdminFixedExpenseData> {
+  const suffix = monthKey ? `?monthKey=${encodeURIComponent(monthKey)}` : "";
+  const data = await adminFetch<any>(`/api/admin/fixed-expenses${suffix}`);
+  return {
+    monthKey: data.monthKey,
+    monthLabel: data.monthLabel,
+    branches: data.branches.map((branch: any) => ({
+      id: branch.id,
+      slug: branch.slug,
+      name: branch.name,
+      city: branch.city,
+      addressLine1: branch.addressLine1,
+      phone: branch.phone,
+      deliveryFee: Number(branch.deliveryFee)
+    })),
+    summary: {
+      totalFixedExpenses: Number(data.summary.totalFixedExpenses),
+      paid: Number(data.summary.paid),
+      remaining: Number(data.summary.remaining),
+      upcomingDue: Number(data.summary.upcomingDue)
+    },
+    fixedExpenses: data.fixedExpenses.map((expense: any) => ({
+      id: expense.id,
+      branchId: expense.branchId,
+      branchName: expense.branchName,
+      name: expense.name,
+      category: expense.category,
+      monthlyAmount: Number(expense.monthlyAmount),
+      dueDay: Number(expense.dueDay),
+      autoRepeat: Boolean(expense.autoRepeat),
+      isActive: Boolean(expense.isActive),
+      currentMonth: expense.currentMonth
+        ? {
+            id: expense.currentMonth.id,
+            expenseId: expense.currentMonth.expenseId,
+            status: expense.currentMonth.status,
+            paidAt: expense.currentMonth.paidAt ?? null,
+            expenseDate: expense.currentMonth.expenseDate
+          }
+        : null
+    }))
+  };
+}
+
+export async function generateAdminFixedExpenses(monthKey?: string) {
+  return adminFetch<{ monthKey: string; generated: number }>("/api/admin/fixed-expenses/generate", {
+    method: "POST",
+    body: JSON.stringify(monthKey ? { monthKey } : {})
+  });
+}
+
+export async function createAdminFixedExpense(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ fixedExpense: any }>("/api/admin/fixed-expenses", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.fixedExpense;
+}
+
+export async function updateAdminFixedExpense(fixedExpenseId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ fixedExpense: any }>(`/api/admin/fixed-expenses/${fixedExpenseId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.fixedExpense;
+}
+
+export async function updateAdminFixedExpenseOccurrence(occurrenceId: string, status: "PAID" | "UNPAID") {
+  const data = await adminFetch<{ occurrence: any }>(`/api/admin/fixed-expenses/occurrences/${occurrenceId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+  return data.occurrence;
 }
 
 export async function downloadAdminExpenseExport(params?: {

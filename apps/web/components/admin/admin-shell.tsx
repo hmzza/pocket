@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Banknote, BarChart3, Bike, Boxes, HandCoins, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
+import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, HandCoins, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ const links: Array<{
 }> = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/analytics", label: "Business Analytics", icon: BarChart3 },
+  { href: "/admin/analytics/products", label: "Product Analytics", icon: ChartNoAxesCombined },
   { href: "/admin/foodpanda", label: "Foodpanda", icon: Bike },
   { href: "/admin/health", label: "Business Health", icon: Activity },
   { href: "/admin/products", label: "Products", icon: Boxes },
@@ -25,11 +26,12 @@ const links: Array<{
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt },
+  { href: "/admin/fixed-expenses", label: "Fixed Expenses", icon: Receipt },
   { href: "/admin/loans", label: "Loans", icon: HandCoins },
   { href: "/admin/finances", label: "Finances", icon: Banknote }
 ];
 
-const staffRestrictedRoutes = ["/admin/analytics", "/admin/foodpanda", "/admin/health", "/admin/products", "/admin/website", "/admin/users", "/admin/loans", "/admin/finances"];
+const staffRestrictedRoutes = ["/admin/analytics", "/admin/foodpanda", "/admin/health", "/admin/products", "/admin/website", "/admin/users", "/admin/loans", "/admin/finances", "/admin/fixed-expenses"];
 
 type AdminSession = Awaited<ReturnType<typeof fetchAdminSession>>;
 

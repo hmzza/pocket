@@ -3654,40 +3654,9 @@ router.get("/orders", async (req, res, next) => {
       })
       .parse(req.query);
 
-    const now = new Date();
-    let rangeStart: Date;
-    let rangeEnd: Date;
-
-    switch (query.preset) {
-      case "today":
-        rangeStart = startOfDay(now);
-        rangeEnd = now;
-        break;
-      case "7d":
-        rangeStart = startOfDay(addDays(now, -6));
-        rangeEnd = now;
-        break;
-      case "30d":
-        rangeStart = startOfDay(addDays(now, -29));
-        rangeEnd = now;
-        break;
-      case "month":
-        rangeStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        rangeEnd = now;
-        break;
-      case "year":
-        rangeStart = new Date(now.getFullYear(), 0, 1);
-        rangeEnd = now;
-        break;
-      case "custom":
-        rangeStart = new Date(query.start!);
-        rangeEnd = new Date(query.end!);
-        break;
-      default:
-        rangeStart = startOfDay(now);
-        rangeEnd = now;
-        break;
-    }
+    const reportRange = buildDashboardRange(query);
+    const rangeStart = reportRange.start;
+    const rangeEnd = reportRange.end;
 
     const orders = await prisma.order.findMany({
       where: {
@@ -4131,6 +4100,45 @@ const expenseSchema = z.object({
   notes: z.string().max(500).optional().or(z.literal(""))
 });
 
+const fixedExpenseSchema = z.object({
+  branchId: z.string().cuid(),
+  name: z.string().trim().min(2).max(120),
+  category: z.string().trim().min(2).max(60),
+  monthlyAmount: z.number().positive(),
+  dueDay: z.number().int().min(1).max(31),
+  autoRepeat: z.boolean().default(true),
+  isActive: z.boolean().default(true)
+});
+
+const fixedExpenseMonthSchema = z.object({
+  monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional()
+});
+
+const fixedExpenseOccurrenceSchema = z.object({
+  status: z.enum(["PAID", "UNPAID"])
+});
+
+function getPakistanMonthKey(date = new Date()) {
+  const parts = getPakistanDateParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}`;
+}
+
+function fixedExpenseDueDate(monthKey: string, dueDay: number) {
+  const [yearPart, monthPart] = monthKey.split("-");
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const day = Math.min(dueDay, daysInMonth);
+  return new Date(Date.UTC(year, month - 1, day) - PAKISTAN_UTC_OFFSET_MS);
+}
+
+function fixedExpenseMonthLabel(monthKey: string) {
+  const [yearPart, monthPart] = monthKey.split("-");
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  return new Intl.DateTimeFormat("en-PK", { month: "long", year: "numeric", timeZone: REPORT_TIME_ZONE }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
 function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: ReturnType<typeof buildDashboardRange>): Prisma.ExpenseWhereInput {
   return {
     expenseDate: {
@@ -4151,6 +4159,163 @@ function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: Ret
       : {})
   };
 }
+
+router.get("/fixed-expenses", async (req, res, next) => {
+  try {
+    const query = fixedExpenseMonthSchema.parse(req.query);
+    const monthKey = query.monthKey ?? getPakistanMonthKey();
+    const [branches, fixedExpenses] = await Promise.all([
+      prisma.branch.findMany({
+        where: { isActive: true },
+        select: { id: true, slug: true, name: true, city: true, addressLine1: true, phone: true, deliveryFee: true },
+        orderBy: { name: "asc" }
+      }),
+      prisma.fixedExpense.findMany({
+        include: {
+          branch: true,
+          occurrences: {
+            where: { monthKey },
+            include: { expense: true },
+            take: 1
+          }
+        },
+        orderBy: [{ isActive: "desc" }, { dueDay: "asc" }, { name: "asc" }]
+      })
+    ]);
+
+    const activeExpenses = fixedExpenses.filter((fixedExpense) => fixedExpense.isActive);
+    const totalFixedExpenses = activeExpenses.reduce((sum, fixedExpense) => sum + parseDecimal(fixedExpense.monthlyAmount), 0);
+    const paid = activeExpenses.reduce((sum, fixedExpense) => sum + (fixedExpense.occurrences[0]?.status === "PAID" ? parseDecimal(fixedExpense.monthlyAmount) : 0), 0);
+    const today = startOfDay(new Date());
+    const upcomingDue = activeExpenses.reduce((sum, fixedExpense) => {
+      const occurrence = fixedExpense.occurrences[0];
+      const dueDate = fixedExpenseDueDate(monthKey, fixedExpense.dueDay);
+      return !occurrence || (occurrence.status !== "PAID" && dueDate >= today) ? sum + parseDecimal(fixedExpense.monthlyAmount) : sum;
+    }, 0);
+
+    return res.json({
+      monthKey,
+      monthLabel: fixedExpenseMonthLabel(monthKey),
+      branches: branches.map((branch) => ({ ...branch, deliveryFee: parseDecimal(branch.deliveryFee) })),
+      summary: {
+        totalFixedExpenses: Number(totalFixedExpenses.toFixed(2)),
+        paid: Number(paid.toFixed(2)),
+        remaining: Number((totalFixedExpenses - paid).toFixed(2)),
+        upcomingDue: Number(upcomingDue.toFixed(2))
+      },
+      fixedExpenses: fixedExpenses.map((fixedExpense) => {
+        const occurrence = fixedExpense.occurrences[0];
+        return {
+          id: fixedExpense.id,
+          branchId: fixedExpense.branchId,
+          branchName: fixedExpense.branch.name,
+          name: fixedExpense.name,
+          category: fixedExpense.category,
+          monthlyAmount: parseDecimal(fixedExpense.monthlyAmount),
+          dueDay: fixedExpense.dueDay,
+          autoRepeat: fixedExpense.autoRepeat,
+          isActive: fixedExpense.isActive,
+          currentMonth: occurrence
+            ? {
+                id: occurrence.id,
+                expenseId: occurrence.expenseId,
+                status: occurrence.status,
+                paidAt: occurrence.paidAt?.toISOString() ?? null,
+                expenseDate: occurrence.expense.expenseDate.toISOString()
+              }
+            : null
+        };
+      })
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/fixed-expenses/generate", async (req, res, next) => {
+  try {
+    const query = fixedExpenseMonthSchema.parse(req.body ?? {});
+    const monthKey = query.monthKey ?? getPakistanMonthKey();
+    const fixedExpenses = await prisma.fixedExpense.findMany({ where: { isActive: true, autoRepeat: true } });
+    let generated = 0;
+
+    await prisma.$transaction(async (transaction) => {
+      for (const fixedExpense of fixedExpenses) {
+        const existing = await transaction.fixedExpenseOccurrence.findUnique({
+          where: { fixedExpenseId_monthKey: { fixedExpenseId: fixedExpense.id, monthKey } }
+        });
+        if (existing) continue;
+
+        const expense = await transaction.expense.create({
+          data: {
+            branchId: fixedExpense.branchId,
+            createdById: req.user!.id,
+            title: fixedExpense.name,
+            category: fixedExpense.category,
+            amount: fixedExpense.monthlyAmount,
+            paymentSource: "CASH",
+            expenseDate: fixedExpenseDueDate(monthKey, fixedExpense.dueDay),
+            notes: `Generated from fixed expense for ${monthKey}.`
+          }
+        });
+        await transaction.fixedExpenseOccurrence.create({
+          data: { fixedExpenseId: fixedExpense.id, expenseId: expense.id, monthKey }
+        });
+        generated += 1;
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "fixed-expense.generate",
+      entityType: "fixed-expense",
+      entityId: monthKey,
+      payload: { monthKey, generated }
+    });
+
+    return res.json({ monthKey, generated });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/fixed-expenses", async (req, res, next) => {
+  try {
+    const payload = fixedExpenseSchema.parse(req.body);
+    const fixedExpense = await prisma.fixedExpense.create({
+      data: { ...payload, createdById: req.user!.id }
+    });
+    return res.status(201).json({ fixedExpense });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/fixed-expenses/occurrences/:id", async (req, res, next) => {
+  try {
+    const payload = fixedExpenseOccurrenceSchema.parse(req.body);
+    const occurrence = await prisma.fixedExpenseOccurrence.update({
+      where: { id: req.params.id },
+      data: { status: payload.status, paidAt: payload.status === "PAID" ? new Date() : null }
+    });
+    return res.json({ occurrence });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/fixed-expenses/:id", async (req, res, next) => {
+  try {
+    const payload = fixedExpenseSchema.partial().parse(req.body);
+    const fixedExpense = await prisma.fixedExpense.update({
+      where: { id: req.params.id },
+      data: { ...payload, ...(payload.name ? { name: payload.name.trim() } : {}), ...(payload.category ? { category: payload.category.trim() } : {}) }
+    });
+    return res.json({ fixedExpense });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 router.get("/expenses", async (req, res, next) => {
   try {

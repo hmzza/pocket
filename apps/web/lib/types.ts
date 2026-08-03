@@ -358,6 +358,38 @@ export type AdminExpenseData = {
   expenses: AdminExpense[];
 };
 
+export type AdminFixedExpense = {
+  id: string;
+  branchId: string;
+  branchName: string;
+  name: string;
+  category: string;
+  monthlyAmount: number;
+  dueDay: number;
+  autoRepeat: boolean;
+  isActive: boolean;
+  currentMonth: {
+    id: string;
+    expenseId: string;
+    status: "PAID" | "UNPAID";
+    paidAt?: string | null;
+    expenseDate: string;
+  } | null;
+};
+
+export type AdminFixedExpenseData = {
+  monthKey: string;
+  monthLabel: string;
+  branches: Branch[];
+  summary: {
+    totalFixedExpenses: number;
+    paid: number;
+    remaining: number;
+    upcomingDue: number;
+  };
+  fixedExpenses: AdminFixedExpense[];
+};
+
 export type MoneySource = "CASH" | "EASYPAISA" | "JAZZCASH";
 
 export type AdminLoanRepayment = {
