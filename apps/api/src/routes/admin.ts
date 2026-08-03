@@ -1393,21 +1393,72 @@ router.get("/products/analytics/export", async (req, res, next) => {
         },
         select: {
           status: true,
-          items: { select: { productName: true, quantity: true } }
+          items: {
+            select: {
+              productName: true,
+              quantity: true,
+              addOns: { select: { optionName: true } },
+              bundleComponents: { select: { componentProductName: true, quantity: true } }
+            }
+          }
         }
       })
     ]);
     const unitsByProduct = new Map<string, number>();
+    const mealProductUnits = new Map<string, number>();
+    const mealComponentUnits = new Map<string, number>();
+    const mealCombinationUnits = new Map<string, number>();
+    const productByName = new Map(products.map((product) => [product.name.trim().toLowerCase(), product]));
+    const resolveComponentName = (name: string) => {
+      const normalized = name.trim().toLowerCase();
+      const exact = products.find((product) => product.name.trim().toLowerCase() === normalized);
+      if (exact) return exact.name;
+      if (normalized === "fries") return products.find((product) => product.slug === "thela-fries")?.name ?? name;
+      if (normalized.endsWith(" shake")) {
+        const shakeName = normalized.replace(/ shake$/, "");
+        return products.find((product) => product.name.trim().toLowerCase() === shakeName)?.name ?? name;
+      }
+      return name;
+    };
+    const addUnits = (name: string, quantity: number) => {
+      const resolvedName = resolveComponentName(name);
+      const key = resolvedName.trim().toLowerCase();
+      unitsByProduct.set(key, (unitsByProduct.get(key) ?? 0) + quantity);
+    };
     for (const order of orders) {
       if (["CANCELLED", "REFUNDED"].includes(order.status)) continue;
       for (const item of order.items) {
-        const key = item.productName.trim().toLowerCase();
-        unitsByProduct.set(key, (unitsByProduct.get(key) ?? 0) + item.quantity);
+        const product = productByName.get(item.productName.trim().toLowerCase());
+        const isMeal = product?.category.slug === "make-it-a-meal" || product?.slug.includes("make-it-a-meal");
+        if (isMeal) {
+          mealProductUnits.set(item.productName, (mealProductUnits.get(item.productName) ?? 0) + item.quantity);
+          const combinationParts: string[] = [];
+          if (item.bundleComponents.length) {
+            for (const component of item.bundleComponents) {
+              combinationParts.push(component.componentProductName);
+              mealComponentUnits.set(component.componentProductName, (mealComponentUnits.get(component.componentProductName) ?? 0) + component.quantity);
+              addUnits(component.componentProductName, component.quantity);
+            }
+          } else {
+            for (const addOn of item.addOns) {
+              for (const componentName of addOn.optionName.split(/\s*\+\s*/)) {
+                const cleanName = componentName.trim();
+                combinationParts.push(cleanName);
+                mealComponentUnits.set(cleanName, (mealComponentUnits.get(cleanName) ?? 0) + item.quantity);
+                addUnits(cleanName, item.quantity);
+              }
+            }
+          }
+          const combinationName = combinationParts.join(" + ") || "No component details recorded";
+          mealCombinationUnits.set(combinationName, (mealCombinationUnits.get(combinationName) ?? 0) + item.quantity);
+        } else {
+          addUnits(item.productName, item.quantity);
+        }
       }
     }
 
     const rows = products
-      .filter((product) => (!query.category || product.category.name === query.category) && (!query.search || product.name.toLowerCase().includes(query.search.toLowerCase())))
+      .filter((product) => product.category.slug !== "make-it-a-meal" && !product.slug.includes("make-it-a-meal") && (!query.category || product.category.name === query.category) && (!query.search || product.name.toLowerCase().includes(query.search.toLowerCase())))
       .map((product) => {
         const quantity = unitsByProduct.get(product.name.trim().toLowerCase()) ?? 0;
         const costSummary = buildProductCostSummary(product);
@@ -1434,6 +1485,9 @@ router.get("/products/analytics/export", async (req, res, next) => {
     const workbook = XLSX.utils.book_new();
     const sheet = XLSX.utils.json_to_sheet(rows);
     XLSX.utils.book_append_sheet(workbook, sheet, "Product Analytics");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(Array.from(mealProductUnits, ([name, units]) => ({ "Meal Product": name, "Meals Sold": units }))), "Meal Products");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(Array.from(mealComponentUnits, ([name, units]) => ({ Component: name, "Units Included": units }))), "Meal Components");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(Array.from(mealCombinationUnits, ([name, meals]) => ({ Combination: name, "Meals Sold": meals }))), "Meal Combinations");
     const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename="pocket-product-analytics-${query.preset}.xlsx"`);
@@ -1477,7 +1531,6 @@ const productSchema = z.object({
 });
 
 const productCostSettingsSchema = z.object({
-  sellingPrice: z.number().nonnegative().optional(),
   foodPackagingCost: z.number().nonnegative().optional(),
   isActive: z.boolean().optional()
 }).refine((value) => Object.keys(value).length > 0, "At least one cost setting is required.");
@@ -1611,7 +1664,6 @@ router.patch("/products/:id/cost-settings", async (req, res, next) => {
       const updatedProduct = await transaction.product.update({
         where: { id: req.params.id },
         data: {
-          ...(typeof payload.sellingPrice === "number" ? { basePrice: payload.sellingPrice } : {}),
           ...(typeof payload.foodPackagingCost === "number" ? { foodPackagingCost: payload.foodPackagingCost } : {}),
           ...(typeof payload.isActive === "boolean" ? { isActive: payload.isActive } : {}),
           costSettingsUpdatedAt: new Date()
@@ -1626,11 +1678,10 @@ router.patch("/products/:id/cost-settings", async (req, res, next) => {
         }
       });
 
-      if (typeof payload.sellingPrice === "number" || typeof payload.isActive === "boolean") {
+      if (typeof payload.isActive === "boolean") {
         await transaction.branchProduct.updateMany({
           where: { productId: updatedProduct.id },
           data: {
-            ...(typeof payload.sellingPrice === "number" ? { price: payload.sellingPrice } : {}),
             ...(typeof payload.isActive === "boolean" ? { isAvailable: payload.isActive } : {})
           }
         });
