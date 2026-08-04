@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { fetchAdminDailyClosing, fetchAdminInventory, saveAdminDailyClosing } from "@/lib/admin-client";
+import { fetchAdminDailyClosing, fetchAdminInventory, saveAdminDailyClosing, saveAdminOpeningBalance } from "@/lib/admin-client";
 import type { AdminDailyClosingData, AdminInventoryData, MoneySource } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -37,10 +37,21 @@ export function DailyClosingManagement() {
   const [branchId, setBranchId] = useState("");
   const [date, setDate] = useState(todayKey());
   const [actual, setActual] = useState<Record<MoneySource, string>>({ CASH: "", EASYPAISA: "", JAZZCASH: "" });
+  const [opening, setOpening] = useState<Record<MoneySource, string>>({ CASH: "", EASYPAISA: "", JAZZCASH: "" });
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (data?.openingBalance) {
+      setOpening({
+        CASH: String(data.openingBalance.cashBalance),
+        EASYPAISA: String(data.openingBalance.easypaisaBalance),
+        JAZZCASH: String(data.openingBalance.jazzcashBalance)
+      });
+    }
+  }, [data?.openingBalance]);
 
   async function loadSnapshot(nextBranchId = branchId, nextDate = date) {
     if (!nextBranchId) return;
@@ -110,6 +121,27 @@ export function DailyClosingManagement() {
     }
   }
 
+  async function saveOpening() {
+    if (!branchId) return;
+    try {
+      setSaving(true);
+      setError("");
+      await saveAdminOpeningBalance({
+        branchId,
+        balanceDate: new Date(`${date}T12:00:00+05:00`).toISOString(),
+        cashBalance: Number(opening.CASH || 0),
+        easypaisaBalance: Number(opening.EASYPAISA || 0),
+        jazzcashBalance: Number(opening.JAZZCASH || 0),
+        note: note.trim()
+      });
+      await loadSnapshot();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the opening balance.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6 print:bg-white">
       <Card className="p-5 print:hidden">
@@ -125,6 +157,11 @@ export function DailyClosingManagement() {
       {error ? <p className="text-sm font-semibold text-red-700">{error}</p> : null}
       {loading || !data ? <Card className="p-6 text-sm text-pocket-navy/60">Loading daily closing...</Card> : (
         <>
+          <Card className="p-5 print:hidden">
+            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between"><div><p className="text-lg font-black text-pocket-navy">Opening balance</p><p className="text-sm text-pocket-navy/60">Enter the money already in each account before today’s activity. Use the first of each month, or today’s date now for your initial setup.</p></div><p className="text-xs font-semibold uppercase tracking-wide text-pocket-navy/50">{data.openingBalance ? `Saved for ${date}` : "Not set for this date"}</p></div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">{moneySources.map(({ key, label }) => <label key={key} className="text-sm font-semibold text-pocket-navy">{label}<Input className="mt-1" type="number" min="0" step="0.01" value={opening[key]} onChange={(event) => setOpening((current) => ({ ...current, [key]: event.target.value }))} placeholder="0" /></label>)}</div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-pocket-navy/55">This becomes the starting balance for Daily Closing until a newer closing or opening balance is recorded.</p><Button variant="outline" onClick={() => void saveOpening()} disabled={saving}>{saving ? "Saving..." : "Save opening balance"}</Button></div>
+          </Card>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard label="Today's total sales" value={formatCurrency(totals.sales)} description="Includes Foodpanda for display only." />
             <SummaryCard label="Cash sales" value={formatCurrency(data.sales.CASH)} description="Included in today's cash reconciliation." />

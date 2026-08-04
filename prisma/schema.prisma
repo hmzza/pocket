@@ -119,6 +119,7 @@ model User {
   fixedExpenses         FixedExpense[]         @relation("FixedExpenseActor")
   moneyTransfers        MoneyTransfer[]        @relation("MoneyTransferActor")
   dailyClosings         DailyClosing[]         @relation("DailyClosingActor")
+  openingBalances       OpeningBalance[]       @relation("OpeningBalanceActor")
   foodpandaSettlements  FoodpandaSettlement[]  @relation("FoodpandaSettlementReceiver")
   loans                 Loan[]                 @relation("LoanActor")
   loanRepayments        LoanRepayment[]        @relation("LoanRepaymentActor")
@@ -148,6 +149,7 @@ model Branch {
   fixedExpenses  FixedExpense[]
   moneyTransfers MoneyTransfer[]
   dailyClosings  DailyClosing[]
+  openingBalances OpeningBalance[]
   loans          Loan[]
   loanRepayments LoanRepayment[]
 }
@@ -631,6 +633,24 @@ model DailyClosing {
   closedBy          User?    @relation("DailyClosingActor", fields: [closedById], references: [id], onDelete: SetNull)
 
   @@unique([branchId, closingDate])
+}
+
+model OpeningBalance {
+  id               String   @id @default(cuid())
+  branchId         String
+  balanceDate      DateTime
+  cashBalance      Decimal  @db.Decimal(10, 2)
+  easypaisaBalance Decimal  @db.Decimal(10, 2)
+  jazzcashBalance  Decimal  @db.Decimal(10, 2)
+  note             String?
+  createdById      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  branch           Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy        User?    @relation("OpeningBalanceActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([branchId, balanceDate])
+  @@index([branchId, balanceDate])
 }
 
 model FoodpandaSettlement {

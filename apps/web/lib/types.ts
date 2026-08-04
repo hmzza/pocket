@@ -482,6 +482,15 @@ export type AdminDailyClosingData = {
   branchId: string;
   closingDate: string;
   opening: Record<MoneySource, number>;
+  openingBalanceDate: string | null;
+  openingBalance: {
+    id: string;
+    balanceDate: string;
+    cashBalance: number;
+    easypaisaBalance: number;
+    jazzcashBalance: number;
+    note?: string | null;
+  } | null;
   sales: Record<MoneySource, number>;
   foodpandaSales: number;
   expenses: Record<MoneySource, number>;

@@ -822,6 +822,14 @@ export async function saveAdminDailyClosing(payload: Record<string, unknown>) {
   return data.closing;
 }
 
+export async function saveAdminOpeningBalance(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ openingBalance: any }>("/api/admin/inventory/opening-balance", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.openingBalance;
+}
+
 export async function deleteAdminDailyClosing(closingId: string) {
   await adminFetch(`/api/admin/inventory/closing/${closingId}`, {
     method: "DELETE"
@@ -842,6 +850,10 @@ export async function receiveAdminFoodpandaSettlement(payload: Record<string, un
     body: JSON.stringify(payload)
   });
   return data.settlement;
+}
+
+export async function ignoreAdminFoodpandaSettlement(weekStart: string) {
+  await adminFetch(`/api/admin/foodpanda-settlements/${encodeURIComponent(weekStart)}`, { method: "DELETE" });
 }
 
 export async function fetchAdminLoans(params?: {

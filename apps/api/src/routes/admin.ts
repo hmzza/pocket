@@ -1252,14 +1252,15 @@ async function buildFoodpandaSettlementSnapshot(period: "week" | "month" | "year
         commission,
         otherCharges,
         expectedNet,
-        status: saved?.status === "RECEIVED" ? "RECEIVED" : "PENDING",
+        status: saved?.status === "IGNORED" ? "IGNORED" : saved?.status === "RECEIVED" ? "RECEIVED" : "PENDING",
         amountReceived: saved?.amountReceived == null ? null : parseDecimal(saved.amountReceived),
         receivedSource: saved?.receivedSource ?? "CASH",
         receivedAt: saved?.receivedAt?.toISOString() ?? null,
         transferReference: saved?.transferReference ?? null,
         notes: saved?.notes ?? null
       };
-    });
+    })
+    .filter((cycle) => cycle.status !== "IGNORED");
 
   const currentWeekStart = startOfPakistanWeek(new Date()).toISOString();
   const pending = cycles.filter((cycle) => cycle.status !== "RECEIVED");
@@ -1355,6 +1356,40 @@ router.post("/foodpanda-settlements/receive", async (req, res, next) => {
     });
     await writeAuditLog({ actorId: req.user!.id, action: "finance.foodpanda_settlement_receive", entityType: "foodpanda_settlement", entityId: settlement.id, payload });
     return res.status(201).json({ settlement });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/foodpanda-settlements/:weekStart", async (req, res, next) => {
+  try {
+    const weekStart = new Date(req.params.weekStart);
+    if (Number.isNaN(weekStart.getTime())) {
+      return res.status(400).json({ message: "Invalid payout week." });
+    }
+    const snapshot = await buildFoodpandaSettlementSnapshot("year");
+    const cycle = snapshot.cycles.find((entry) => entry.weekStart === weekStart.toISOString());
+    if (!cycle) {
+      return res.status(404).json({ message: "Payout week was not found." });
+    }
+    const settlement = await prisma.foodpandaSettlement.upsert({
+      where: { weekStart_weekEnd: { weekStart: new Date(cycle.weekStart), weekEnd: new Date(cycle.weekEnd) } },
+      update: { status: "IGNORED", amountReceived: null, receivedAt: null, notes: "Removed from settlement tracker by admin." },
+      create: {
+        weekStart: new Date(cycle.weekStart),
+        weekEnd: new Date(cycle.weekEnd),
+        totalOrders: cycle.totalOrders,
+        grossSales: cycle.grossSales,
+        commission: cycle.commission,
+        otherCharges: cycle.otherCharges,
+        expectedNet: cycle.expectedNet,
+        receivedSource: "CASH",
+        status: "IGNORED",
+        notes: "Removed from settlement tracker by admin."
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "finance.foodpanda_settlement_ignore", entityType: "foodpanda_settlement", entityId: settlement.id, payload: { weekStart: cycle.weekStart } });
+    return res.json({ ignored: true });
   } catch (error) {
     return next(error);
   }
@@ -2824,6 +2859,20 @@ const closingSchema = z.object({
   note: z.string().max(240).optional().or(z.literal(""))
 });
 
+const openingBalanceQuerySchema = z.object({
+  branchId: z.string().cuid(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+});
+
+const openingBalanceSchema = z.object({
+  branchId: z.string().cuid(),
+  balanceDate: z.string().datetime(),
+  cashBalance: z.number().nonnegative(),
+  easypaisaBalance: z.number().nonnegative(),
+  jazzcashBalance: z.number().nonnegative(),
+  note: z.string().max(240).optional().or(z.literal(""))
+});
+
 function normalizeClosingDate(value: Date) {
   return startOfDay(value);
 }
@@ -2869,13 +2918,10 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   const date = normalizeClosingDate(closingDate);
   const start = startOfDay(date);
   const end = endOfDay(date);
-  const previousClosing = await prisma.dailyClosing.findFirst({
-    where: {
-      branchId,
-      closingDate: { lt: start }
-    },
-    orderBy: { closingDate: "desc" }
-  });
+  const [previousClosing, openingBalance] = await Promise.all([
+    prisma.dailyClosing.findFirst({ where: { branchId, closingDate: { lt: start } }, orderBy: { closingDate: "desc" } }),
+    prisma.openingBalance.findFirst({ where: { branchId, balanceDate: { lte: start } }, orderBy: { balanceDate: "desc" } })
+  ]);
 
   const [orders, foodpandaOrders, expenses, transfers, loanCashflow, recentClosings] = await Promise.all([
     prisma.order.findMany({
@@ -2927,10 +2973,11 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     })
   ]);
 
+  const openingSource = openingBalance && (!previousClosing || openingBalance.balanceDate >= previousClosing.closingDate) ? openingBalance : null;
   const opening = {
-    CASH: parseDecimal(previousClosing?.cashCounted),
-    EASYPAISA: parseDecimal(previousClosing?.easypaisaCounted),
-    JAZZCASH: parseDecimal(previousClosing?.jazzcashCounted)
+    CASH: openingSource ? parseDecimal(openingSource.cashBalance) : parseDecimal(previousClosing?.cashCounted),
+    EASYPAISA: openingSource ? parseDecimal(openingSource.easypaisaBalance) : parseDecimal(previousClosing?.easypaisaCounted),
+    JAZZCASH: openingSource ? parseDecimal(openingSource.jazzcashBalance) : parseDecimal(previousClosing?.jazzcashCounted)
   };
   const sales = emptyMoneyTotals();
   for (const order of orders) {
@@ -2964,6 +3011,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   return {
     branchId,
     closingDate: start.toISOString(),
+    openingBalanceDate: openingSource?.balanceDate.toISOString() ?? previousClosing?.closingDate.toISOString() ?? null,
     opening,
     sales,
     foodpandaSales,
@@ -3220,7 +3268,49 @@ router.get("/inventory/closing", async (req, res, next) => {
   try {
     const query = closingQuerySchema.parse(req.query);
     const snapshot = await buildClosingSnapshot(query.branchId, query.date ? new Date(`${query.date}T12:00:00`) : new Date());
-    return res.json(snapshot);
+    const balanceDate = normalizeClosingDate(query.date ? new Date(`${query.date}T12:00:00`) : new Date());
+    const openingBalance = await prisma.openingBalance.findUnique({ where: { branchId_balanceDate: { branchId: query.branchId, balanceDate } } });
+    return res.json({
+      ...snapshot,
+      openingBalance: openingBalance ? {
+        id: openingBalance.id,
+        balanceDate: openingBalance.balanceDate.toISOString(),
+        cashBalance: parseDecimal(openingBalance.cashBalance),
+        easypaisaBalance: parseDecimal(openingBalance.easypaisaBalance),
+        jazzcashBalance: parseDecimal(openingBalance.jazzcashBalance),
+        note: openingBalance.note
+      } : null
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/inventory/opening-balance", async (req, res, next) => {
+  try {
+    const payload = openingBalanceSchema.parse(req.body);
+    const balanceDate = normalizeClosingDate(new Date(payload.balanceDate));
+    const openingBalance = await prisma.openingBalance.upsert({
+      where: { branchId_balanceDate: { branchId: payload.branchId, balanceDate } },
+      update: {
+        cashBalance: payload.cashBalance,
+        easypaisaBalance: payload.easypaisaBalance,
+        jazzcashBalance: payload.jazzcashBalance,
+        note: payload.note?.trim() || null,
+        createdById: req.user!.id
+      },
+      create: {
+        branchId: payload.branchId,
+        balanceDate,
+        cashBalance: payload.cashBalance,
+        easypaisaBalance: payload.easypaisaBalance,
+        jazzcashBalance: payload.jazzcashBalance,
+        note: payload.note?.trim() || undefined,
+        createdById: req.user!.id
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "finance.opening_balance_save", entityType: "opening_balance", entityId: openingBalance.id, payload });
+    return res.status(201).json({ openingBalance });
   } catch (error) {
     return next(error);
   }
