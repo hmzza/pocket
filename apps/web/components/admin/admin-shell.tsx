@@ -26,12 +26,11 @@ const links: Array<{
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt },
-  { href: "/admin/fixed-expenses", label: "Fixed Expenses", icon: Receipt },
   { href: "/admin/loans", label: "Loans", icon: HandCoins },
   { href: "/admin/finances", label: "Finances", icon: Banknote }
 ];
 
-const staffRestrictedRoutes = ["/admin/analytics", "/admin/foodpanda", "/admin/health", "/admin/products", "/admin/website", "/admin/users", "/admin/loans", "/admin/finances", "/admin/fixed-expenses"];
+const staffRestrictedRoutes = ["/admin/analytics", "/admin/foodpanda", "/admin/health", "/admin/products", "/admin/website", "/admin/users", "/admin/loans", "/admin/finances"];
 
 type AdminSession = Awaited<ReturnType<typeof fetchAdminSession>>;
 

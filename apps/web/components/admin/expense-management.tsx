@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Download, Pencil, Plus, RefreshCcw, Receipt } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, RefreshCcw, Receipt } from "lucide-react";
+import { FixedExpenseManagement } from "@/components/admin/fixed-expense-management";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -264,6 +265,7 @@ export function ExpenseManagement() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const [fixedExpensesOpen, setFixedExpensesOpen] = useState(false);
 
   async function loadExpenses(
     nextPreset = preset,
@@ -547,6 +549,22 @@ export function ExpenseManagement() {
       </div>
 
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+
+      <Card className="overflow-hidden">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between gap-4 p-5 text-left hover:bg-pocket-cream/30"
+          onClick={() => setFixedExpensesOpen((current) => !current)}
+          aria-expanded={fixedExpensesOpen}
+        >
+          <span>
+            <span className="block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Fixed expenses</span>
+            <span className="mt-1 block text-sm text-pocket-navy/60">Manage recurring costs here. Generate them to add them to this expense ledger and profit calculations.</span>
+          </span>
+          <ChevronDown className={`h-5 w-5 shrink-0 text-pocket-navy transition-transform ${fixedExpensesOpen ? "rotate-180" : ""}`} />
+        </button>
+        {fixedExpensesOpen ? <div className="border-t border-pocket-navy/10 p-5"><FixedExpenseManagement embedded onExpensesChanged={() => loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd)} /></div> : null}
+      </Card>
 
       <Card className="p-5">
         <div className="flex flex-wrap gap-2">
