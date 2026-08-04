@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, CheckCircle2, ChevronLeft, Clock3, RefreshCcw, Search, Trash2, Truck } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, ChevronLeft, Clock3, FileText, PencilLine, RefreshCcw, Search, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -118,13 +118,19 @@ function CompactOrderCard({
   embedded,
   busy,
   muted,
-  exiting
+  exiting,
+  readOnly,
+  onEdit,
+  onDetails
 }: {
   order: AdminOrder;
   embedded?: boolean;
   busy: boolean;
   muted?: boolean;
   exiting?: boolean;
+  readOnly?: boolean;
+  onEdit: (order: AdminOrder) => void;
+  onDetails: (order: AdminOrder) => void;
   onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
   onTogglePaymentStatus: (order: AdminOrder) => void;
 }) {
@@ -177,6 +183,7 @@ function CompactOrderCard({
           <p className={embedded ? "text-[11px] font-semibold leading-tight text-slate-900" : "text-[13px] font-semibold leading-tight text-slate-900"}>{order.customerName}</p>
           {order.customerPhone ? <p className={embedded ? "text-[9px] text-slate-500" : "text-[10px] text-slate-500"}>{order.customerPhone}</p> : null}
           <p className={embedded ? "mt-0.5 text-[9px] text-slate-500" : "mt-0.5 text-[10px] text-slate-500"}>{order.branch}</p>
+          <p className={embedded ? "mt-0.5 text-[9px] font-medium text-slate-500" : "mt-0.5 text-[10px] font-medium text-slate-500"}>POS: {order.cashierUsername ?? order.cashierName ?? "Unknown"}</p>
           {order.foodpandaOrderNumber ? (
             <p className={embedded ? "mt-1 inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-[11px] font-black tracking-[0.14em] text-orange-700" : "mt-1 inline-flex rounded-full bg-orange-50 px-3 py-0.5 text-[13px] font-black tracking-[0.14em] text-orange-700"}>
               FP: {order.foodpandaOrderNumber}
@@ -241,7 +248,12 @@ function CompactOrderCard({
       </div>
 
       <div className={embedded ? "mt-auto pt-1.5" : "mt-auto pt-2"}>
-        {!isTerminal ? (
+        {readOnly ? (
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <Button type="button" variant="outline" className="h-8 px-2 text-[11px]" onClick={() => onEdit(order)}><PencilLine className="h-3.5 w-3.5" />Edit in POS</Button>
+            <Button type="button" variant="outline" className="h-8 px-2 text-[11px]" onClick={() => onDetails(order)}><FileText className="h-3.5 w-3.5" />Open order details</Button>
+          </div>
+        ) : !isTerminal ? (
           <div className={embedded ? "flex items-center justify-end gap-1" : "flex items-center justify-end gap-1"}>
             <OrderActionButton
               title="Mark completed"
@@ -290,6 +302,9 @@ function OrderSection({
   orders,
   onChangeStatus,
   onTogglePaymentStatus,
+  readOnly,
+  onEdit,
+  onDetails,
   embedded,
   busy,
   mutedOrderId,
@@ -305,6 +320,9 @@ function OrderSection({
   emptyText: string;
   onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
   onTogglePaymentStatus: (order: AdminOrder) => void;
+  readOnly?: boolean;
+  onEdit: (order: AdminOrder) => void;
+  onDetails: (order: AdminOrder) => void;
   embedded?: boolean;
 }) {
   return (
@@ -326,6 +344,9 @@ function OrderSection({
               embedded={embedded}
               onChangeStatus={onChangeStatus}
               onTogglePaymentStatus={onTogglePaymentStatus}
+              readOnly={readOnly}
+              onEdit={onEdit}
+              onDetails={onDetails}
               busy={busy && order.id === mutedOrderId}
               muted={busy && order.id !== mutedOrderId}
               exiting={exitingOrderIds.includes(order.id)}
@@ -339,11 +360,11 @@ function OrderSection({
   );
 }
 
-export function PosOrderQueue({ embedded = false }: { embedded?: boolean } = {}) {
-  return <PosOrderQueueView embedded={embedded} />;
+export function PosOrderQueue({ embedded = false, todayOnly = false }: { embedded?: boolean; todayOnly?: boolean } = {}) {
+  return <PosOrderQueueView embedded={embedded} todayOnly={todayOnly} />;
 }
 
-function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
+function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?: boolean; todayOnly?: boolean } = {}) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -361,7 +382,7 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
   async function loadOrders(nextScope = scope) {
     try {
       setError("");
-      const data = await fetchPosOrders({ scope: nextScope, search: search.trim() || undefined });
+      const data = await fetchPosOrders({ scope: todayOnly ? "all" : nextScope, search: search.trim() || undefined, today: todayOnly });
       setOrders(data.orders);
       setPendingStatuses((current) => {
         const next = { ...current };
@@ -490,6 +511,7 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
       watchLaterOrders,
       deliveredOrders,
       cancelledOrders,
+      todayOrders: sourceOrders,
       queuedCount
     };
   }, [orders, pendingStatuses, pendingPaymentStatuses, exitingOrderIds]);
@@ -593,11 +615,19 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
     }
   }
 
+  function openEdit(order: AdminOrder) {
+    window.open(`/pos?orderNumber=${encodeURIComponent(order.orderNumber)}`, "_blank", "noopener,noreferrer");
+  }
+
+  function openDetails(order: AdminOrder) {
+    window.open(`/pos/receipt/${encodeURIComponent(order.id)}`, "_blank", "noopener,noreferrer");
+  }
+
   if (!ready || loading) {
     return <div className={embedded ? "h-full rounded-3xl bg-white p-4 text-sm text-slate-500" : "min-h-[50vh] rounded-3xl bg-white p-6 text-sm text-slate-500"}>Loading order queue...</div>;
   }
 
-  const showingAllLanes = scope === "all";
+  const showingAllLanes = !todayOnly && scope === "all";
   const showActiveLane = scope === "active" || showingAllLanes;
   const showWatchLaterLane = scope === "watch_later" || showingAllLanes;
   const showDeliveredLane = scope === "delivered";
@@ -609,7 +639,7 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
           <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-600">Counter Orders</p>
           <h2 className={embedded ? "mt-0.5 text-[1.2rem] font-black leading-none" : "mt-0.5 text-[1.55rem] font-black leading-none"}>Queue Board</h2>
           <p className={embedded ? "mt-1 text-[10px] text-slate-500" : "mt-1 text-[11px] text-slate-500"}>
-            {derived.queuedCount} active orders, {derived.watchLaterOrders.length} watch later, {derived.deliveredOrders.length} completed.
+            {todayOnly ? `${derived.todayOrders.length} orders today. Staff view is read-only.` : `${derived.queuedCount} active orders, ${derived.watchLaterOrders.length} watch later, ${derived.deliveredOrders.length} completed.`}
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -656,7 +686,7 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
               className="border-0 bg-transparent px-0 text-xs text-slate-900 shadow-none placeholder:text-slate-400 focus-visible:ring-0"
             />
           </label>
-          <select
+          {!todayOnly ? <select
             value={scope}
             onChange={(event) => setScope(event.target.value as QueueScope)}
             className="h-9 rounded-2xl border border-slate-200 bg-white px-3 text-xs text-slate-900"
@@ -666,7 +696,7 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
                 {option.label}
               </option>
             ))}
-          </select>
+          </select> : <div className="flex h-9 items-center rounded-2xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700">Today’s orders · Pakistan time</div>}
           <div className={embedded ? "hidden" : "flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-1.5"}>
             <Truck className="h-3.5 w-3.5 text-orange-600" />
             <p className="text-[11px] font-semibold text-slate-700">Compact receipts with quick one-tap actions.</p>
@@ -683,6 +713,23 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
 
       <div className={updatingOrderId ? "grid gap-3 opacity-80 transition" : "grid gap-3"}>
+        {todayOnly ? (
+          <OrderSection
+            title="Today's Orders"
+            description="Every order punched today, including completed orders."
+            orders={derived.todayOrders}
+            embedded={embedded}
+            readOnly
+            onTogglePaymentStatus={togglePaymentStatus}
+            busy={false}
+            mutedOrderId=""
+            exitingOrderIds={[]}
+            onChangeStatus={changeStatus}
+            onEdit={openEdit}
+            onDetails={openDetails}
+            emptyText="No orders have been punched today."
+          />
+        ) : null}
         {showActiveLane ? (
           <OrderSection
             title="Active Queue"
@@ -694,6 +741,8 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
             mutedOrderId={updatingOrderId}
             exitingOrderIds={exitingOrderIds}
             onChangeStatus={changeStatus}
+            onEdit={openEdit}
+            onDetails={openDetails}
             emptyText="No active orders match the current filter."
           />
         ) : null}
@@ -709,6 +758,8 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
             mutedOrderId={updatingOrderId}
             exitingOrderIds={exitingOrderIds}
             onChangeStatus={changeStatus}
+            onEdit={openEdit}
+            onDetails={openDetails}
             emptyText="No watch later orders yet."
           />
         ) : null}
@@ -724,6 +775,8 @@ function PosOrderQueueView({ embedded = false }: { embedded?: boolean } = {}) {
             mutedOrderId={updatingOrderId}
             exitingOrderIds={exitingOrderIds}
             onChangeStatus={changeStatus}
+            onEdit={openEdit}
+            onDetails={openDetails}
             emptyText="No completed orders match the current filter."
           />
         ) : null}

@@ -138,10 +138,11 @@ export async function lookupPosCustomer(phone: string) {
   return data.customer;
 }
 
-export async function fetchPosOrders(params?: { scope?: "active" | "watch_later" | "delivered" | "all"; search?: string }) {
+export async function fetchPosOrders(params?: { scope?: "active" | "watch_later" | "delivered" | "all"; search?: string; today?: boolean }) {
   const query = new URLSearchParams();
   if (params?.scope) query.set("scope", params.scope);
   if (params?.search) query.set("search", params.search);
+  if (params?.today) query.set("today", "true");
   const suffix = query.toString() ? `?${query.toString()}` : "";
   const data = await posFetch<{ orders: any[] }>(`/api/ops/orders${suffix}`);
   return {
@@ -164,6 +165,8 @@ export async function fetchPosOrders(params?: { scope?: "active" | "watch_later"
       changeDueAmount: Number(order.changeDueAmount ?? 0),
       paymentMethod: order.paymentMethod,
       paymentStatus: order.paymentStatus,
+      cashierUsername: order.cashierUsername ?? null,
+      cashierName: order.cashierName ?? null,
       placedAt: order.placedAt,
       deliveryInstructions: order.deliveryInstructions ?? undefined,
       address: order.address

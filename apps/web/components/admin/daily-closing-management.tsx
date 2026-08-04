@@ -172,6 +172,14 @@ export function DailyClosingManagement() {
           </div>
 
           <Card className="p-5">
+            <p className="text-lg font-black text-pocket-navy">Expense breakdown by payment source</p>
+            <p className="text-sm text-pocket-navy/60">These amounts are deducted from the corresponding expected account balance. Select the correct source when recording an expense.</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {moneySources.map(({ key, label }) => <div key={key} className="rounded-2xl bg-pocket-cream px-4 py-4"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-navy/55">{label} expenses</p><p className="mt-2 text-2xl font-black text-pocket-navy">{formatCurrency(data.expenses[key])}</p><p className="mt-1 text-xs text-pocket-navy/60">Paid from {label}</p></div>)}
+            </div>
+          </Card>
+
+          <Card className="p-5">
             <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div><p className="text-lg font-black text-pocket-navy">Close today</p><p className="text-sm text-pocket-navy/60">Expected balance = previous closing + sales − paid expenses. Foodpanda is paid later.</p></div>
               <Button variant="outline" className="print:hidden" onClick={() => window.print()}><Printer className="h-4 w-4" />Print report</Button>

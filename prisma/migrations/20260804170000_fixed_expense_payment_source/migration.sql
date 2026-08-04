@@ -1,0 +1,1 @@
+ALTER TABLE "FixedExpense" ADD COLUMN "paymentSource" TEXT NOT NULL DEFAULT 'CASH';

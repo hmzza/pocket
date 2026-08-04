@@ -11,7 +11,8 @@ router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN, RoleCod
 
 const querySchema = z.object({
   scope: z.enum(["active", "watch_later", "delivered", "all"]).default("active"),
-  search: z.string().optional()
+  search: z.string().optional(),
+  today: z.enum(["true"]).optional()
 });
 
 const bulkStatusSchema = z.object({
@@ -45,6 +46,8 @@ function serializeOrder(order: any) {
     manualDiscountValue: order.manualDiscountValue == null ? undefined : Number(order.manualDiscountValue),
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+    cashierUsername: order.cashier?.username ?? null,
+    cashierName: order.cashier?.name ?? null,
     placedAt: order.placedAt,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
     address: order.address
@@ -74,6 +77,13 @@ function isTerminalStatus(status: OrderStatus) {
   return status === OrderStatus.DELIVERED || status === OrderStatus.CANCELLED;
 }
 
+function todayPakistanRange() {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Karachi", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const start = new Date(Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day)) - 5 * 60 * 60 * 1000);
+  return { gte: start, lte: new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1) };
+}
+
 router.get("/orders", async (req, res, next) => {
   try {
     const query = querySchema.parse(req.query);
@@ -89,6 +99,7 @@ router.get("/orders", async (req, res, next) => {
     const orders = await prisma.order.findMany({
       where: {
         ...where,
+        ...(query.today ? { placedAt: todayPakistanRange() } : {}),
         ...(query.search
           ? {
               OR: [
@@ -110,6 +121,7 @@ router.get("/orders", async (req, res, next) => {
           }
         },
         branch: true,
+        cashier: { select: { username: true, name: true } },
         address: true,
         items: {
           include: {

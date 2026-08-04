@@ -109,6 +109,7 @@ model User {
   role                  Role                   @relation(fields: [roleId], references: [id])
   addresses             Address[]
   orders                Order[]
+  cashierOrders         Order[]                @relation("CashierOrder")
   reviews               Review[]
   favorites             Favorite[]
   notifications         Notification[]
@@ -360,6 +361,7 @@ model Order {
   placedAt             DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
   customer             User?         @relation(fields: [customerId], references: [id])
+  cashier              User?         @relation("CashierOrder", fields: [cashierId], references: [id])
   branch               Branch        @relation(fields: [branchId], references: [id])
   address              Address?      @relation(fields: [addressId], references: [id])
   coupon               Coupon?       @relation(fields: [couponId], references: [id])
@@ -572,6 +574,7 @@ model FixedExpense {
   name          String
   category      String
   monthlyAmount Decimal                  @db.Decimal(10, 2)
+  paymentSource String                   @default("CASH")
   dueDay        Int
   autoRepeat    Boolean                  @default(true)
   isActive      Boolean                  @default(true)

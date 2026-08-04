@@ -4646,6 +4646,7 @@ const fixedExpenseSchema = z.object({
   name: z.string().trim().min(2).max(120),
   category: z.string().trim().min(2).max(60),
   monthlyAmount: z.number().positive(),
+  paymentSource: z.enum(MONEY_SOURCES).default("CASH"),
   dueDay: z.number().int().min(1).max(31),
   autoRepeat: z.boolean().default(true),
   isActive: z.boolean().default(true)
@@ -4761,6 +4762,7 @@ router.get("/fixed-expenses", async (req, res, next) => {
           name: fixedExpense.name,
           category: fixedExpense.category,
           monthlyAmount: parseDecimal(fixedExpense.monthlyAmount),
+          paymentSource: fixedExpense.paymentSource,
           dueDay: fixedExpense.dueDay,
           autoRepeat: fixedExpense.autoRepeat,
           isActive: fixedExpense.isActive,
@@ -4802,7 +4804,7 @@ router.post("/fixed-expenses/generate", async (req, res, next) => {
             title: fixedExpense.name,
             category: fixedExpense.category,
             amount: fixedExpense.monthlyAmount,
-            paymentSource: "CASH",
+            paymentSource: fixedExpense.paymentSource,
             expenseDate: fixedExpenseDueDate(monthKey, fixedExpense.dueDay),
             notes: `Generated from fixed expense for ${monthKey}.`
           }

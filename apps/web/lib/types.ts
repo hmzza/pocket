@@ -365,6 +365,7 @@ export type AdminFixedExpense = {
   name: string;
   category: string;
   monthlyAmount: number;
+  paymentSource: MoneySource;
   dueDay: number;
   autoRepeat: boolean;
   isActive: boolean;
@@ -651,6 +652,8 @@ export type AdminOrder = {
   manualDiscountValue?: number;
   paymentMethod: string;
   paymentStatus: string;
+  cashierUsername?: string | null;
+  cashierName?: string | null;
   placedAt: string;
   deliveryInstructions?: string;
   address?: {

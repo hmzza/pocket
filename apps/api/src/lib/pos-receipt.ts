@@ -14,7 +14,7 @@ export function formatOrderForReceipt(order: any) {
     foodpandaOrderNumber: order.foodpandaOrderNumber ?? null,
     fbrReferenceNumber: FBR_REFERENCE_NUMBER,
     posNo: "001",
-    userId: order.cashierId ?? "Admin",
+    userId: order.cashier?.username ?? order.cashier?.name ?? order.cashierId ?? "Admin",
     channel: order.channel,
     serviceType: order.serviceType,
     orderType: order.serviceType,

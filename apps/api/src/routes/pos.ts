@@ -414,6 +414,7 @@ const posOrderInclude = {
     }
   },
   branch: true,
+  cashier: { select: { username: true, name: true } },
   items: {
     include: {
       addOns: true,
@@ -769,7 +770,8 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           paymentMethod,
           paymentStatus: PaymentStatus.PAID,
           cashierId: req.user!.id,
-          placedAt: payload.placedAt ? new Date(payload.placedAt) : existingOrder.placedAt,
+          // Preserve the original punch time when a paid POS order is edited.
+          placedAt: existingOrder.placedAt,
           subtotal: orderPayload.subtotal,
           taxRate: 0,
           taxAmount: 0,
