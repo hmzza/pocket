@@ -32,6 +32,24 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
 
 const COMMON_EXPENSE_CATEGORIES = ["Inventory", "Utilities", "Rent", "Salaries", "Maintenance", "Marketing", "Delivery", "Misc"];
 const EXPENSE_CATEGORY_SETTING_KEY = "expense.categories";
+const EXPENSE_TITLE_SETTING_KEY = "expense.titles";
+const DEFAULT_EXPENSE_TITLES = [
+  "Rent",
+  "Salaries",
+  "Electricity",
+  "Gas",
+  "Internet",
+  "AC installment",
+  "Maintenance",
+  "Drinking water",
+  "Marketing",
+  "Breakfast",
+  "Miscellaneous",
+  "Cheese",
+  "Electricity bill",
+  "Boxes",
+  "Opening stock purchase"
+];
 const MONEY_SOURCES = [
   { value: "CASH", label: "Cash" },
   { value: "EASYPAISA", label: "Easypaisa" },
@@ -102,9 +120,12 @@ function ExpenseEditor({
   branches,
   value,
   editingExpense,
+  titleOptions,
+  titleChoice,
   vendorOptions,
   categoryOptions,
   onAddCategory,
+  onTitleChoiceChange,
   saving,
   onChange,
   onVendorChoiceChange,
@@ -116,9 +137,12 @@ function ExpenseEditor({
   branches: AdminExpenseData["branches"];
   value: ExpenseFormState;
   editingExpense: AdminExpense | null;
+  titleOptions: string[];
+  titleChoice: string;
   vendorOptions: string[];
   categoryOptions: string[];
   onAddCategory: (category: string) => void | Promise<void>;
+  onTitleChoiceChange: (nextTitle: string) => void;
   saving: boolean;
   onChange: (next: ExpenseFormState) => void;
   onVendorChoiceChange: (next: string) => void;
@@ -162,7 +186,20 @@ function ExpenseEditor({
           </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-semibold text-pocket-navy">Title</label>
-            <Input value={value.title} onChange={(event) => onChange({ ...value, title: event.target.value })} placeholder="Electricity bill" />
+            <select
+              value={titleChoice}
+              onChange={(event) => {
+                const nextTitle = event.target.value;
+                onTitleChoiceChange(nextTitle);
+                onChange({ ...value, title: nextTitle === "__custom__" ? "" : nextTitle });
+              }}
+              className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
+            >
+              <option value="">Select an expense title</option>
+              {titleOptions.map((title) => <option key={title} value={title}>{title}</option>)}
+              <option value="__custom__">+ Add custom title</option>
+            </select>
+            {titleChoice === "__custom__" ? <Input value={value.title} onChange={(event) => onChange({ ...value, title: event.target.value })} placeholder="Enter custom expense title" /> : null}
           </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Category</label>
@@ -248,6 +285,7 @@ export function ExpenseManagement() {
   const [data, setData] = useState<AdminExpenseData | null>(null);
   const [vendors, setVendors] = useState<AdminVendor[]>([]);
   const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
+  const [expenseTitles, setExpenseTitles] = useState<string[]>([]);
   const [preset, setPreset] = useState<AdminRangePreset>("today");
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey());
   const [customStart, setCustomStart] = useState(getTodayDateKey());
@@ -261,6 +299,7 @@ export function ExpenseManagement() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<AdminExpense | null>(null);
   const [form, setForm] = useState<ExpenseFormState>(EMPTY_EXPENSE_FORM);
+  const [titleChoice, setTitleChoice] = useState("");
   const [vendorChoice, setVendorChoice] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -319,6 +358,9 @@ export function ExpenseManagement() {
         const savedCategorySetting = settings.find((setting) => setting.key === EXPENSE_CATEGORY_SETTING_KEY);
         const savedCategories = Array.isArray(savedCategorySetting?.value) ? savedCategorySetting.value.map((entry) => String(entry).trim()).filter(Boolean) : [];
         setExpenseCategories(savedCategories);
+        const savedTitleSetting = settings.find((setting) => setting.key === EXPENSE_TITLE_SETTING_KEY);
+        const savedTitles = Array.isArray(savedTitleSetting?.value) ? savedTitleSetting.value.map((entry) => String(entry).trim()).filter(Boolean) : [];
+        setExpenseTitles(savedTitles);
         setVendors(vendorData.vendors);
       } catch {
         // Metadata is helpful but not required for the page to render.
@@ -352,6 +394,8 @@ export function ExpenseManagement() {
     return [...new Set([...COMMON_EXPENSE_CATEGORIES, ...expenseCategories, ...fromData, ...(form.category ? [form.category] : [])])];
   }, [data, expenseCategories, form.category]);
 
+  const titleOptions = useMemo(() => [...new Set([...DEFAULT_EXPENSE_TITLES, ...expenseTitles])], [expenseTitles]);
+
   const vendorOptions = useMemo(() => {
     return [...new Set(vendors.map((vendor) => vendor.vendorName).filter(Boolean).concat(form.vendor && vendorChoice === "__custom__" ? [form.vendor] : []))].sort((left, right) =>
       left.localeCompare(right)
@@ -365,6 +409,7 @@ export function ExpenseManagement() {
       branchId: branchId || data?.branches[0]?.id || "",
       category: categoryOptions[0] ?? "Inventory"
     });
+    setTitleChoice("");
     setVendorChoice("");
     setEditorOpen(true);
   }
@@ -372,6 +417,7 @@ export function ExpenseManagement() {
   function openEdit(expense: AdminExpense) {
     setEditingExpense(expense);
     setForm(mapExpenseToForm(expense));
+    setTitleChoice(titleOptions.includes(expense.title) ? expense.title : "__custom__");
     setVendorChoice(expense.vendor && vendorOptions.includes(expense.vendor) ? expense.vendor : expense.vendor ? "__custom__" : "");
     setEditorOpen(true);
   }
@@ -419,6 +465,14 @@ export function ExpenseManagement() {
         await updateAdminExpense(editingExpense.id, payload);
       } else {
         await createAdminExpense(payload);
+      }
+
+      if (titleChoice === "__custom__") {
+        const nextTitles = [...new Set([...expenseTitles, form.title.trim()])].sort((left, right) => left.localeCompare(right));
+        if (nextTitles.length !== expenseTitles.length) {
+          await updateAdminSetting(EXPENSE_TITLE_SETTING_KEY, nextTitles);
+          setExpenseTitles(nextTitles);
+        }
       }
 
       setEditorOpen(false);
@@ -492,9 +546,12 @@ export function ExpenseManagement() {
         branches={data?.branches ?? []}
         value={form}
         editingExpense={editingExpense}
+        titleOptions={titleOptions}
+        titleChoice={titleChoice}
         vendorOptions={vendorOptions}
         categoryOptions={categoryOptions}
         onAddCategory={(nextCategory) => void addExpenseCategory(nextCategory)}
+        onTitleChoiceChange={setTitleChoice}
         saving={saving}
         onChange={setForm}
         onVendorChoiceChange={setVendorChoice}

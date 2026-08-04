@@ -1041,6 +1041,12 @@ export async function updateAdminFixedExpense(fixedExpenseId: string, payload: R
   return data.fixedExpense;
 }
 
+export async function deleteAdminFixedExpense(fixedExpenseId: string) {
+  await adminFetch(`/api/admin/fixed-expenses/${fixedExpenseId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function updateAdminFixedExpenseOccurrence(occurrenceId: string, status: "PAID" | "UNPAID") {
   const data = await adminFetch<{ occurrence: any }>(`/api/admin/fixed-expenses/occurrences/${occurrenceId}`, {
     method: "PATCH",

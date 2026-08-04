@@ -4349,6 +4349,14 @@ function fixedExpenseMonthLabel(monthKey: string) {
 
 function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: ReturnType<typeof buildDashboardRange>): Prisma.ExpenseWhereInput {
   return {
+    AND: [
+      {
+        OR: [
+          { fixedExpenseOccurrence: { is: null } },
+          { fixedExpenseOccurrence: { is: { status: "PAID" } } }
+        ]
+      }
+    ],
     expenseDate: {
       gte: range.start,
       lte: range.end
@@ -4520,6 +4528,25 @@ router.patch("/fixed-expenses/:id", async (req, res, next) => {
       data: { ...payload, ...(payload.name ? { name: payload.name.trim() } : {}), ...(payload.category ? { category: payload.category.trim() } : {}) }
     });
     return res.json({ fixedExpense });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/fixed-expenses/:id", async (req, res, next) => {
+  try {
+    const fixedExpense = await prisma.fixedExpense.update({
+      where: { id: req.params.id },
+      data: { isActive: false }
+    });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "fixed-expense.remove",
+      entityType: "fixed-expense",
+      entityId: fixedExpense.id,
+      payload: { name: fixedExpense.name }
+    });
+    return res.json({ deleted: true });
   } catch (error) {
     return next(error);
   }

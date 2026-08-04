@@ -9,7 +9,7 @@
 #   <workspace>  @pocket/api | @pocket/web (npm workspace to build)
 #   <sha>        git commit SHA to deploy (the pushed commit on main)
 #
-# Behaviour: pin the repo to <sha>, install, (api) run migrations, build, zero-downtime
+# Behaviour: pin the repo to <sha>, install, (api) run migrations and the idempotent seed, build, zero-downtime
 # reload via PM2, health-check, and roll the CODE back to the previous commit if the
 # health check fails. NOTE: DB migrations are NOT auto-rolled-back (see warning below).
 set -euo pipefail
@@ -46,6 +46,7 @@ build_and_reload() {
   if [ "$APP" = "pocket-api" ]; then
     npx prisma generate
     npx prisma migrate deploy
+    npm run prisma:seed
   fi
   npm run build --workspace "$WORKSPACE"
   reload_app

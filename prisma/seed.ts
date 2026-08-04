@@ -17,7 +17,7 @@ const nutrition = (calories: number, protein: number, carbs: number, fats: numbe
 });
 
 async function main() {
-  const seedVersion = Number(process.env.SEED_VERSION ?? "8");
+  const seedVersion = Number(process.env.SEED_VERSION ?? "9");
   const forceSeed = process.env.FORCE_SEED === "true";
   const existingSeedMarker = await prisma.setting.findUnique({
     where: { key: "system.seed.version" }
@@ -151,6 +151,62 @@ async function main() {
           closeTime: "23:45"
         }))
       }
+    }
+  });
+
+  const fixedExpenseDefaults = [
+    { name: "Rent", category: "Rent", monthlyAmount: 120000, dueDay: 1 },
+    { name: "Salaries", category: "Salaries", monthlyAmount: 120000, dueDay: 1 },
+    { name: "Electricity", category: "Utilities", monthlyAmount: 50000, dueDay: 1 },
+    { name: "Gas", category: "Utilities", monthlyAmount: 85000, dueDay: 1 },
+    { name: "Internet", category: "Utilities", monthlyAmount: 3000, dueDay: 1 },
+    { name: "AC installment", category: "Installments", monthlyAmount: 21000, dueDay: 1 },
+    { name: "Maintenance", category: "Maintenance", monthlyAmount: 1000, dueDay: 1 },
+    { name: "Drinking water", category: "Utilities", monthlyAmount: 3500, dueDay: 1 },
+    { name: "Marketing", category: "Marketing", monthlyAmount: 30000, dueDay: 1 },
+    { name: "Breakfast", category: "Food", monthlyAmount: 30000, dueDay: 1 },
+    { name: "Miscellaneous", category: "Miscellaneous", monthlyAmount: 20000, dueDay: 1 }
+  ];
+
+  for (const fixedExpense of fixedExpenseDefaults) {
+    const existing = await prisma.fixedExpense.findFirst({
+      where: { branchId: branch.id, name: fixedExpense.name }
+    });
+    if (!existing) {
+      await prisma.fixedExpense.create({
+        data: {
+          ...fixedExpense,
+          branchId: branch.id,
+          createdById: admin.id,
+          autoRepeat: true,
+          isActive: true
+        }
+      });
+    }
+  }
+
+  await prisma.setting.upsert({
+    where: { key: "expense.titles" },
+    update: {},
+    create: {
+      key: "expense.titles",
+      value: [
+        "Rent",
+        "Salaries",
+        "Electricity",
+        "Gas",
+        "Internet",
+        "AC installment",
+        "Maintenance",
+        "Drinking water",
+        "Marketing",
+        "Breakfast",
+        "Miscellaneous",
+        "Cheese",
+        "Electricity bill",
+        "Boxes",
+        "Opening stock purchase"
+      ]
     }
   });
 
