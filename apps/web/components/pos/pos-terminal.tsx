@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, Car, LayoutGrid, LogOut, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
+import { CalendarDays, Car, LayoutGrid, ListChecks, LogOut, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -319,6 +319,7 @@ export function PosTerminal() {
   const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([]);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [products, setProducts] = useState<PosCatalogProduct[]>([]);
+  const [sessionUser, setSessionUser] = useState<{ name: string; username: string } | null>(null);
   const [branchId, setBranchId] = useState("");
   const [categoryId, setCategoryId] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -379,6 +380,10 @@ export function PosTerminal() {
         ) {
           router.replace("/pos/login");
           return;
+        }
+
+        if (!cancelled) {
+          setSessionUser({ name: session.user.name, username: session.user.username });
         }
 
         await loadCatalog();
@@ -798,6 +803,11 @@ export function PosTerminal() {
             <h1 className="mt-1.5 text-[1.7rem] font-black leading-none">Counter Terminal</h1>
           </div>
           <div className="flex flex-wrap gap-3">
+            <div className="rounded-xl border border-white/10 bg-slate-950/45 px-3 py-1.5 leading-tight">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-300/80">Logged in as</p>
+              <p className="text-sm font-bold text-white">{sessionUser?.name || sessionUser?.username || "POS user"}</p>
+              {sessionUser?.username ? <p className="text-[10px] text-white/55">@{sessionUser.username}</p> : null}
+            </div>
             <select
               value={branchId}
               onChange={(event) => {
@@ -828,6 +838,14 @@ export function PosTerminal() {
               onClick={() => router.push("/pos/orders")}
             >
               View Orders
+            </Button>
+            <Button
+              variant="outline"
+              className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
+              onClick={() => router.push("/pos/queue")}
+            >
+              <ListChecks className="h-4 w-4" />
+              Queue
             </Button>
             <Button
               variant="outline"

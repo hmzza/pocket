@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, CheckCircle2, ChevronLeft, Clock3, FileText, PencilLine, RefreshCcw, Search, Trash2, Truck } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, ChevronLeft, Clock3, FileText, ListChecks, PencilLine, RefreshCcw, Search, Trash2, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -643,6 +643,12 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
+          {todayOnly && !embedded ? (
+            <Button variant="outline" className="h-8 px-3 text-xs" onClick={() => router.push("/pos/queue")}>
+              <ListChecks className="h-3.5 w-3.5" />
+              Open Queue
+            </Button>
+          ) : null}
           {!embedded ? (
             <Button
               variant="outline"
