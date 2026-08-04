@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { ArrowRight, Wallet } from "lucide-react";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
+import { fetchAdminCashPosition, fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
 import { estimateFoodpandaPayout, FOODPANDA_COMMISSION_RATE, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
 import { Input } from "@/components/ui/input";
-import type { AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
+import type { AdminCashPositionData, AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, formatCompactNumber } from "@/lib/utils";
 
 function ProgressBar({ value }: { value: number }) {
@@ -132,7 +133,17 @@ function buildBranchPerformance(
     .sort((left, right) => right.revenue - left.revenue);
 }
 
+function BusinessCashPosition({ data }: { data: AdminCashPositionData }) {
+  const healthStyles = data.health === "healthy" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : data.health === "watch" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-800";
+  return <Card className="p-5"><div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between"><div><p className="text-lg font-black text-pocket-navy">Business cash position</p><p className="text-sm text-pocket-navy/60">What is available today, what is still expected, and what must be paid.</p></div><span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide ${healthStyles}`}>{data.health === "healthy" ? "Comfortable" : data.health === "watch" ? "Watch cash" : "Cash risk"}</span></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><PositionCard label="Available today" value={data.available.total} description={`Cash ${formatCurrency(data.available.CASH)} · Easypaisa ${formatCurrency(data.available.EASYPAISA)} · JazzCash ${formatCurrency(data.available.JAZZCASH)}`} /><PositionCard label="Pending receivables" value={data.pendingReceivables.total} description={`Foodpanda ${formatCurrency(data.pendingReceivables.foodpanda)} · Other ${formatCurrency(data.pendingReceivables.other)}`} /><PositionCard label="Upcoming obligations" value={data.upcomingObligations.total} description={`Fixed ${formatCurrency(data.upcomingObligations.fixedExpenses)} · Loans ${formatCurrency(data.upcomingObligations.loanInstallments)}`} /><PositionCard label="Projected after payments" value={data.projectedAfterPayments} description="Available today + pending receivables − upcoming obligations" tone={data.projectedAfterPayments >= 0 ? "positive" : "negative"} /></div><div className="mt-4 flex flex-wrap gap-2"><Link className="text-sm font-bold text-pocket-orange hover:underline" href="/admin/finances/daily-closing">Open Daily Closing →</Link><Link className="text-sm font-bold text-pocket-orange hover:underline" href="/admin/finances/foodpanda-settlements">Open Foodpanda Settlements →</Link></div></Card>;
+}
+
+function PositionCard({ label, value, description, tone = "default" }: { label: string; value: number; description: string; tone?: "default" | "positive" | "negative" }) {
+  return <div className="rounded-2xl bg-pocket-cream px-4 py-4"><p className="text-xs font-semibold uppercase tracking-[0.16em] text-pocket-navy/55">{label}</p><p className={`mt-2 break-words text-xl font-black ${tone === "positive" ? "text-emerald-700" : tone === "negative" ? "text-red-700" : "text-pocket-navy"}`}>{formatCurrency(value)}</p><p className="mt-1 text-xs leading-5 text-pocket-navy/60">{description}</p></div>;
+}
+
 export function FinanceManagement() {
+  const [cashPosition, setCashPosition] = useState<AdminCashPositionData | null>(null);
   const [monthDashboard, setMonthDashboard] = useState<DashboardData | null>(null);
   const [weekDashboard, setWeekDashboard] = useState<DashboardData | null>(null);
   const [todayDashboard, setTodayDashboard] = useState<DashboardData | null>(null);
@@ -163,6 +174,7 @@ export function FinanceManagement() {
           weekExpenseData,
           todayExpenseData,
           monthLoanData,
+          cashPositionData,
           settings
         ] = await Promise.all([
           fetchAdminDashboard({ preset: "month", segment: "all" }),
@@ -173,6 +185,7 @@ export function FinanceManagement() {
           fetchAdminExpenses({ preset: "7d" }),
           fetchAdminExpenses({ preset: "today" }),
           fetchAdminLoans({ preset: "month" }),
+          fetchAdminCashPosition(),
           fetchAdminSettings()
         ]);
 
@@ -185,6 +198,7 @@ export function FinanceManagement() {
           setWeekExpenses(weekExpenseData);
           setTodayExpenses(todayExpenseData);
           setMonthLoans(monthLoanData);
+          setCashPosition(cashPositionData);
 
           const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
           const targetValue = Number(targetSetting?.value ?? MONTHLY_BREAKEVEN_TARGET);
@@ -284,7 +298,7 @@ export function FinanceManagement() {
     };
   }, [monthDashboard, monthExpenses, monthFoodpandaDashboard, monthLoans, monthlyTarget, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
 
-  if (loading || !monthDashboard || !monthExpenses || !weekDashboard || !weekExpenses || !todayDashboard || !todayExpenses || !monthFoodpandaDashboard || !monthLoans) {
+  if (loading || !monthDashboard || !monthExpenses || !weekDashboard || !weekExpenses || !todayDashboard || !todayExpenses || !monthFoodpandaDashboard || !monthLoans || !cashPosition) {
     return <Card className="p-6 text-sm text-pocket-navy/60">Loading finance view...</Card>;
   }
 
@@ -322,6 +336,8 @@ export function FinanceManagement() {
       </Card>
 
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+
+      <BusinessCashPosition data={cashPosition} />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <MetricCard title="Month gross revenue" value={formatCompactCurrency(summary.monthGrossRevenue)} description="Total order sales before Foodpanda commission." tone="positive" />

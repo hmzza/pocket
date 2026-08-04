@@ -69,7 +69,6 @@ const TABS: Array<{ id: InventoryTab; label: string; icon: typeof Warehouse }> =
   { id: "recipes", label: "Recipes & Costing", icon: ChefHat },
   { id: "rules", label: "Rules", icon: ClipboardList },
   { id: "transfers", label: "Transfers", icon: RefreshCcw },
-  { id: "closing", label: "Daily Closing", icon: History },
   { id: "wastage", label: "Wastage", icon: Trash2 },
   { id: "forecast", label: "Forecast / Buy List", icon: BarChart3 },
   { id: "logs", label: "Stock Logs", icon: History }

@@ -391,10 +391,10 @@ export function ExpenseManagement() {
 
   const categoryOptions = useMemo(() => {
     const fromData = data?.categories.map((entry) => entry.label) ?? [];
-    return [...new Set([...COMMON_EXPENSE_CATEGORIES, ...expenseCategories, ...fromData, ...(form.category ? [form.category] : [])])];
+    return [...new Set([...COMMON_EXPENSE_CATEGORIES, ...expenseCategories, ...fromData, ...(form.category ? [form.category] : [])])].sort((left, right) => left.localeCompare(right));
   }, [data, expenseCategories, form.category]);
 
-  const titleOptions = useMemo(() => [...new Set([...DEFAULT_EXPENSE_TITLES, ...expenseTitles])], [expenseTitles]);
+  const titleOptions = useMemo(() => [...new Set([...DEFAULT_EXPENSE_TITLES, ...expenseTitles])].sort((left, right) => left.localeCompare(right)), [expenseTitles]);
 
   const vendorOptions = useMemo(() => {
     return [...new Set(vendors.map((vendor) => vendor.vendorName).filter(Boolean).concat(form.vendor && vendorChoice === "__custom__" ? [form.vendor] : []))].sort((left, right) =>

@@ -5,6 +5,8 @@ import type {
   AdminExpenseData,
   AdminFixedExpenseData,
   AdminDailyClosingData,
+  AdminCashPositionData,
+  AdminFoodpandaSettlementData,
   AdminInventoryForecast,
   AdminRecipeData,
   AdminInventoryData,
@@ -824,6 +826,22 @@ export async function deleteAdminDailyClosing(closingId: string) {
   await adminFetch(`/api/admin/inventory/closing/${closingId}`, {
     method: "DELETE"
   });
+}
+
+export async function fetchAdminFoodpandaSettlements(period: "week" | "month" | "year" = "month") {
+  return adminFetch<AdminFoodpandaSettlementData>(`/api/admin/foodpanda-settlements?period=${period}`);
+}
+
+export async function fetchAdminCashPosition() {
+  return adminFetch<AdminCashPositionData>("/api/admin/finance/cash-position");
+}
+
+export async function receiveAdminFoodpandaSettlement(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ settlement: any }>("/api/admin/foodpanda-settlements/receive", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.settlement;
 }
 
 export async function fetchAdminLoans(params?: {

@@ -483,6 +483,7 @@ export type AdminDailyClosingData = {
   closingDate: string;
   opening: Record<MoneySource, number>;
   sales: Record<MoneySource, number>;
+  foodpandaSales: number;
   expenses: Record<MoneySource, number>;
   transferIn: Record<MoneySource, number>;
   transferOut: Record<MoneySource, number>;
@@ -502,6 +503,45 @@ export type AdminDailyClosingData = {
     closedByName?: string | null;
     createdAt: string;
   }>;
+};
+
+export type AdminFoodpandaSettlementCycle = {
+  id: string | null;
+  weekStart: string;
+  weekEnd: string;
+  totalOrders: number;
+  grossSales: number;
+  commission: number;
+  otherCharges: number;
+  expectedNet: number;
+  status: "PENDING" | "RECEIVED";
+  amountReceived: number | null;
+  receivedSource: MoneySource;
+  receivedAt: string | null;
+  transferReference: string | null;
+  notes: string | null;
+};
+
+export type AdminFoodpandaSettlementData = {
+  period: "week" | "month" | "year";
+  range: { start: string; end: string; label: string };
+  summary: {
+    pendingReceivables: number;
+    expectedThisWeek: number;
+    totalReceived: number;
+    outstandingAmount: number;
+    lastSettlementDate: string | null;
+  };
+  cycles: AdminFoodpandaSettlementCycle[];
+  nextPending: AdminFoodpandaSettlementCycle | null;
+};
+
+export type AdminCashPositionData = {
+  available: Record<MoneySource, number> & { total: number };
+  pendingReceivables: { foodpanda: number; other: number; total: number };
+  upcomingObligations: { fixedExpenses: number; loanInstallments: number; supplierPayables: number; total: number };
+  projectedAfterPayments: number;
+  health: "healthy" | "watch" | "risk";
 };
 
 export type AdminVendor = {

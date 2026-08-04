@@ -16,6 +16,7 @@ import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js"
 const router = Router();
 const REPORT_TIME_ZONE = "Asia/Karachi";
 const PAKISTAN_UTC_OFFSET_MS = 5 * 60 * 60 * 1000;
+const FOODPANDA_COMMISSION_RATE = 0.38;
 const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/images/", import.meta.url));
 const API_UPLOADS_VENDOR_RATE_LISTS_DIR = fileURLToPath(new URL("../../public/uploads/vendor-rate-lists/", import.meta.url));
 const VENDORS_WORKBOOK_PATH = fileURLToPath(new URL("../../../../data/vendors.xlsx", import.meta.url));
@@ -111,6 +112,22 @@ function formatPakistanDate(date: Date, options: Intl.DateTimeFormatOptions) {
 function startOfPakistanMonth(date: Date) {
   const parts = getPakistanDateParts(date);
   return new Date(Date.UTC(parts.year, parts.month - 1, 1) - PAKISTAN_UTC_OFFSET_MS);
+}
+
+function startOfPakistanWeek(date: Date) {
+  const weekday = getPakistanWeekdayIndex(date);
+  return startOfDay(addDays(date, -((weekday + 6) % 7)));
+}
+
+function buildFoodpandaSettlementRange(period: "week" | "month" | "year") {
+  const now = new Date();
+  const parts = getPakistanDateParts(now);
+  const start = period === "week"
+    ? startOfPakistanWeek(now)
+    : period === "month"
+      ? startOfPakistanMonth(now)
+      : new Date(Date.UTC(parts.year, 0, 1) - PAKISTAN_UTC_OFFSET_MS);
+  return { start, end: endOfDay(now), label: period === "week" ? "This week" : period === "month" ? "This month" : "This year" };
 }
 
 function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
@@ -1171,6 +1188,173 @@ router.get("/dashboard", async (req, res, next) => {
           .map(({ sort: _sort, ...entry }) => entry)
       }
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+async function buildFoodpandaSettlementSnapshot(period: "week" | "month" | "year") {
+  const range = buildFoodpandaSettlementRange(period);
+  const [orders, savedSettlements] = await Promise.all([
+    prisma.order.findMany({
+      where: {
+        serviceType: ServiceType.FOODPANDA,
+        status: { not: OrderStatus.CANCELLED },
+        placedAt: { gte: range.start, lte: range.end }
+      },
+      select: { placedAt: true, totalAmount: true }
+    }),
+    prisma.foodpandaSettlement.findMany({
+      where: { weekStart: { lte: range.end }, weekEnd: { gte: range.start } },
+      orderBy: { weekStart: "asc" }
+    })
+  ]);
+
+  const grouped = new Map<string, { weekStart: Date; weekEnd: Date; totalOrders: number; grossSales: number }>();
+  for (const order of orders) {
+    const weekStart = startOfPakistanWeek(order.placedAt);
+    const key = weekStart.toISOString();
+    const current = grouped.get(key) ?? { weekStart, weekEnd: endOfDay(addDays(weekStart, 6)), totalOrders: 0, grossSales: 0 };
+    current.totalOrders += 1;
+    current.grossSales += parseDecimal(order.totalAmount);
+    grouped.set(key, current);
+  }
+
+  const savedMap = new Map(savedSettlements.map((settlement) => [`${settlement.weekStart.toISOString()}|${settlement.weekEnd.toISOString()}`, settlement]));
+  for (const settlement of savedSettlements) {
+    const key = `${settlement.weekStart.toISOString()}|${settlement.weekEnd.toISOString()}`;
+    if (!grouped.has(settlement.weekStart.toISOString())) {
+      grouped.set(settlement.weekStart.toISOString(), {
+        weekStart: settlement.weekStart,
+        weekEnd: settlement.weekEnd,
+        totalOrders: settlement.totalOrders,
+        grossSales: parseDecimal(settlement.grossSales)
+      });
+    }
+    void key;
+  }
+
+  const cycles = Array.from(grouped.values())
+    .sort((left, right) => right.weekStart.getTime() - left.weekStart.getTime())
+    .map((cycle) => {
+      const key = `${cycle.weekStart.toISOString()}|${cycle.weekEnd.toISOString()}`;
+      const saved = savedMap.get(key);
+      const grossSales = roundMoney(cycle.grossSales);
+      const commission = roundMoney(grossSales * FOODPANDA_COMMISSION_RATE);
+      const otherCharges = saved ? parseDecimal(saved.otherCharges) : 0;
+      const expectedNet = roundMoney(grossSales - commission - otherCharges);
+      return {
+        id: saved?.id ?? null,
+        weekStart: cycle.weekStart.toISOString(),
+        weekEnd: cycle.weekEnd.toISOString(),
+        totalOrders: cycle.totalOrders,
+        grossSales,
+        commission,
+        otherCharges,
+        expectedNet,
+        status: saved?.status === "RECEIVED" ? "RECEIVED" : "PENDING",
+        amountReceived: saved?.amountReceived == null ? null : parseDecimal(saved.amountReceived),
+        receivedSource: saved?.receivedSource ?? "CASH",
+        receivedAt: saved?.receivedAt?.toISOString() ?? null,
+        transferReference: saved?.transferReference ?? null,
+        notes: saved?.notes ?? null
+      };
+    });
+
+  const currentWeekStart = startOfPakistanWeek(new Date()).toISOString();
+  const pending = cycles.filter((cycle) => cycle.status !== "RECEIVED");
+  const received = cycles.filter((cycle) => cycle.status === "RECEIVED");
+  const pendingReceivables = roundMoney(pending.reduce((sum, cycle) => sum + cycle.expectedNet, 0));
+  const expectedThisWeek = roundMoney(cycles.find((cycle) => cycle.weekStart === currentWeekStart)?.expectedNet ?? 0);
+  const totalReceived = roundMoney(received.reduce((sum, cycle) => sum + (cycle.amountReceived ?? 0), 0));
+  const outstandingAmount = roundMoney(pendingReceivables);
+
+  return {
+    range,
+    summary: {
+      pendingReceivables,
+      expectedThisWeek,
+      totalReceived,
+      outstandingAmount,
+      lastSettlementDate: received.find((cycle) => cycle.receivedAt)?.receivedAt ?? null
+    },
+    cycles,
+    nextPending: pending.length ? pending[pending.length - 1] : null
+  };
+}
+
+router.get("/foodpanda-settlements", async (req, res, next) => {
+  try {
+    const period = z.enum(["week", "month", "year"]).default("month").parse(req.query.period);
+    const snapshot = await buildFoodpandaSettlementSnapshot(period);
+    return res.json({
+      period,
+      range: { start: snapshot.range.start.toISOString(), end: snapshot.range.end.toISOString(), label: snapshot.range.label },
+      summary: snapshot.summary,
+      cycles: snapshot.cycles,
+      nextPending: snapshot.nextPending
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/foodpanda-settlements/receive", async (req, res, next) => {
+  try {
+    const payload = z.object({
+      period: z.enum(["week", "month", "year"]).default("month"),
+      weekStart: z.string().datetime().optional(),
+      amountReceived: z.number().nonnegative(),
+      receivedSource: z.enum(MONEY_SOURCES).default("CASH"),
+      transferReference: z.string().max(120).optional().or(z.literal("")),
+      notes: z.string().max(500).optional().or(z.literal(""))
+    }).parse(req.body);
+    const snapshot = await buildFoodpandaSettlementSnapshot(payload.period);
+    const selected = payload.weekStart
+      ? snapshot.cycles.find((cycle) => cycle.weekStart === new Date(payload.weekStart!).toISOString())
+      : snapshot.nextPending;
+    if (!selected) {
+      return res.status(400).json({ message: "There is no pending Foodpanda settlement to receive." });
+    }
+    if (payload.amountReceived <= 0) {
+      return res.status(400).json({ message: "Enter the amount received." });
+    }
+
+    const settlement = await prisma.foodpandaSettlement.upsert({
+      where: { weekStart_weekEnd: { weekStart: new Date(selected.weekStart), weekEnd: new Date(selected.weekEnd) } },
+      update: {
+        totalOrders: selected.totalOrders,
+        grossSales: selected.grossSales,
+        commission: selected.commission,
+        otherCharges: selected.otherCharges,
+        expectedNet: selected.expectedNet,
+        amountReceived: payload.amountReceived,
+        receivedSource: payload.receivedSource,
+        status: "RECEIVED",
+        receivedAt: new Date(),
+        transferReference: payload.transferReference?.trim() || null,
+        notes: payload.notes?.trim() || null,
+        receivedById: req.user!.id
+      },
+      create: {
+        weekStart: new Date(selected.weekStart),
+        weekEnd: new Date(selected.weekEnd),
+        totalOrders: selected.totalOrders,
+        grossSales: selected.grossSales,
+        commission: selected.commission,
+        otherCharges: selected.otherCharges,
+        expectedNet: selected.expectedNet,
+        amountReceived: payload.amountReceived,
+        receivedSource: payload.receivedSource,
+        status: "RECEIVED",
+        receivedAt: new Date(),
+        transferReference: payload.transferReference?.trim() || null,
+        notes: payload.notes?.trim() || null,
+        receivedById: req.user!.id
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "finance.foodpanda_settlement_receive", entityType: "foodpanda_settlement", entityId: settlement.id, payload });
+    return res.status(201).json({ settlement });
   } catch (error) {
     return next(error);
   }
@@ -2693,7 +2877,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     orderBy: { closingDate: "desc" }
   });
 
-  const [orders, expenses, transfers, loanCashflow, recentClosings] = await Promise.all([
+  const [orders, foodpandaOrders, expenses, transfers, loanCashflow, recentClosings] = await Promise.all([
     prisma.order.findMany({
       where: {
         branchId,
@@ -2703,8 +2887,25 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
       },
       select: { paymentMethod: true, totalAmount: true }
     }),
+    prisma.order.findMany({
+      where: {
+        branchId,
+        status: { not: OrderStatus.CANCELLED },
+        serviceType: ServiceType.FOODPANDA,
+        placedAt: { gte: start, lte: end }
+      },
+      select: { totalAmount: true }
+    }),
     prisma.expense.findMany({
       where: {
+        AND: [
+          {
+            OR: [
+              { fixedExpenseOccurrence: { is: null } },
+              { fixedExpenseOccurrence: { is: { status: "PAID" } } }
+            ]
+          }
+        ],
         branchId,
         expenseDate: { gte: start, lte: end },
         paymentSource: { in: [...MONEY_SOURCES] }
@@ -2735,6 +2936,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   for (const order of orders) {
     sales[order.paymentMethod as keyof typeof sales] += parseDecimal(order.totalAmount);
   }
+  const foodpandaSales = roundMoney(foodpandaOrders.reduce((sum, order) => sum + parseDecimal(order.totalAmount), 0));
   const expenseTotals = emptyMoneyTotals();
   for (const expense of expenses) {
     expenseTotals[expense.paymentSource as keyof typeof expenseTotals] += parseDecimal(expense.amount);
@@ -2764,6 +2966,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     closingDate: start.toISOString(),
     opening,
     sales,
+    foodpandaSales,
     expenses: expenseTotals,
     transferIn,
     transferOut,
@@ -2785,6 +2988,46 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     }))
   };
 }
+
+router.get("/finance/cash-position", async (_req, res, next) => {
+  try {
+    const todayStart = startOfDay(new Date());
+    const todayEnd = endOfDay(new Date());
+    const [branches, pendingSettlements, receivedToday, fixedExpenses, loans] = await Promise.all([
+      prisma.branch.findMany({ where: { isActive: true }, select: { id: true } }),
+      prisma.foodpandaSettlement.findMany({ where: { status: { not: "RECEIVED" } }, select: { expectedNet: true } }),
+      prisma.foodpandaSettlement.findMany({ where: { status: "RECEIVED", receivedAt: { gte: todayStart, lte: todayEnd } }, select: { amountReceived: true, receivedSource: true } }),
+      prisma.fixedExpense.findMany({ where: { isActive: true }, select: { monthlyAmount: true } }),
+      prisma.loan.findMany({ select: { amount: true, repayments: { select: { amount: true } } } })
+    ]);
+    const snapshots = await Promise.all(branches.map((branch) => buildClosingSnapshot(branch.id, new Date())));
+    const available = emptyMoneyTotals();
+    for (const snapshot of snapshots) {
+      for (const source of MONEY_SOURCES) available[source] += snapshot.expected[source];
+    }
+    for (const settlement of receivedToday) {
+      if (settlement.amountReceived != null && settlement.receivedSource in available) {
+        available[settlement.receivedSource as keyof typeof available] += parseDecimal(settlement.amountReceived);
+      }
+    }
+    const totalAvailable = roundMoney(Object.values(available).reduce((sum, value) => sum + value, 0));
+    const pendingFoodpanda = roundMoney(pendingSettlements.reduce((sum, settlement) => sum + parseDecimal(settlement.expectedNet), 0));
+    const fixedObligations = roundMoney(fixedExpenses.reduce((sum, expense) => sum + parseDecimal(expense.monthlyAmount), 0));
+    const loanObligations = roundMoney(loans.reduce((sum, loan) => sum + parseDecimal(loan.amount) - loan.repayments.reduce((repaymentSum, repayment) => repaymentSum + parseDecimal(repayment.amount), 0), 0));
+    const totalUpcoming = roundMoney(fixedObligations + loanObligations);
+    const projectedAfterPayments = roundMoney(totalAvailable + pendingFoodpanda - totalUpcoming);
+    const health = projectedAfterPayments < 0 ? "risk" : projectedAfterPayments < totalUpcoming * 0.25 ? "watch" : "healthy";
+    return res.json({
+      available: { ...available, total: totalAvailable },
+      pendingReceivables: { foodpanda: pendingFoodpanda, other: 0, total: pendingFoodpanda },
+      upcomingObligations: { fixedExpenses: fixedObligations, loanInstallments: loanObligations, supplierPayables: 0, total: totalUpcoming },
+      projectedAfterPayments,
+      health
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 router.get("/inventory/rules", async (_req, res, next) => {
   try {
@@ -4395,7 +4638,7 @@ router.get("/fixed-expenses", async (req, res, next) => {
             take: 1
           }
         },
-        orderBy: [{ isActive: "desc" }, { dueDay: "asc" }, { name: "asc" }]
+        orderBy: { name: "asc" }
       })
     ]);
 

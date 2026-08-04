@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, HandCoins, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
+import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, HandCoins, History, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,9 @@ const links: Array<{
   { href: "/admin/customers", label: "Customers", icon: Users },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt },
   { href: "/admin/loans", label: "Loans", icon: HandCoins },
-  { href: "/admin/finances", label: "Finances", icon: Banknote }
+  { href: "/admin/finances", label: "Finances", icon: Banknote },
+  { href: "/admin/finances/daily-closing", label: "Daily Closing", icon: History },
+  { href: "/admin/finances/foodpanda-settlements", label: "Foodpanda Settlements", icon: Bike }
 ];
 
 const staffRestrictedRoutes = ["/admin/analytics", "/admin/foodpanda", "/admin/health", "/admin/products", "/admin/website", "/admin/users", "/admin/loans", "/admin/finances"];
