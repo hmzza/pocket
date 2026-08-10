@@ -9,6 +9,7 @@ import { env } from "../config.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { signReceiptToken } from "../lib/receipt-token.js";
 import { applyInventoryChanges, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
+import { syncMealPairingOptions } from "../lib/meal-options.js";
 
 const router = Router();
 
@@ -223,6 +224,7 @@ function getBundleComponentProductIds(products: Array<{ bundleComponents?: Array
 }
 
 async function buildPosOrderPayload(payload: CheckoutPayload) {
+  await syncMealPairingOptions(prisma);
   const productIds = getProductIds(payload.items);
 
   const [branch, products] = await Promise.all([
@@ -458,6 +460,7 @@ router.get("/catalog", async (req, res, next) => {
       orderBy: { name: "asc" }
     });
     const branchId = query.branchId ?? branches[0]?.id;
+    await syncMealPairingOptions(prisma);
 
     const where: Prisma.ProductWhereInput = {
       isActive: true,

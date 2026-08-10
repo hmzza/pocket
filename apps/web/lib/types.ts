@@ -483,6 +483,8 @@ export type AdminDailyClosingData = {
   branchId: string;
   closingDate: string;
   opening: Record<MoneySource, number>;
+  openingSource: "NONE" | "OPENING_BALANCE" | "PREVIOUS_CLOSING";
+  openingSourceDate: string | null;
   openingBalanceDate: string | null;
   openingBalance: {
     id: string;
@@ -500,15 +502,45 @@ export type AdminDailyClosingData = {
   loanIn: Record<MoneySource, number>;
   loanOut: Record<MoneySource, number>;
   expected: Record<MoneySource, number>;
+  currentClosing: {
+    id: string;
+    closingDate: string;
+    cashExpected: number;
+    cashCounted: number;
+    cashDifference: number;
+    easypaisaExpected: number;
+    easypaisaCounted: number;
+    easypaisaDifference: number;
+    jazzcashExpected: number;
+    jazzcashCounted: number;
+    jazzcashDifference: number;
+    note?: string | null;
+    closedByName?: string | null;
+    createdAt: string;
+  } | null;
+  transfersToday: Array<{
+    id: string;
+    branchId: string;
+    fromSource: MoneySource;
+    toSource: MoneySource;
+    amount: number;
+    transferDate: string;
+    note?: string | null;
+    createdByName?: string | null;
+    createdAt: string;
+  }>;
   recentClosings: Array<{
     id: string;
     closingDate: string;
     cashExpected: number;
     cashCounted: number;
+    cashDifference: number;
     easypaisaExpected: number;
     easypaisaCounted: number;
+    easypaisaDifference: number;
     jazzcashExpected: number;
     jazzcashCounted: number;
+    jazzcashDifference: number;
     note?: string | null;
     closedByName?: string | null;
     createdAt: string;

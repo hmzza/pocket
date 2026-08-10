@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders } from "@/lib/admin-client";
 import type { AdminOrder, AdminOrderSegment, AdminRangePreset } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
 
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
@@ -38,8 +38,7 @@ const paymentFilters: Array<{ value: PaymentFilter; label: string; method?: stri
 const orderGridColumns = "grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,0.5fr)_minmax(0,0.8fr)_minmax(0,0.7fr)] gap-4";
 
 function getTodayDateKey() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  return getCurrentBusinessDateKey();
 }
 
 function formatServiceType(value: string) {
@@ -167,8 +166,8 @@ export function OrderManagement() {
       const nextOrders = await fetchAdminOrders({
         segment: segmentFilter,
         preset,
-        start: preset === "custom" ? new Date(`${customStart}T00:00:00`).toISOString() : undefined,
-        end: preset === "custom" ? new Date(`${customEnd}T23:59:59.999`).toISOString() : undefined
+        start: preset === "custom" ? toPakistanDateIso(customStart) : undefined,
+        end: preset === "custom" ? toPakistanDateIso(customEnd, true) : undefined
       });
       setOrders(nextOrders);
       setExpandedOrderId((current) => (nextOrders.some((order) => order.id === current) ? current : nextOrders[0]?.id ?? ""));

@@ -12,10 +12,19 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
+import { syncMealPairingOptions } from "../lib/meal-options.js";
+import {
+  REPORT_TIME_ZONE,
+  businessDayRange,
+  businessMonthRange,
+  businessYearRange,
+  getBusinessDateKey,
+  getBusinessWeekdayIndex,
+  getPakistanHour,
+  formatPakistanDate
+} from "../lib/business-day.js";
 
 const router = Router();
-const REPORT_TIME_ZONE = "Asia/Karachi";
-const PAKISTAN_UTC_OFFSET_MS = 5 * 60 * 60 * 1000;
 const FOODPANDA_COMMISSION_RATE = 0.38;
 const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/images/", import.meta.url));
 const API_UPLOADS_VENDOR_RATE_LISTS_DIR = fileURLToPath(new URL("../../public/uploads/vendor-rate-lists/", import.meta.url));
@@ -42,12 +51,11 @@ const dashboardQuerySchema = dashboardQueryBaseSchema.superRefine((value, contex
 });
 
 function startOfDay(date: Date) {
-  const parts = getPakistanDateParts(date);
-  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day) - PAKISTAN_UTC_OFFSET_MS);
+  return businessDayRange(getBusinessDateKey(date)).start;
 }
 
 function endOfDay(date: Date) {
-  return new Date(startOfDay(date).getTime() + 24 * 60 * 60 * 1000 - 1);
+  return businessDayRange(getBusinessDateKey(date)).end;
 }
 
 function addDays(date: Date, days: number) {
@@ -68,50 +76,16 @@ function addYears(date: Date, years: number) {
   return value;
 }
 
-function getPakistanDateParts(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: REPORT_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23"
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-
-  return {
-    year: Number(values.year),
-    month: Number(values.month),
-    day: Number(values.day),
-    hour: Number(values.hour),
-    minute: Number(values.minute),
-    second: Number(values.second)
-  };
-}
-
 function getPakistanDateKey(date: Date) {
-  const parts = getPakistanDateParts(date);
-  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-}
-
-function getPakistanHour(date: Date) {
-  return getPakistanDateParts(date).hour;
+  return getBusinessDateKey(date);
 }
 
 function getPakistanWeekdayIndex(date: Date) {
-  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: REPORT_TIME_ZONE, weekday: "short" }).format(date);
-  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
-}
-
-function formatPakistanDate(date: Date, options: Intl.DateTimeFormatOptions) {
-  return new Intl.DateTimeFormat("en-PK", { ...options, timeZone: REPORT_TIME_ZONE }).format(date);
+  return getBusinessWeekdayIndex(date);
 }
 
 function startOfPakistanMonth(date: Date) {
-  const parts = getPakistanDateParts(date);
-  return new Date(Date.UTC(parts.year, parts.month - 1, 1) - PAKISTAN_UTC_OFFSET_MS);
+  return businessMonthRange(getBusinessDateKey(date).slice(0, 7)).start;
 }
 
 function startOfPakistanWeek(date: Date) {
@@ -121,13 +95,14 @@ function startOfPakistanWeek(date: Date) {
 
 function buildFoodpandaSettlementRange(period: "week" | "month" | "year") {
   const now = new Date();
-  const parts = getPakistanDateParts(now);
+  const businessKey = getBusinessDateKey(now);
+  const businessYear = Number(businessKey.slice(0, 4));
   const start = period === "week"
     ? startOfPakistanWeek(now)
     : period === "month"
       ? startOfPakistanMonth(now)
-      : new Date(Date.UTC(parts.year, 0, 1) - PAKISTAN_UTC_OFFSET_MS);
-  return { start, end: endOfDay(now), label: period === "week" ? "This week" : period === "month" ? "This month" : "This year" };
+      : businessYearRange(businessYear).start;
+  return { start, end: endOfDay(now), label: period === "week" ? "This week (6AM-6AM)" : period === "month" ? "This month (6AM-6AM)" : "This year (6AM-6AM)" };
 }
 
 function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
@@ -140,7 +115,7 @@ function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
       preset: query.preset,
       start,
       end,
-      label: `${formatPakistanDate(start, { dateStyle: "medium" })} to ${formatPakistanDate(end, { dateStyle: "medium" })}`
+      label: `${formatPakistanDate(businessDayRange(getBusinessDateKey(start)).start, { dateStyle: "medium" })} to ${formatPakistanDate(businessDayRange(getBusinessDateKey(end)).start, { dateStyle: "medium" })} (6AM-6AM)`
     };
   }
 
@@ -150,55 +125,53 @@ function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
       return {
         preset: query.preset,
         start,
-        end: now,
-        label: "Today"
+        end: endOfDay(now),
+        label: "Today (6AM-6AM)"
       };
     }
     case "30d": {
       return {
         preset: query.preset,
         start: startOfDay(addDays(now, -29)),
-        end: now,
-        label: "Last 30 days"
+        end: endOfDay(now),
+        label: "Last 30 business days"
       };
     }
     case "month": {
-      const monthDate = query.monthKey ? new Date(`${query.monthKey}-01T00:00:00Z`) : now;
-      const start = startOfPakistanMonth(monthDate);
-      const end = query.monthKey ? new Date(addMonths(start, 1).getTime() - 1) : now;
+      const monthKey = query.monthKey ?? getBusinessDateKey(now).slice(0, 7);
+      const monthRange = businessMonthRange(monthKey);
       return {
         preset: query.preset,
-        start,
-        end,
+        start: monthRange.start,
+        end: query.monthKey ? monthRange.end : endOfDay(now),
         label: query.monthKey
-          ? formatPakistanDate(start, { month: "long", year: "numeric" })
-          : "This month"
+          ? `${formatPakistanDate(monthRange.start, { month: "long", year: "numeric" })} (6AM-6AM)`
+          : "This month (6AM-6AM)"
       };
     }
     case "year": {
-      const parts = getPakistanDateParts(now);
-      const start = new Date(Date.UTC(parts.year, 0, 1) - PAKISTAN_UTC_OFFSET_MS);
+      const yearRange = businessYearRange(Number(getBusinessDateKey(now).slice(0, 4)));
       return {
         preset: query.preset,
-        start,
-        end: now,
-        label: "This year"
+        start: yearRange.start,
+        end: endOfDay(now),
+        label: "This year (6AM-6AM)"
       };
     }
     case "7d": {
       return {
         preset: query.preset,
         start: startOfDay(addDays(now, -6)),
-        end: now,
-        label: "Last 7 days"
+        end: endOfDay(now),
+        label: "Last 7 business days"
       };
     }
     default:
       return {
         preset: "today" as const,
         start: startOfDay(now),
-        end: now,
-        label: "Today"
+        end: endOfDay(now),
+        label: "Today (6AM-6AM)"
       };
   }
 }
@@ -969,16 +942,14 @@ function buildSalesSeries(orders: Array<{ placedAt: Date; totalAmount: Prisma.De
     }
   } else {
     for (let cursor = startOfPakistanMonth(start); cursor <= end; cursor = addMonths(cursor, 1)) {
-      const parts = getPakistanDateParts(cursor);
-      const key = `${parts.year}-${parts.month}`;
+      const key = getPakistanDateKey(cursor).slice(0, 7);
       ensureBucket(key, formatPakistanDate(cursor, { month: "short", year: "numeric" }), cursor.getTime());
     }
 
     for (const order of orders) {
-      const parts = getPakistanDateParts(order.placedAt);
-      const key = `${parts.year}-${parts.month}`;
+      const key = getPakistanDateKey(order.placedAt).slice(0, 7);
       const sortKey = startOfPakistanMonth(order.placedAt).getTime();
-      const bucket = ensureBucket(key, formatPakistanDate(order.placedAt, { month: "short", year: "numeric" }), sortKey);
+      const bucket = ensureBucket(key, formatPakistanDate(new Date(sortKey), { month: "short", year: "numeric" }), sortKey);
       bucket.revenue += Number(order.totalAmount);
       bucket.orders += 1;
     }
@@ -1869,6 +1840,9 @@ router.post("/products", async (req, res, next) => {
       entityId: product.id,
       payload
     });
+    await syncMealPairingOptions(prisma).catch((syncError) => {
+      console.error("Failed to sync Make It A Meal options after product create", syncError);
+    });
 
     return res.status(201).json({ product });
   } catch (error) {
@@ -2058,6 +2032,9 @@ router.patch("/products/:id", async (req, res, next) => {
       entityId: product.id,
       payload: { ...productPayload, imageUrl: payload.imageUrl, images }
     });
+    await syncMealPairingOptions(prisma).catch((syncError) => {
+      console.error("Failed to sync Make It A Meal options after product update", syncError);
+    });
 
     return res.json({ product });
   } catch (error) {
@@ -2136,6 +2113,9 @@ router.delete("/products/:id", async (req, res, next) => {
       entityType: "product",
       entityId: productId,
       payload: { mode: "deleted", productName: product.name, cleanup }
+    });
+    await syncMealPairingOptions(prisma).catch((syncError) => {
+      console.error("Failed to sync Make It A Meal options after product delete", syncError);
     });
 
     return res.json({
@@ -2923,7 +2903,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     prisma.openingBalance.findFirst({ where: { branchId, balanceDate: { lte: start } }, orderBy: { balanceDate: "desc" } })
   ]);
 
-  const [orders, foodpandaOrders, expenses, transfers, loanCashflow, recentClosings] = await Promise.all([
+  const [orders, foodpandaOrders, expenses, transfers, loanCashflow, currentClosing, recentClosings] = await Promise.all([
     prisma.order.findMany({
       where: {
         branchId,
@@ -2962,9 +2942,15 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
       where: {
         branchId,
         transferDate: { gte: start, lte: end }
-      }
+      },
+      include: { createdBy: true },
+      orderBy: { transferDate: "desc" }
     }),
     readLoanCashflow(branchId, start, end),
+    prisma.dailyClosing.findUnique({
+      where: { branchId_closingDate: { branchId, closingDate: start } },
+      include: { closedBy: true }
+    }),
     prisma.dailyClosing.findMany({
       where: { branchId },
       orderBy: { closingDate: "desc" },
@@ -2974,6 +2960,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   ]);
 
   const openingSource = openingBalance && (!previousClosing || openingBalance.balanceDate >= previousClosing.closingDate) ? openingBalance : null;
+  const openingSourceType = openingSource ? "OPENING_BALANCE" : previousClosing ? "PREVIOUS_CLOSING" : "NONE";
   const opening = {
     CASH: openingSource ? parseDecimal(openingSource.cashBalance) : parseDecimal(previousClosing?.cashCounted),
     EASYPAISA: openingSource ? parseDecimal(openingSource.easypaisaBalance) : parseDecimal(previousClosing?.easypaisaCounted),
@@ -3011,6 +2998,8 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   return {
     branchId,
     closingDate: start.toISOString(),
+    openingSource: openingSourceType,
+    openingSourceDate: openingSource?.balanceDate.toISOString() ?? previousClosing?.closingDate.toISOString() ?? null,
     openingBalanceDate: openingSource?.balanceDate.toISOString() ?? previousClosing?.closingDate.toISOString() ?? null,
     opening,
     sales,
@@ -3021,15 +3010,45 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     loanIn,
     loanOut,
     expected,
+    currentClosing: currentClosing ? {
+      id: currentClosing.id,
+      closingDate: currentClosing.closingDate.toISOString(),
+      cashExpected: parseDecimal(currentClosing.cashExpected),
+      cashCounted: parseDecimal(currentClosing.cashCounted),
+      cashDifference: roundMoney(parseDecimal(currentClosing.cashCounted) - parseDecimal(currentClosing.cashExpected)),
+      easypaisaExpected: parseDecimal(currentClosing.easypaisaExpected),
+      easypaisaCounted: parseDecimal(currentClosing.easypaisaCounted),
+      easypaisaDifference: roundMoney(parseDecimal(currentClosing.easypaisaCounted) - parseDecimal(currentClosing.easypaisaExpected)),
+      jazzcashExpected: parseDecimal(currentClosing.jazzcashExpected),
+      jazzcashCounted: parseDecimal(currentClosing.jazzcashCounted),
+      jazzcashDifference: roundMoney(parseDecimal(currentClosing.jazzcashCounted) - parseDecimal(currentClosing.jazzcashExpected)),
+      note: currentClosing.note,
+      closedByName: currentClosing.closedBy?.name ?? null,
+      createdAt: currentClosing.createdAt.toISOString()
+    } : null,
+    transfersToday: transfers.map((transfer) => ({
+      id: transfer.id,
+      branchId: transfer.branchId,
+      fromSource: transfer.fromSource,
+      toSource: transfer.toSource,
+      amount: parseDecimal(transfer.amount),
+      transferDate: transfer.transferDate.toISOString(),
+      note: transfer.note,
+      createdByName: transfer.createdBy?.name ?? null,
+      createdAt: transfer.createdAt.toISOString()
+    })),
     recentClosings: recentClosings.map((closing) => ({
       id: closing.id,
       closingDate: closing.closingDate.toISOString(),
       cashExpected: parseDecimal(closing.cashExpected),
       cashCounted: parseDecimal(closing.cashCounted),
+      cashDifference: roundMoney(parseDecimal(closing.cashCounted) - parseDecimal(closing.cashExpected)),
       easypaisaExpected: parseDecimal(closing.easypaisaExpected),
       easypaisaCounted: parseDecimal(closing.easypaisaCounted),
+      easypaisaDifference: roundMoney(parseDecimal(closing.easypaisaCounted) - parseDecimal(closing.easypaisaExpected)),
       jazzcashExpected: parseDecimal(closing.jazzcashExpected),
       jazzcashCounted: parseDecimal(closing.jazzcashCounted),
+      jazzcashDifference: roundMoney(parseDecimal(closing.jazzcashCounted) - parseDecimal(closing.jazzcashExpected)),
       note: closing.note,
       closedByName: closing.closedBy?.name ?? null,
       createdAt: closing.createdAt.toISOString()
@@ -4661,8 +4680,7 @@ const fixedExpenseOccurrenceSchema = z.object({
 });
 
 function getPakistanMonthKey(date = new Date()) {
-  const parts = getPakistanDateParts(date);
-  return `${parts.year}-${String(parts.month).padStart(2, "0")}`;
+  return getBusinessDateKey(date).slice(0, 7);
 }
 
 function fixedExpenseDueDate(monthKey: string, dueDay: number) {
@@ -4671,7 +4689,7 @@ function fixedExpenseDueDate(monthKey: string, dueDay: number) {
   const month = Number(monthPart);
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const day = Math.min(dueDay, daysInMonth);
-  return new Date(Date.UTC(year, month - 1, day) - PAKISTAN_UTC_OFFSET_MS);
+  return businessDayRange(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`).start;
 }
 
 function fixedExpenseMonthLabel(monthKey: string) {

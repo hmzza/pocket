@@ -13,7 +13,7 @@ import {
   updateAdminProductCostSettings
 } from "@/lib/admin-client";
 import type { AdminOrder, AdminProduct, AdminRangePreset } from "@/lib/types";
-import { formatCompactCurrency, formatCurrency, toPakistanDateIso } from "@/lib/utils";
+import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
 
 type SortKey = "revenue" | "profit" | "units" | "margin";
 type ProductDraft = { foodPackagingCost: string; isActive: boolean };
@@ -139,8 +139,8 @@ export function ProductAnalytics() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [drafts, setDrafts] = useState<Record<string, ProductDraft>>({});
   const [period, setPeriod] = useState<AdminRangePreset>("month");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
+  const [customStart, setCustomStart] = useState(getCurrentBusinessDateKey());
+  const [customEnd, setCustomEnd] = useState(getCurrentBusinessDateKey());
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("revenue");

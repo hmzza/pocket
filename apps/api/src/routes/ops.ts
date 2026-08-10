@@ -1,9 +1,11 @@
 import { OrderStatus, RoleCode } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
-import { prisma } from "../lib/prisma.js";
+import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { authenticate, authorize } from "../middleware/auth.js";
+import { applyOrderInventory } from "../lib/inventory.js";
+import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
 
 const router = Router();
 
@@ -78,10 +80,8 @@ function isTerminalStatus(status: OrderStatus) {
 }
 
 function todayPakistanRange() {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Karachi", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const start = new Date(Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day)) - 5 * 60 * 60 * 1000);
-  return { gte: start, lte: new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1) };
+  const range = businessDayRange(getBusinessDateKey());
+  return { gte: range.start, lte: range.end };
 }
 
 router.get("/orders", async (req, res, next) => {
@@ -255,6 +255,73 @@ router.patch("/orders/bulk-status", async (req, res, next) => {
     });
 
     return res.json({ updatedCount: updatedOrders.length });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/orders/:id", async (req, res, next) => {
+  try {
+    const deletedOrder = await prisma.$transaction(async (transaction) => {
+      const currentOrder = await transaction.order.findUnique({
+        where: { id: req.params.id },
+        include: {
+          items: {
+            include: {
+              addOns: true,
+              bundleComponents: true
+            }
+          }
+        }
+      });
+
+      if (!currentOrder) {
+        throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+      }
+
+      if (currentOrder.status !== OrderStatus.CANCELLED) {
+        await applyOrderInventory({
+          transaction,
+          branchId: currentOrder.branchId,
+          orderId: currentOrder.id,
+          actorId: req.user!.id,
+          mode: "return",
+          serviceType: currentOrder.serviceType,
+          items: currentOrder.items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            addOns: item.addOns.map((addOn) => ({
+              optionName: addOn.optionName
+            })),
+            bundleComponents: item.bundleComponents.map((component) => ({
+              productId: component.productId,
+              quantity: component.quantity
+            }))
+          }))
+        });
+      }
+
+      await transaction.order.delete({
+        where: { id: currentOrder.id }
+      });
+
+      return {
+        id: currentOrder.id,
+        orderNumber: currentOrder.orderNumber
+      };
+    }, INVENTORY_TRANSACTION_OPTIONS);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "order.delete",
+      entityType: "order",
+      entityId: deletedOrder.id,
+      payload: {
+        orderNumber: deletedOrder.orderNumber
+      }
+    });
+
+    return res.json({ deleted: true });
   } catch (error) {
     return next(error);
   }

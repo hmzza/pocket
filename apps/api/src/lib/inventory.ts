@@ -1,5 +1,6 @@
-import { InventoryTransactionType, Prisma, ServiceType } from "@prisma/client";
+import { InventoryTransactionType, Prisma, ServiceType, type PrismaClient } from "@prisma/client";
 import { OPTION_RECIPE_BY_NAME } from "./inventory-config.js";
+import { BEVERAGE_CATEGORY_SLUGS, MEAL_CATEGORY_SLUG, THELA_FRIES_SLUG, mealOptionNameFor } from "./meal-options.js";
 
 type InventoryOrderItem = {
   productId?: string | null;
@@ -141,14 +142,36 @@ const inventoryIngredientInclude = {
  * reads can run OUTSIDE a transaction and in parallel with other queries.
  */
 export async function readInventoryData(
-  client: Prisma.TransactionClient,
+  client: Prisma.TransactionClient | PrismaClient,
   branchId: string,
   productIds: string[]
 ) {
+  const dynamicMealProducts = await client.product.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { slug: THELA_FRIES_SLUG },
+        { category: { slug: { in: [...BEVERAGE_CATEGORY_SLUGS] } } }
+      ]
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      categoryId: true,
+      category: {
+        select: {
+          slug: true
+        }
+      }
+    }
+  });
+  const recipeProductIds = [...new Set([...productIds, ...dynamicMealProducts.map((product) => product.id)])];
+
   const [productIngredients, packagingRules, products] = await Promise.all([
-    productIds.length
+    recipeProductIds.length
       ? client.productIngredient.findMany({
-          where: { productId: { in: productIds }, ingredient: { isActive: true } },
+          where: { productId: { in: recipeProductIds }, ingredient: { isActive: true } },
           include: {
             ingredient: { include: inventoryIngredientInclude }
           }
@@ -163,10 +186,20 @@ export async function readInventoryData(
       if (isMissingTableError(error)) return [];
       throw error;
     }),
-    productIds.length
+    recipeProductIds.length
       ? client.product.findMany({
-          where: { id: { in: productIds } },
-          select: { id: true, categoryId: true }
+          where: { id: { in: recipeProductIds } },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            categoryId: true,
+            category: {
+              select: {
+                slug: true
+              }
+            }
+          }
         })
       : Promise.resolve([])
   ]);
@@ -261,7 +294,14 @@ export function computeInventoryChanges({
   }
 
   const ingredientById = new Map(productIngredients.map((entry) => [entry.ingredientId, entry.ingredient]));
+  const productById = new Map(products.map((product) => [product.id, product]));
   const productCategoryById = new Map(products.map((product) => [product.id, product.categoryId]));
+  const thelaFriesProduct = products.find((product) => product.slug === THELA_FRIES_SLUG);
+  const mealAddOnProductByName = new Map(
+    products
+      .filter((product) => product.category && BEVERAGE_CATEGORY_SLUGS.includes(product.category.slug as typeof BEVERAGE_CATEGORY_SLUGS[number]))
+      .map((product) => [mealOptionNameFor(product.name, product.category!.slug), product])
+  );
   const productQuantities = new Map<string, number>();
   const categoryQuantities = new Map<string, number>();
   let orderQuantity = 0;
@@ -319,18 +359,35 @@ export function computeInventoryChanges({
     }
   }
 
+  function addProductRecipeUsage(productId: string, quantity: number) {
+    const product = productById.get(productId);
+    const isMealProduct = product?.category?.slug === MEAL_CATEGORY_SLUG;
+    const recipeProductId = isMealProduct
+      ? thelaFriesProduct?.id
+      : productId;
+    const packagingProductId = isMealProduct
+      ? thelaFriesProduct?.id
+      : productId;
+
+    if (!recipeProductId || !packagingProductId) {
+      return;
+    }
+
+    for (const recipe of recipeByProduct.get(recipeProductId) ?? []) {
+      const ingredient = ingredientById.get(recipe.ingredientId);
+      if (ingredient?.type !== "PACKAGING") {
+        addIngredientUsage(ingredient, recipe.quantityNeeded * quantity);
+      }
+    }
+    addLegacyPackagingUsage(recipeProductId, quantity);
+    addProductPackagingInput(packagingProductId, quantity);
+  }
+
   const inventoryBySku = new Map(branchInventories.map((entry) => [entry.ingredient.sku, entry]));
 
   for (const item of items) {
     if (item.productId && !(item.bundleComponents?.length ?? 0)) {
-      for (const recipe of recipeByProduct.get(item.productId) ?? []) {
-        const ingredient = ingredientById.get(recipe.ingredientId);
-        if (ingredient?.type !== "PACKAGING") {
-          addIngredientUsage(ingredient, recipe.quantityNeeded * item.quantity);
-        }
-      }
-      addLegacyPackagingUsage(item.productId, item.quantity);
-      addProductPackagingInput(item.productId, item.quantity);
+      addProductRecipeUsage(item.productId, item.quantity);
     }
 
     for (const component of item.bundleComponents ?? []) {
@@ -338,21 +395,24 @@ export function computeInventoryChanges({
         continue;
       }
 
-      for (const recipe of recipeByProduct.get(component.productId) ?? []) {
-        const ingredient = ingredientById.get(recipe.ingredientId);
-        if (ingredient?.type !== "PACKAGING") {
-          addIngredientUsage(ingredient, recipe.quantityNeeded * component.quantity);
-        }
-      }
-      addLegacyPackagingUsage(component.productId, component.quantity);
-      addProductPackagingInput(component.productId, component.quantity);
+      addProductRecipeUsage(component.productId, component.quantity);
     }
 
     for (const addOn of item.addOns ?? []) {
+      const dynamicMealAddOnProduct = mealAddOnProductByName.get(addOn.optionName);
+      if (dynamicMealAddOnProduct) {
+        addProductRecipeUsage(dynamicMealAddOnProduct.id, item.quantity);
+        continue;
+      }
+
       const optionRecipe = OPTION_RECIPE_BY_NAME[addOn.optionName];
       if (!optionRecipe) continue;
 
-      for (const component of optionRecipe) {
+      const components = addOn.optionName.startsWith("Fries + ")
+        ? optionRecipe.filter((component) => !["ING-FRIES", "ING-FRIES-MASALA"].includes(component.ingredientSku))
+        : optionRecipe;
+
+      for (const component of components) {
         const inventory = inventoryBySku.get(component.ingredientSku);
         if (!inventory) continue;
         totals.set(

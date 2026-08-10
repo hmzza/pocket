@@ -19,7 +19,7 @@ import {
   updateAdminSetting
 } from "@/lib/admin-client";
 import type { AdminExpense, AdminExpenseData, AdminRangePreset, AdminVendor } from "@/lib/types";
-import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
+import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue, toPakistanDateIso } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" },
@@ -57,16 +57,11 @@ const MONEY_SOURCES = [
 ] as const;
 
 function getCurrentMonthKey() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  return getCurrentBusinessDateKey().slice(0, 7);
 }
 
 function getTodayDateKey() {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getCurrentBusinessDateKey();
 }
 
 function shiftMonth(monthKey: string, delta: number) {
@@ -95,7 +90,7 @@ const EMPTY_EXPENSE_FORM: ExpenseFormState = {
   category: "Inventory",
   amount: "",
   paymentSource: "",
-  expenseDate: new Date().toISOString().slice(0, 10),
+  expenseDate: getCurrentBusinessDateKey(),
   vendor: "",
   billReference: "",
   notes: ""
@@ -108,7 +103,7 @@ function mapExpenseToForm(expense: AdminExpense): ExpenseFormState {
     category: expense.category,
     amount: String(expense.amount),
     paymentSource: expense.paymentSource ?? "CASH",
-    expenseDate: expense.expenseDate.slice(0, 10),
+    expenseDate: toBusinessDateInputValue(expense.expenseDate),
     vendor: expense.vendor ?? "",
     billReference: expense.billReference ?? "",
     notes: expense.notes ?? ""
@@ -327,8 +322,8 @@ export function ExpenseManagement() {
         branchId: nextBranchId || undefined,
         category: nextCategory || undefined,
         monthKey: nextPreset === "month" ? nextMonth : undefined,
-        start: nextPreset === "custom" ? new Date(`${nextStart}T00:00:00`).toISOString() : undefined,
-        end: nextPreset === "custom" ? new Date(`${nextEnd}T23:59:59.999`).toISOString() : undefined
+        start: nextPreset === "custom" ? toPakistanDateIso(nextStart) : undefined,
+        end: nextPreset === "custom" ? toPakistanDateIso(nextEnd, true) : undefined
       });
       setData(nextData);
       const defaultBranchId = nextData.branches[0]?.id || "";
@@ -455,7 +450,7 @@ export function ExpenseManagement() {
         category: nextCategory,
         amount: Number(form.amount),
         paymentSource: form.paymentSource,
-        expenseDate: new Date(`${form.expenseDate}T12:00:00`).toISOString(),
+        expenseDate: new Date(`${form.expenseDate}T12:00:00+05:00`).toISOString(),
         vendor: nextVendor || undefined,
         billReference: form.billReference.trim() || undefined,
         notes: form.notes.trim() || undefined
@@ -513,8 +508,8 @@ export function ExpenseManagement() {
                 preset,
                 branchId: branchId || undefined,
                 category: categoryFilter || undefined,
-                start: new Date(`${customStart}T00:00:00`).toISOString(),
-                end: new Date(`${customEnd}T23:59:59.999`).toISOString()
+                start: toPakistanDateIso(customStart),
+                end: toPakistanDateIso(customEnd, true)
               }
             : null
           : {
@@ -641,7 +636,7 @@ export function ExpenseManagement() {
           ))}
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <p className="text-sm text-pocket-navy/60">Pick a preset, then use the month or custom date fields when needed.</p>
+          <p className="text-sm text-pocket-navy/60">Dates use the 6AM-6AM Pakistan business day.</p>
         </div>
         {preset === "month" ? (
           <div className="mt-4 flex flex-wrap items-center gap-3">

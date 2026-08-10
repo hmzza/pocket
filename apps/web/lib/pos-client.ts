@@ -213,6 +213,12 @@ export async function updatePosOrderPaymentStatus(orderId: string, paymentStatus
   });
 }
 
+export async function deletePosOrder(orderId: string) {
+  return posFetch<{ deleted: boolean }>(`/api/ops/orders/${orderId}`, {
+    method: "DELETE"
+  });
+}
+
 export async function bulkUpdatePosOrderStatus(orderIds: string[], status: string) {
   return posFetch(`/api/ops/orders/bulk-status`, {
     method: "PATCH",
