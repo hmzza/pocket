@@ -7,6 +7,10 @@ export const THELA_FRIES_SLUG = "thela-fries";
 export const BEVERAGE_CATEGORY_SLUGS = ["soft-drinks", "ice-cream-shakes", "chillers"] as const;
 export const MEAL_PAIRING_GROUP_NAME = "Choose your meal pairing";
 
+const BEVERAGE_CATEGORY_ORDER = new Map<string, number>(
+  BEVERAGE_CATEGORY_SLUGS.map((slug, index) => [slug, index])
+);
+
 export function mealOptionNameFor(productName: string, categorySlug: string) {
   const displayName = categorySlug === "ice-cream-shakes" && !/shake/i.test(productName)
     ? `${productName} Shake`
@@ -49,7 +53,15 @@ export async function syncMealPairingOptions(client: MealOptionClient) {
     return;
   }
 
-  const targetOptions = beverages.map((beverage, index) => ({
+  const sortedBeverages = beverages.slice().sort((left, right) => {
+    const leftCategoryOrder = BEVERAGE_CATEGORY_ORDER.get(left.category.slug) ?? BEVERAGE_CATEGORY_SLUGS.length;
+    const rightCategoryOrder = BEVERAGE_CATEGORY_ORDER.get(right.category.slug) ?? BEVERAGE_CATEGORY_SLUGS.length;
+    if (leftCategoryOrder !== rightCategoryOrder) return leftCategoryOrder - rightCategoryOrder;
+    if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+    return left.name.localeCompare(right.name);
+  });
+
+  const targetOptions = sortedBeverages.map((beverage, index) => ({
     name: mealOptionNameFor(beverage.name, beverage.category.slug),
     priceDelta: priceForCategory(beverage.category.slug),
     sortOrder: index + 1

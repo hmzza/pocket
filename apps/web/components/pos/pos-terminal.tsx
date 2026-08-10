@@ -31,6 +31,7 @@ type ProductSelection = { groupId: string; optionIds: string[] };
 
 type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT";
 type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA";
+type ServiceTypeSelection = ServiceTypeValue | "";
 
 const basePaymentOptions = [
   { value: "CASH", label: "Cash", logo: "/images/cash-logo.png" },
@@ -149,7 +150,8 @@ function formatPaymentMethod(value: string) {
   return map[value] ?? value.replaceAll("_", " ");
 }
 
-function getPaymentOptions(serviceType: ServiceTypeValue) {
+function getPaymentOptions(serviceType: ServiceTypeSelection) {
+  if (!serviceType) return [];
   return serviceType === "FOODPANDA" ? [foodpandaPaymentOption] : basePaymentOptions;
 }
 
@@ -323,7 +325,7 @@ export function PosTerminal() {
   const [ticket, setTicket] = useState<TicketLine[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [serviceType, setServiceType] = useState<ServiceTypeValue>("INSHOP");
+  const [serviceType, setServiceType] = useState<ServiceTypeSelection>("");
   const [foodpandaOrderNumber, setFoodpandaOrderNumber] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentOptionValue | "">("");
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED">("PERCENTAGE");
@@ -643,6 +645,12 @@ export function PosTerminal() {
     const submittedCustomerPhone = customerPhone.trim();
     const submittedFoodpandaOrderNumber = foodpandaOrderNumber.trim();
 
+    if (!serviceType) {
+      setError("Pick Dine-in, Takeaway, or Foodpanda before finishing the order.");
+      setSubmitting(false);
+      return;
+    }
+
     if (!paymentMethod) {
       setError("Pick a payment mode before finishing the order.");
       setSubmitting(false);
@@ -713,7 +721,7 @@ export function PosTerminal() {
     setTicket([]);
     setCustomerName("");
     setCustomerPhone("");
-    setServiceType("INSHOP");
+    setServiceType("");
     setFoodpandaOrderNumber("");
     setPaymentMethod("");
     setDiscountType("PERCENTAGE");
@@ -1075,7 +1083,11 @@ export function PosTerminal() {
                 <div className="space-y-1.5">
                   <p className="text-[0.6rem] font-semibold uppercase tracking-[0.22em] text-slate-500">Payment mode</p>
                   <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">
-                    {paymentOptions.map((entry) => {
+                    {!serviceType ? (
+                      <div className="flex h-10 items-center rounded-full border border-dashed border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-500">
+                        Select order type first
+                      </div>
+                    ) : paymentOptions.map((entry) => {
                       const selected = paymentMethod === entry.value;
                       return (
                         <button
