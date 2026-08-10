@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { fetchAdminDashboard } from "@/lib/admin-client";
 import { estimateFoodpandaPayout, getFoodpandaRevenueFromBreakdowns } from "@/lib/finance";
 import type { AdminRangePreset, DashboardData } from "@/lib/types";
-import { formatCompactCurrency, formatCompactNumber, toPakistanDateIso } from "@/lib/utils";
+import { formatCompactCurrency, formatCompactNumber, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
 
 const periods: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" },
@@ -38,8 +38,8 @@ export default function FoodpandaAnalyticsPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [overallDashboard, setOverallDashboard] = useState<DashboardData | null>(null);
   const [period, setPeriod] = useState<AdminRangePreset>("month");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
+  const [customStart, setCustomStart] = useState(getCurrentBusinessDateKey());
+  const [customEnd, setCustomEnd] = useState(getCurrentBusinessDateKey());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 

@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   bulkUpdatePosOrderStatus,
+  deletePosOrder,
   fetchPosOrders,
   fetchPosSession,
   updatePosOrderPaymentStatus,
@@ -121,6 +122,7 @@ function CompactOrderCard({
   exiting,
   readOnly,
   onEdit,
+  onDelete,
   onDetails
 }: {
   order: AdminOrder;
@@ -130,6 +132,7 @@ function CompactOrderCard({
   exiting?: boolean;
   readOnly?: boolean;
   onEdit: (order: AdminOrder) => void;
+  onDelete: (order: AdminOrder) => void;
   onDetails: (order: AdminOrder) => void;
   onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
   onTogglePaymentStatus: (order: AdminOrder) => void;
@@ -256,6 +259,14 @@ function CompactOrderCard({
         ) : !isTerminal ? (
           <div className={embedded ? "flex items-center justify-end gap-1" : "flex items-center justify-end gap-1"}>
             <OrderActionButton
+              title="Edit order"
+              label="Edit"
+              className="border-slate-300 bg-white text-slate-900 hover:bg-slate-50"
+              icon={<PencilLine className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+              disabled={busy}
+              onClick={() => onEdit(order)}
+            />
+            <OrderActionButton
               title="Mark completed"
               label="Completed"
               className="border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
@@ -264,12 +275,12 @@ function CompactOrderCard({
               onClick={() => onChangeStatus(order, "DELIVERED")}
             />
             <OrderActionButton
-              title="Discard order"
-              label="Discard"
+              title="Delete order"
+              label="Delete"
               className="border-red-500 bg-red-500 text-white hover:bg-red-600"
               icon={<Trash2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
               disabled={busy}
-              onClick={() => onChangeStatus(order, "CANCELLED")}
+              onClick={() => onDelete(order)}
             />
             <OrderActionButton
               title="Check later"
@@ -304,6 +315,7 @@ function OrderSection({
   onTogglePaymentStatus,
   readOnly,
   onEdit,
+  onDelete,
   onDetails,
   embedded,
   busy,
@@ -322,6 +334,7 @@ function OrderSection({
   onTogglePaymentStatus: (order: AdminOrder) => void;
   readOnly?: boolean;
   onEdit: (order: AdminOrder) => void;
+  onDelete: (order: AdminOrder) => void;
   onDetails: (order: AdminOrder) => void;
   embedded?: boolean;
 }) {
@@ -346,6 +359,7 @@ function OrderSection({
               onTogglePaymentStatus={onTogglePaymentStatus}
               readOnly={readOnly}
               onEdit={onEdit}
+              onDelete={onDelete}
               onDetails={onDetails}
               busy={busy && order.id === mutedOrderId}
               muted={busy && order.id !== mutedOrderId}
@@ -360,11 +374,27 @@ function OrderSection({
   );
 }
 
-export function PosOrderQueue({ embedded = false, todayOnly = false }: { embedded?: boolean; todayOnly?: boolean } = {}) {
-  return <PosOrderQueueView embedded={embedded} todayOnly={todayOnly} />;
+export function PosOrderQueue({
+  embedded = false,
+  todayOnly = false,
+  onEditOrder
+}: {
+  embedded?: boolean;
+  todayOnly?: boolean;
+  onEditOrder?: (orderNumber: string) => void;
+} = {}) {
+  return <PosOrderQueueView embedded={embedded} todayOnly={todayOnly} onEditOrder={onEditOrder} />;
 }
 
-function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?: boolean; todayOnly?: boolean } = {}) {
+function PosOrderQueueView({
+  embedded = false,
+  todayOnly = false,
+  onEditOrder
+}: {
+  embedded?: boolean;
+  todayOnly?: boolean;
+  onEditOrder?: (orderNumber: string) => void;
+} = {}) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -373,6 +403,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
   const [search, setSearch] = useState("");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [updatingOrderId, setUpdatingOrderId] = useState("");
   const [exitingOrderIds, setExitingOrderIds] = useState<string[]>([]);
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, AdminOrder["status"]>>({});
@@ -382,6 +413,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
   async function loadOrders(nextScope = scope) {
     try {
       setError("");
+      setNotice("");
       const data = await fetchPosOrders({ scope: todayOnly ? "all" : nextScope, search: search.trim() || undefined, today: todayOnly });
       setOrders(data.orders);
       setPendingStatuses((current) => {
@@ -519,6 +551,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
   async function changeStatus(order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") {
     setUpdatingOrderId(order.id);
     setError("");
+    setNotice("");
     setPendingStatuses((current) => ({
       ...current,
       [order.id]: status
@@ -557,6 +590,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
 
     setUpdatingOrderId(order.id);
     setError("");
+    setNotice("");
     setPendingPaymentStatuses((current) => ({
       ...current,
       [order.id]: nextStatus
@@ -616,7 +650,43 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
   }
 
   function openEdit(order: AdminOrder) {
+    if (onEditOrder) {
+      onEditOrder(order.orderNumber);
+      return;
+    }
+
     window.open(`/pos?orderNumber=${encodeURIComponent(order.orderNumber)}`, "_blank", "noopener,noreferrer");
+  }
+
+  async function deleteOrder(order: AdminOrder) {
+    const confirmed = window.confirm(`Delete ${order.orderNumber}? This permanently removes the order and returns inventory if needed.`);
+    if (!confirmed) return;
+
+    setUpdatingOrderId(order.id);
+    setError("");
+    setNotice("");
+    setExitingOrderIds((current) => (current.includes(order.id) ? current : [...current, order.id]));
+
+    try {
+      await deletePosOrder(order.id);
+      setOrders((current) => current.filter((entry) => entry.id !== order.id));
+      setPendingStatuses((current) => {
+        const next = { ...current };
+        delete next[order.id];
+        return next;
+      });
+      setPendingPaymentStatuses((current) => {
+        const next = { ...current };
+        delete next[order.id];
+        return next;
+      });
+      setNotice(`${order.orderNumber} deleted.`);
+      scheduleRefresh(scope);
+    } catch (deleteError) {
+      setExitingOrderIds((current) => current.filter((entryId) => entryId !== order.id));
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete order.");
+      setUpdatingOrderId("");
+    }
   }
 
   function openDetails(order: AdminOrder) {
@@ -639,7 +709,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
           <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-600">Counter Orders</p>
           <h2 className={embedded ? "mt-0.5 text-[1.2rem] font-black leading-none" : "mt-0.5 text-[1.55rem] font-black leading-none"}>Queue Board</h2>
           <p className={embedded ? "mt-1 text-[10px] text-slate-500" : "mt-1 text-[11px] text-slate-500"}>
-            {todayOnly ? `${derived.todayOrders.length} orders today. Staff view is read-only.` : `${derived.queuedCount} active orders, ${derived.watchLaterOrders.length} watch later, ${derived.deliveredOrders.length} completed.`}
+            {todayOnly ? `${derived.todayOrders.length} orders in this business day. Staff view is read-only.` : `${derived.queuedCount} active orders, ${derived.watchLaterOrders.length} watch later, ${derived.deliveredOrders.length} completed.`}
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -702,7 +772,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
                 {option.label}
               </option>
             ))}
-          </select> : <div className="flex h-9 items-center rounded-2xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700">Today’s orders · Pakistan time</div>}
+          </select> : <div className="flex h-9 items-center rounded-2xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700">Business day orders · 6AM-6AM PKT</div>}
           <div className={embedded ? "hidden" : "flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-1.5"}>
             <Truck className="h-3.5 w-3.5 text-orange-600" />
             <p className="text-[11px] font-semibold text-slate-700">Compact receipts with quick one-tap actions.</p>
@@ -717,12 +787,13 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
       </Card>
 
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+      {notice ? <p className="text-sm font-medium text-emerald-700">{notice}</p> : null}
 
       <div className={updatingOrderId ? "grid gap-3 opacity-80 transition" : "grid gap-3"}>
         {todayOnly ? (
           <OrderSection
-            title="Today's Orders"
-            description="Every order punched today, including completed orders."
+            title="Business Day Orders"
+            description="Every order punched in the 6AM-6AM Pakistan business day."
             orders={derived.todayOrders}
             embedded={embedded}
             readOnly
@@ -732,8 +803,9 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
             exitingOrderIds={[]}
             onChangeStatus={changeStatus}
             onEdit={openEdit}
+            onDelete={deleteOrder}
             onDetails={openDetails}
-            emptyText="No orders have been punched today."
+            emptyText="No orders have been punched in this business day."
           />
         ) : null}
         {showActiveLane ? (
@@ -748,6 +820,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
             exitingOrderIds={exitingOrderIds}
             onChangeStatus={changeStatus}
             onEdit={openEdit}
+            onDelete={deleteOrder}
             onDetails={openDetails}
             emptyText="No active orders match the current filter."
           />
@@ -765,6 +838,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
             exitingOrderIds={exitingOrderIds}
             onChangeStatus={changeStatus}
             onEdit={openEdit}
+            onDelete={deleteOrder}
             onDetails={openDetails}
             emptyText="No watch later orders yet."
           />
@@ -782,6 +856,7 @@ function PosOrderQueueView({ embedded = false, todayOnly = false }: { embedded?:
             exitingOrderIds={exitingOrderIds}
             onChangeStatus={changeStatus}
             onEdit={openEdit}
+            onDelete={deleteOrder}
             onDetails={openDetails}
             emptyText="No completed orders match the current filter."
           />

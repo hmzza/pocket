@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PosOrderQueue } from "@/components/pos/order-queue";
 import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
-import { cn, formatCompactCurrency, formatCurrency } from "@/lib/utils";
+import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 
 type TicketLine = {
   id: string;
@@ -47,15 +47,12 @@ const serviceTypes = [
 ] as const;
 
 function getLocalDateInputValue(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getCurrentBusinessDateKey(date);
 }
 
 function buildIsoFromDateInput(value: string) {
   if (!value) return "";
-  return new Date(`${value}T12:00:00`).toISOString();
+  return new Date(`${value}T12:00:00+05:00`).toISOString();
 }
 
 function buildDefaultSelections(groups: AddOnGroup[]) {
@@ -505,6 +502,14 @@ export function PosTerminal() {
         addOns: []
       })
     );
+  }
+
+  function adjustProductQuantity(delta: number) {
+    setProductQuantity((current) => String(Math.max(1, parsePositiveInteger(current) + delta)));
+  }
+
+  function updateProductQuantityInput(value: string) {
+    setProductQuantity(value.replace(/\D/g, ""));
   }
 
   function confirmConfiguredProduct() {
@@ -1216,7 +1221,7 @@ export function PosTerminal() {
 
           {splitView ? (
             <div className="min-w-0 min-h-0 xl:sticky xl:top-4 xl:h-[calc(100vh-4.75rem)] xl:overflow-hidden">
-              <PosOrderQueue embedded />
+              <PosOrderQueue embedded onEditOrder={(orderNumber) => void loadOrderForEditing(orderNumber)} />
             </div>
           ) : null}
         </div>
@@ -1266,8 +1271,37 @@ export function PosTerminal() {
                   </div>
                 </div>
               ))}
-              <div className="grid gap-3">
-                <Input className="pos-dark-field" inputMode="numeric" value={productQuantity} onChange={(event) => setProductQuantity(event.target.value)} />
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
+                <p className="text-sm font-semibold text-white">Quantity</p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 w-9 rounded-full border-white/20 bg-white/10 p-0 text-white hover:bg-white/20"
+                    onClick={() => adjustProductQuantity(-1)}
+                    disabled={parsePositiveInteger(productQuantity) <= 1}
+                    aria-label="Decrease quantity"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                  <Input
+                    className="h-9 w-20 rounded-xl border-white/20 bg-white px-2 text-center text-base font-black text-slate-950 shadow-none focus-visible:ring-amber-300"
+                    inputMode="numeric"
+                    value={productQuantity}
+                    onChange={(event) => updateProductQuantityInput(event.target.value)}
+                    onBlur={() => setProductQuantity((current) => String(parsePositiveInteger(current)))}
+                    aria-label="Quantity"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 w-9 rounded-full border-white/20 bg-white/10 p-0 text-white hover:bg-white/20"
+                    onClick={() => adjustProductQuantity(1)}
+                    aria-label="Increase quantity"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="sticky bottom-0 bg-slate-900 pt-2">
                 <Button className="w-full" onClick={confirmConfiguredProduct}>Add to Ticket</Button>

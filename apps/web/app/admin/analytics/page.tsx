@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard } from "@/lib/admin-client";
 import { FOODPANDA_COMMISSION_RATE, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut } from "@/lib/finance";
 import type { AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
-import { formatCompactCurrency, formatCompactNumber, toPakistanDateIso } from "@/lib/utils";
+import { formatCompactCurrency, formatCompactNumber, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
 
 function Kpi({ label, value, helper }: { label: string; value: string; helper: string }) {
   return <Card className="p-5"><p className="text-xs font-semibold uppercase tracking-[0.22em] text-pocket-orange">{label}</p><p className="mt-3 text-2xl font-black text-pocket-navy">{value}</p><p className="mt-1 text-sm text-pocket-navy/60">{helper}</p></Card>;
@@ -33,8 +33,8 @@ export default function BusinessAnalyticsPage() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [period, setPeriod] = useState<AdminRangePreset>("month");
   const [segment, setSegment] = useState<AdminOrderSegment>("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(getCurrentBusinessDateKey());
+  const [endDate, setEndDate] = useState(getCurrentBusinessDateKey());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 

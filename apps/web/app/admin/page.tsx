@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { fetchAdminDashboard, fetchAdminExpenses } from "@/lib/admin-client";
 import { FOODPANDA_COMMISSION_RATE, getRevenueAfterFoodpandaCut } from "@/lib/finance";
 import type { AdminExpenseData, AdminOrderSegment, AdminRangePreset, DashboardData } from "@/lib/types";
-import { cn, formatCompactCurrency, formatCompactNumber, toPakistanDateIso } from "@/lib/utils";
+import { cn, formatCompactCurrency, formatCompactNumber, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" }, { value: "7d", label: "7 Days" }, { value: "30d", label: "30 Days" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }, { value: "custom", label: "Custom" }
@@ -46,8 +46,8 @@ export default function AdminPage() {
   const [expenses, setExpenses] = useState<AdminExpenseData | null>(null);
   const [preset, setPreset] = useState<AdminRangePreset>("today");
   const [segment, setSegment] = useState<AdminOrderSegment>("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(getCurrentBusinessDateKey());
+  const [endDate, setEndDate] = useState(getCurrentBusinessDateKey());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 

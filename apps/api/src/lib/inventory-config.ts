@@ -160,32 +160,16 @@ export const PRODUCT_RECIPE_BY_SLUG: Record<string, RecipeLine[]> = {
   "chicken-add-on": [{ ingredientSku: "ING-MARINATED-CHICKEN", quantity: 0.06 }],
   cheese: [{ ingredientSku: "ING-CHEESE", quantity: 0.008 }],
   "classic-pocket-make-it-a-meal": [
-    { ingredientSku: "ING-MARINATED-CHICKEN", quantity: 0.09 },
-    { ingredientSku: "ING-BREAD", quantity: 1 },
-    ...vegMix,
-    { ingredientSku: "ING-CLASSIC-SAUCE", quantity: 0.07 },
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 }
+    { ingredientSku: "ING-FRIES", quantity: 0.32 },
+    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.012 }
   ],
   "spicy-pocket-make-it-a-meal": [
-    { ingredientSku: "ING-MARINATED-CHICKEN", quantity: 0.09 },
-    { ingredientSku: "ING-BREAD", quantity: 1 },
-    ...vegMix,
-    { ingredientSku: "ING-SPICY-SAUCE", quantity: 0.07 },
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 }
+    { ingredientSku: "ING-FRIES", quantity: 0.32 },
+    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.012 }
   ],
   "pocket-mai-rocket-make-it-a-meal": [
-    { ingredientSku: "ING-MARINATED-CHICKEN", quantity: 0.09 },
-    { ingredientSku: "ING-BREAD", quantity: 1 },
-    ...vegMix,
-    { ingredientSku: "ING-CHEESE", quantity: 0.008 },
-    { ingredientSku: "ING-OLIVES", quantity: 0.004 },
-    { ingredientSku: "ING-MUSHROOM", quantity: 0.004 },
-    { ingredientSku: "ING-JALEPENOS", quantity: 0.004 },
-    { ingredientSku: "ING-CORN", quantity: 0.004 },
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 }
+    { ingredientSku: "ING-FRIES", quantity: 0.32 },
+    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.012 }
   ],
   "kiwi-passion": [
     { ingredientSku: "ING-KIWI-SYRUP", quantity: 0.03 },
@@ -299,68 +283,46 @@ export const OPTION_RECIPE_BY_NAME: Record<string, RecipeLine[]> = {
   "Spicy jalapeno sauce": [{ ingredientSku: "ING-SPICY-SAUCE", quantity: 0.07 }],
   "Garlic Mayo Sauce": [{ ingredientSku: "ING-GARLIC-MAYO", quantity: 0.03 }],
   "Fries + Pepsi": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "RTL-PEPSI", quantity: 1 }
   ],
   "Fries + 7UP": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "RTL-7UP", quantity: 1 }
   ],
   "Fries + Fanta": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "RTL-MIRINDA", quantity: 1 }
   ],
   "Fries + Chocolate Shake": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "ING-CARAMEL-ICECREAM", quantity: 0.12 },
     ...shakeBase
   ],
   "Fries + Vanilla Shake": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "ING-VANILLA-ICECREAM", quantity: 0.12 },
     ...shakeBase
   ],
   "Fries + Mango Shake": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "ING-MANGO-ICECREAM", quantity: 0.12 },
     ...shakeBase
   ],
   "Fries + Oreo Shake": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "ING-VANILLA-ICECREAM", quantity: 0.12 },
     { ingredientSku: "ING-OREO", quantity: 1 },
     ...shakeBase
   ],
   "Fries + Strawberry Shake": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "ING-STRAWBERRY-ICECREAM", quantity: 0.12 },
     ...shakeBase
   ],
   "Fries + Kiwi Passion": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "ING-KIWI-SYRUP", quantity: 0.03 },
     { ingredientSku: "ING-PASSION-SYRUP", quantity: 0.03 },
     { ingredientSku: "RTL-7UP", quantity: 1 }
   ],
   "Fries + Strawberry Cherry": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "ING-STRAWBERRY-SYRUP", quantity: 0.03 },
     { ingredientSku: "ING-BLUEBERRY-SYRUP", quantity: 0.03 },
     { ingredientSku: "RTL-7UP", quantity: 1 }
   ],
   "Fries + Watermelon Guava": [
-    { ingredientSku: "ING-FRIES", quantity: 0.18 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.006 },
     { ingredientSku: "ING-POMEGRANATE-SYRUP", quantity: 0.03 },
     { ingredientSku: "ING-MINT-SYRUP", quantity: 0.03 },
     { ingredientSku: "RTL-7UP", quantity: 1 }

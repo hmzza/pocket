@@ -15,7 +15,7 @@ import {
   updateAdminLoan
 } from "@/lib/admin-client";
 import type { AdminLoan, AdminLoanData, MoneySource } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue } from "@/lib/utils";
 
 const MONEY_SOURCES: Array<{ value: MoneySource; label: string }> = [
   { value: "CASH", label: "Cash" },
@@ -45,7 +45,7 @@ const EMPTY_LOAN_FORM: LoanFormState = {
   lenderName: "",
   amount: "",
   receivedSource: "CASH",
-  loanDate: new Date().toISOString().slice(0, 10),
+  loanDate: getCurrentBusinessDateKey(),
   note: ""
 };
 
@@ -53,7 +53,7 @@ const EMPTY_REPAYMENT_FORM: RepaymentFormState = {
   loanId: "",
   amount: "",
   paidFrom: "CASH",
-  paymentDate: new Date().toISOString().slice(0, 10),
+  paymentDate: getCurrentBusinessDateKey(),
   note: ""
 };
 
@@ -130,7 +130,7 @@ export function LoanManagement() {
       lenderName: loan.lenderName,
       amount: String(loan.amount),
       receivedSource: loan.receivedSource,
-      loanDate: loan.loanDate.slice(0, 10),
+      loanDate: toBusinessDateInputValue(loan.loanDate),
       note: loan.note ?? ""
     });
   }
@@ -158,7 +158,7 @@ export function LoanManagement() {
         lenderName: form.lenderName.trim(),
         amount: numberValue(form.amount),
         receivedSource: form.receivedSource,
-        loanDate: new Date(`${form.loanDate}T12:00:00`).toISOString(),
+        loanDate: new Date(`${form.loanDate}T12:00:00+05:00`).toISOString(),
         note: form.note.trim() || undefined
       };
       if (editingLoan) {
@@ -189,7 +189,7 @@ export function LoanManagement() {
       await createAdminLoanRepayment(repayingLoan.id, {
         amount,
         paidFrom: repaymentForm.paidFrom,
-        paymentDate: new Date(`${repaymentForm.paymentDate}T12:00:00`).toISOString(),
+        paymentDate: new Date(`${repaymentForm.paymentDate}T12:00:00+05:00`).toISOString(),
         note: repaymentForm.note.trim() || undefined
       });
       setRepayingLoan(null);

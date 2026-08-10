@@ -10,19 +10,13 @@ import { VendorManagement } from "@/components/admin/vendor-management";
 import {
   createAdminInventoryItem,
   createAdminInventoryTransaction,
-  createAdminMoneyTransfer,
-  deleteAdminDailyClosing,
   deleteAdminInventoryItem,
-  deleteAdminMoneyTransfer,
   deleteAdminPackagingRule,
-  fetchAdminDailyClosing,
   fetchAdminInventory,
   fetchAdminInventoryForecast,
-  fetchAdminMoneyTransfers,
   fetchAdminPackagingRules,
   fetchAdminInventoryRecipes,
   fetchAdminVendors,
-  saveAdminDailyClosing,
   saveAdminPackagingRule,
   updateAdminInventoryItem,
   updateAdminInventoryItemStatus,
@@ -31,10 +25,10 @@ import {
   updateAdminProductPackagingRules,
   updateAdminProductRecipe
 } from "@/lib/admin-client";
-import type { AdminDailyClosingData, AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminMoneyTransferData, AdminPackagingRuleData, AdminRecipeData, AdminVendor, MoneySource } from "@/lib/types";
-import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
+import type { AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminPackagingRuleData, AdminRecipeData, AdminVendor } from "@/lib/types";
+import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue } from "@/lib/utils";
 
-type InventoryTab = "stock" | "add-stock" | "vendors" | "prep" | "recipes" | "rules" | "transfers" | "closing" | "wastage" | "forecast" | "logs";
+type InventoryTab = "stock" | "add-stock" | "vendors" | "prep" | "recipes" | "rules" | "wastage" | "forecast" | "logs";
 type StockStatusFilter = "all" | "active" | "inactive";
 
 const INVENTORY_UNITS = ["kg", "litre", "bottles", "pieces", "slices", "loafs"];
@@ -55,12 +49,6 @@ const SERVICE_TYPE_LABELS: Record<(typeof SERVICE_TYPES)[number], string> = {
   DELIVERY: "Delivery"
 };
 const WASTAGE_REASONS = ["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"] as const;
-const MONEY_SOURCES: Array<{ value: MoneySource; label: string }> = [
-  { value: "CASH", label: "Cash" },
-  { value: "EASYPAISA", label: "Easypaisa" },
-  { value: "JAZZCASH", label: "JazzCash" }
-];
-
 const TABS: Array<{ id: InventoryTab; label: string; icon: typeof Warehouse }> = [
   { id: "stock", label: "Stock", icon: ClipboardList },
   { id: "add-stock", label: "Add Stock", icon: Warehouse },
@@ -68,7 +56,6 @@ const TABS: Array<{ id: InventoryTab; label: string; icon: typeof Warehouse }> =
   { id: "prep", label: "Prep Items", icon: ChefHat },
   { id: "recipes", label: "Recipes & Costing", icon: ChefHat },
   { id: "rules", label: "Rules", icon: ClipboardList },
-  { id: "transfers", label: "Transfers", icon: RefreshCcw },
   { id: "wastage", label: "Wastage", icon: Trash2 },
   { id: "forecast", label: "Forecast / Buy List", icon: BarChart3 },
   { id: "logs", label: "Stock Logs", icon: History }
@@ -128,24 +115,6 @@ type RuleFormState = {
   itemStep: string;
 };
 
-type TransferFormState = {
-  branchId: string;
-  fromSource: MoneySource;
-  toSource: MoneySource;
-  amount: string;
-  transferDate: string;
-  note: string;
-};
-
-type ClosingFormState = {
-  branchId: string;
-  closingDate: string;
-  cashCounted: string;
-  easypaisaCounted: string;
-  jazzcashCounted: string;
-  note: string;
-};
-
 const EMPTY_ITEM_FORM: ItemFormState = {
   name: "",
   unit: "kg",
@@ -160,7 +129,7 @@ const EMPTY_STOCK_FORM: StockFormState = {
   ingredientId: "",
   quantity: "",
   vendorName: "",
-  purchaseDate: new Date().toISOString().slice(0, 10),
+  purchaseDate: getCurrentBusinessDateKey(),
   purchaseCost: "",
   note: ""
 };
@@ -182,24 +151,6 @@ const EMPTY_RULE_FORM: RuleFormState = {
   quantityMode: "FIXED",
   quantity: "1",
   itemStep: "1"
-};
-
-const EMPTY_TRANSFER_FORM: TransferFormState = {
-  branchId: "",
-  fromSource: "CASH",
-  toSource: "EASYPAISA",
-  amount: "",
-  transferDate: new Date().toISOString().slice(0, 10),
-  note: ""
-};
-
-const EMPTY_CLOSING_FORM: ClosingFormState = {
-  branchId: "",
-  closingDate: new Date().toISOString().slice(0, 10),
-  cashCounted: "",
-  easypaisaCounted: "",
-  jazzcashCounted: "",
-  note: ""
 };
 
 function numberValue(value: string) {
@@ -730,88 +681,6 @@ function RulesSection({ data, form, setForm, saving, onSubmit, onDelete }: { dat
   );
 }
 
-function TransfersSection({ data, form, setForm, saving, onSubmit, onDelete }: { data: AdminMoneyTransferData | null; form: TransferFormState; setForm: Dispatch<SetStateAction<TransferFormState>>; saving: boolean; onSubmit: () => void; onDelete: (transferId: string) => void }) {
-  return (
-    <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-      <Card className="p-5">
-        <p className="text-lg font-black text-pocket-navy">Record Transfer</p>
-        <div className="mt-4 space-y-3">
-          <Field label="Branch"><select value={form.branchId} onChange={(event) => setForm((current) => ({ ...current, branchId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">{(data?.branches ?? []).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></Field>
-          <Field label="From"><select value={form.fromSource} onChange={(event) => setForm((current) => ({ ...current, fromSource: event.target.value as MoneySource }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">{MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></Field>
-          <Field label="To"><select value={form.toSource} onChange={(event) => setForm((current) => ({ ...current, toSource: event.target.value as MoneySource }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">{MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}</select></Field>
-          <Field label="Amount"><Input type="number" min="0" step="0.01" value={form.amount} onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))} /></Field>
-          <Field label="Date"><Input type="date" value={form.transferDate} onChange={(event) => setForm((current) => ({ ...current, transferDate: event.target.value }))} /></Field>
-          <Field label="Note"><Textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} /></Field>
-          <Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : "Record transfer"}</Button>
-        </div>
-      </Card>
-      <Card className="p-5"><p className="text-lg font-black text-pocket-navy">Recent Transfers</p><div className="mt-4 space-y-3">{(data?.transfers ?? []).map((transfer) => <div key={transfer.id} className="rounded-lg border border-pocket-navy/10 p-3"><p className="font-bold text-pocket-navy">{formatCurrency(transfer.amount)} · {transfer.fromSource} to {transfer.toSource}</p><p className="text-sm text-pocket-navy/60">{transfer.branchName} · {new Date(transfer.transferDate).toLocaleDateString("en-PK")}</p>{transfer.note ? <p className="text-sm text-pocket-navy/60">{transfer.note}</p> : null}</div>)}</div></Card>
-      <Card className="p-5">
-        <p className="text-sm font-bold text-pocket-navy">Delete Transfers</p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {(data?.transfers ?? []).map((transfer) => (
-            <Button key={transfer.id} size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(transfer.id)}>
-              <Trash2 className="h-4 w-4" />
-              {formatCurrency(transfer.amount)}
-            </Button>
-          ))}
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function ClosingSection({ data, form, setForm, saving, onSubmit, onDelete }: { data: AdminDailyClosingData | null; form: ClosingFormState; setForm: Dispatch<SetStateAction<ClosingFormState>>; saving: boolean; onSubmit: () => void; onDelete: (closingId: string) => void }) {
-  return (
-    <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-      <Card className="p-5">
-        <p className="text-lg font-black text-pocket-navy">Daily Closing</p>
-        <div className="mt-4 space-y-3">
-          <Field label="Date"><Input type="date" value={form.closingDate} onChange={(event) => setForm((current) => ({ ...current, closingDate: event.target.value }))} /></Field>
-          <Field label="Cash counted"><Input type="number" min="0" step="0.01" value={form.cashCounted} onChange={(event) => setForm((current) => ({ ...current, cashCounted: event.target.value }))} placeholder="Actual cash in drawer" /></Field>
-          <Field label="Easypaisa counted"><Input type="number" min="0" step="0.01" value={form.easypaisaCounted} onChange={(event) => setForm((current) => ({ ...current, easypaisaCounted: event.target.value }))} placeholder="Actual Easypaisa balance" /></Field>
-          <Field label="JazzCash counted"><Input type="number" min="0" step="0.01" value={form.jazzcashCounted} onChange={(event) => setForm((current) => ({ ...current, jazzcashCounted: event.target.value }))} placeholder="Actual JazzCash balance" /></Field>
-          <Field label="Note"><Textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} /></Field>
-          <Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : "Close day"}</Button>
-        </div>
-      </Card>
-      <div className="space-y-5">
-        <div className="grid gap-4 md:grid-cols-3">
-          {MONEY_SOURCES.map((source) => {
-            const expected = data?.expected[source.value] ?? 0;
-            const countedText = source.value === "CASH" ? form.cashCounted : source.value === "EASYPAISA" ? form.easypaisaCounted : form.jazzcashCounted;
-            const hasCount = countedText !== "";
-            const counted = hasCount ? numberValue(countedText) : 0;
-            const difference = counted - expected;
-            return (
-              <Card key={source.value} className="p-5">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">{source.label}</p>
-                <p className="mt-2 text-sm text-pocket-navy/60">Expected {formatCurrency(expected)}</p>
-                <p className="mt-2 text-2xl font-black text-pocket-navy">{hasCount ? formatCurrency(counted) : "Enter count"}</p>
-                <p className={`mt-1 text-sm font-semibold ${!hasCount ? "text-pocket-navy/45" : difference < 0 ? "text-red-600" : difference > 0 ? "text-emerald-700" : "text-pocket-navy/60"}`}>
-                  {hasCount ? `Difference ${formatCurrency(difference)}` : "Difference pending"}
-                </p>
-              </Card>
-            );
-          })}
-        </div>
-        <Card className="p-5"><p className="text-lg font-black text-pocket-navy">Recent Closings</p><div className="mt-4 space-y-3">{(data?.recentClosings ?? []).map((closing) => <div key={closing.id} className="rounded-lg border border-pocket-navy/10 p-3"><p className="font-bold text-pocket-navy">{new Date(closing.closingDate).toLocaleDateString("en-PK")}</p><p className="text-sm text-pocket-navy/60">Cash {formatCurrency(closing.cashCounted)} · Easypaisa {formatCurrency(closing.easypaisaCounted)} · JazzCash {formatCurrency(closing.jazzcashCounted)}</p>{closing.note ? <p className="text-sm text-pocket-navy/60">{closing.note}</p> : null}</div>)}</div></Card>
-        <Card className="p-5">
-          <p className="text-sm font-bold text-pocket-navy">Delete Closings</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {(data?.recentClosings ?? []).map((closing) => (
-              <Button key={closing.id} size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => onDelete(closing.id)}>
-                <Trash2 className="h-4 w-4" />
-                {new Date(closing.closingDate).toLocaleDateString("en-PK")}
-              </Button>
-            ))}
-          </div>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
 function LogsSection({ entries, edit, setEdit, saving, onSave }: { entries: AdminInventoryTransaction[]; edit: LogEditState | null; setEdit: Dispatch<SetStateAction<LogEditState | null>>; saving: boolean; onSave: () => void }) {
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
@@ -822,7 +691,7 @@ function LogsSection({ entries, edit, setEdit, saving, onSave }: { entries: Admi
             <div key={entry.id} className="rounded-lg border border-pocket-navy/10 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-bold text-pocket-navy">{entry.ingredientName}</p><p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">{entry.type}{entry.editedAt ? " · Edited" : ""}</p><p className="mt-1 text-sm text-pocket-navy/60">{entry.note ?? "No note"}</p></div>
-                <div className="text-right"><p className={entry.quantity >= 0 ? "font-black text-emerald-700" : "font-black text-red-600"}>{entry.quantity >= 0 ? "+" : ""}{entry.quantity}</p><Button size="sm" variant="outline" onClick={() => setEdit({ transactionId: entry.id, quantity: String(entry.quantity), note: entry.note ?? "", vendorName: entry.vendorName ?? "", purchaseDate: entry.purchaseDate?.slice(0, 10) ?? "", purchaseCost: entry.purchaseCost ? String(entry.purchaseCost) : "", wastageReason: entry.wastageReason ?? "" })}>Edit</Button></div>
+                <div className="text-right"><p className={entry.quantity >= 0 ? "font-black text-emerald-700" : "font-black text-red-600"}>{entry.quantity >= 0 ? "+" : ""}{entry.quantity}</p><Button size="sm" variant="outline" onClick={() => setEdit({ transactionId: entry.id, quantity: String(entry.quantity), note: entry.note ?? "", vendorName: entry.vendorName ?? "", purchaseDate: entry.purchaseDate ? toBusinessDateInputValue(entry.purchaseDate) : "", purchaseCost: entry.purchaseCost ? String(entry.purchaseCost) : "", wastageReason: entry.wastageReason ?? "" })}>Edit</Button></div>
               </div>
             </div>
           ))}
@@ -853,8 +722,6 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [forecast, setForecast] = useState<AdminInventoryForecast | null>(null);
   const [recipes, setRecipes] = useState<AdminRecipeData | null>(null);
   const [rules, setRules] = useState<AdminPackagingRuleData | null>(null);
-  const [transfers, setTransfers] = useState<AdminMoneyTransferData | null>(null);
-  const [closing, setClosing] = useState<AdminDailyClosingData | null>(null);
   const [vendors, setVendors] = useState<AdminVendor[]>([]);
   const [search, setSearch] = useState("");
   const [stockStatusFilter, setStockStatusFilter] = useState<StockStatusFilter>("all");
@@ -866,8 +733,6 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [stockForm, setStockForm] = useState<StockFormState>(EMPTY_STOCK_FORM);
   const [wastageForm, setWastageForm] = useState<WastageFormState>(EMPTY_WASTAGE_FORM);
   const [ruleForm, setRuleForm] = useState<RuleFormState>(EMPTY_RULE_FORM);
-  const [transferForm, setTransferForm] = useState<TransferFormState>(EMPTY_TRANSFER_FORM);
-  const [closingForm, setClosingForm] = useState<ClosingFormState>(EMPTY_CLOSING_FORM);
   const [logEdit, setLogEdit] = useState<LogEditState | null>(null);
   const [recipeEdit, setRecipeEdit] = useState<RecipeEditState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -888,23 +753,8 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       if (vendorResult.status === "fulfilled") setVendors(vendorResult.value.vendors);
       if (ruleResult.status === "fulfilled") setRules(ruleResult.value);
       const first = inventoryData.items.find((item) => item.isActive)?.ingredientId ?? "";
-      const branchId = inventoryData.branches[0]?.id ?? "";
       setStockForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
       setWastageForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
-      setTransferForm((current) => ({ ...current, branchId: current.branchId || branchId }));
-      setClosingForm((current) => ({ ...current, branchId: current.branchId || branchId }));
-      if (branchId) {
-        const [transferResult, closingResult] = await Promise.allSettled([
-          fetchAdminMoneyTransfers(branchId),
-          fetchAdminDailyClosing(branchId, closingForm.closingDate)
-        ]);
-        if (transferResult.status === "fulfilled") {
-          setTransfers(transferResult.value);
-        }
-        if (closingResult.status === "fulfilled") {
-          setClosing(closingResult.value);
-        }
-      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load inventory.");
     } finally {
@@ -986,7 +836,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
         action: "PURCHASE",
         quantity: numberValue(stockForm.quantity),
         vendorName: stockForm.vendorName.trim() || undefined,
-        purchaseDate: stockForm.purchaseDate ? new Date(stockForm.purchaseDate).toISOString() : undefined,
+        purchaseDate: stockForm.purchaseDate ? new Date(`${stockForm.purchaseDate}T12:00:00+05:00`).toISOString() : undefined,
         purchaseCost: stockForm.purchaseCost ? numberValue(stockForm.purchaseCost) : undefined,
         note: stockForm.note.trim() || undefined
       });
@@ -1033,7 +883,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
         quantity: numberValue(logEdit.quantity),
         note: logEdit.note,
         vendorName: logEdit.vendorName || undefined,
-        purchaseDate: logEdit.purchaseDate ? new Date(logEdit.purchaseDate).toISOString() : null,
+        purchaseDate: logEdit.purchaseDate ? new Date(`${logEdit.purchaseDate}T12:00:00+05:00`).toISOString() : null,
         purchaseCost: logEdit.purchaseCost ? numberValue(logEdit.purchaseCost) : null,
         wastageReason: logEdit.wastageReason || null
       });
@@ -1137,82 +987,6 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
     }
   }
 
-  async function saveTransfer() {
-    if (!transferForm.branchId || !transferForm.amount) return;
-    setSaving(true);
-    try {
-      await createAdminMoneyTransfer({
-        branchId: transferForm.branchId,
-        fromSource: transferForm.fromSource,
-        toSource: transferForm.toSource,
-        amount: numberValue(transferForm.amount),
-        transferDate: new Date(`${transferForm.transferDate}T12:00:00`).toISOString(),
-        note: transferForm.note.trim() || undefined
-      });
-      setTransferForm((current) => ({ ...EMPTY_TRANSFER_FORM, branchId: current.branchId }));
-      await loadAll();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to record transfer.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteTransfer(transferId: string) {
-    const confirmed = window.confirm("Delete this money transfer?");
-    if (!confirmed) return;
-    setSaving(true);
-    setError("");
-    try {
-      await deleteAdminMoneyTransfer(transferId);
-      await loadAll();
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete transfer.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveClosing() {
-    if (!closingForm.branchId) return;
-    if (!closingForm.cashCounted || !closingForm.easypaisaCounted || !closingForm.jazzcashCounted) {
-      setError("Enter counted Cash, Easypaisa, and JazzCash amounts before closing.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      await saveAdminDailyClosing({
-        branchId: closingForm.branchId,
-        closingDate: new Date(`${closingForm.closingDate}T12:00:00`).toISOString(),
-        cashCounted: numberValue(closingForm.cashCounted),
-        easypaisaCounted: numberValue(closingForm.easypaisaCounted),
-        jazzcashCounted: numberValue(closingForm.jazzcashCounted),
-        note: closingForm.note.trim() || undefined
-      });
-      await loadAll();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to save closing.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function deleteClosing(closingId: string) {
-    const confirmed = window.confirm("Delete this daily closing?");
-    if (!confirmed) return;
-    setSaving(true);
-    setError("");
-    try {
-      await deleteAdminDailyClosing(closingId);
-      await loadAll();
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete closing.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <div className="space-y-6">
       <ItemEditor open={itemEditorOpen} value={itemForm} editingItem={editingItem} saving={saving} onChange={setItemForm} onClose={() => setItemEditorOpen(false)} onSubmit={() => void saveItem()} />
@@ -1239,8 +1013,6 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       {activeTab === "vendors" ? <VendorManagement /> : null}
       {activeTab === "prep" ? <PrepItemsSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
       {activeTab === "rules" ? <RulesSection data={rules} form={ruleForm} setForm={setRuleForm} saving={saving} onSubmit={() => void saveRule()} onDelete={(ruleId) => void deleteRule(ruleId)} /> : null}
-      {activeTab === "transfers" ? <TransfersSection data={transfers} form={transferForm} setForm={setTransferForm} saving={saving} onSubmit={() => void saveTransfer()} onDelete={(transferId) => void deleteTransfer(transferId)} /> : null}
-      {activeTab === "closing" ? <ClosingSection data={closing} form={closingForm} setForm={setClosingForm} saving={saving} onSubmit={() => void saveClosing()} onDelete={(closingId) => void deleteClosing(closingId)} /> : null}
       {activeTab === "wastage" ? <WastageForm items={activeItems} form={wastageForm} setForm={setWastageForm} saving={saving} onSubmit={() => void submitWastage()} /> : null}
       {activeTab === "forecast" ? <ForecastSection forecast={forecast} loading={loading} /> : null}
       {activeTab === "recipes" ? <RecipesCostingSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
