@@ -16,7 +16,7 @@ import {
   updatePosOrderStatus
 } from "@/lib/pos-client";
 import type { AdminOrder } from "@/lib/types";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, toBusinessDateInputValue } from "@/lib/utils";
 
 type QueueScope = "active" | "watch_later" | "delivered" | "all";
 
@@ -528,9 +528,11 @@ function PosOrderQueueView({
         ...(pendingPaymentStatus ? { paymentStatus: pendingPaymentStatus } : {})
       };
     });
+    const currentBusinessDate = toBusinessDateInputValue(new Date());
     const activeOrders = sourceOrders.filter(
       (order) =>
-        (order.status !== "DELIVERED" && order.status !== "CANCELLED" && order.status !== "WATCH_LATER") ||
+        ((order.status !== "DELIVERED" && order.status !== "CANCELLED" && order.status !== "WATCH_LATER") &&
+          toBusinessDateInputValue(order.placedAt) === currentBusinessDate) ||
         exitingOrderIds.includes(order.id)
     );
     const watchLaterOrders = sourceOrders.filter((order) => order.status === "WATCH_LATER");
@@ -709,7 +711,7 @@ function PosOrderQueueView({
           <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-600">Counter Orders</p>
           <h2 className={embedded ? "mt-0.5 text-[1.2rem] font-black leading-none" : "mt-0.5 text-[1.55rem] font-black leading-none"}>Queue Board</h2>
           <p className={embedded ? "mt-1 text-[10px] text-slate-500" : "mt-1 text-[11px] text-slate-500"}>
-            {todayOnly ? `${derived.todayOrders.length} orders in this business day. Staff view is read-only.` : `${derived.queuedCount} active orders, ${derived.watchLaterOrders.length} watch later, ${derived.deliveredOrders.length} completed.`}
+            {todayOnly ? `${derived.todayOrders.length} orders in this business day. Staff view is read-only.` : `${derived.queuedCount} active orders today, ${derived.watchLaterOrders.length} watch later, ${derived.deliveredOrders.length} completed.`}
           </p>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -811,7 +813,7 @@ function PosOrderQueueView({
         {showActiveLane ? (
           <OrderSection
             title="Active Queue"
-            description="Orders waiting to be completed."
+            description="Current 6AM-6AM business day orders waiting to be completed."
             orders={derived.activeOrders}
             embedded={embedded}
             onTogglePaymentStatus={togglePaymentStatus}
@@ -829,7 +831,7 @@ function PosOrderQueueView({
         {showWatchLaterLane ? (
           <OrderSection
             title="Watch Later"
-            description="Orders you want to revisit after the rush."
+            description="All orders saved for later follow-up."
             orders={derived.watchLaterOrders}
             embedded={embedded}
             onTogglePaymentStatus={togglePaymentStatus}
