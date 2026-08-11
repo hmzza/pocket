@@ -235,7 +235,7 @@ export function LoanManagement() {
     <div className="space-y-6">
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Loan taken</p>
           <p className="mt-3 text-2xl font-black text-pocket-navy">{formatCurrency(data?.summary.totalLoanTaken ?? 0)}</p>
