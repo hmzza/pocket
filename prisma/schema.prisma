@@ -124,6 +124,9 @@ model User {
   foodpandaSettlements  FoodpandaSettlement[]  @relation("FoodpandaSettlementReceiver")
   loans                 Loan[]                 @relation("LoanActor")
   loanRepayments        LoanRepayment[]        @relation("LoanRepaymentActor")
+  investmentPartners    InvestmentPartner[]    @relation("InvestmentPartnerActor")
+  investmentCommitments InvestmentCommitment[] @relation("InvestmentCommitmentActor")
+  investmentPayments    InvestmentPayment[]    @relation("InvestmentPaymentActor")
 }
 
 model Branch {
@@ -153,6 +156,7 @@ model Branch {
   openingBalances OpeningBalance[]
   loans          Loan[]
   loanRepayments LoanRepayment[]
+  investmentPayments InvestmentPayment[]
 }
 
 model BranchHours {
@@ -715,6 +719,56 @@ model LoanRepayment {
   @@index([loanId])
   @@index([branchId, paymentDate])
   @@index([paidFrom])
+}
+
+model InvestmentPartner {
+  id          String                 @id @default(cuid())
+  name        String
+  note        String?
+  createdById String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  createdBy   User?                  @relation("InvestmentPartnerActor", fields: [createdById], references: [id], onDelete: SetNull)
+  commitments InvestmentCommitment[]
+
+  @@index([name])
+}
+
+model InvestmentCommitment {
+  id             String              @id @default(cuid())
+  partnerId      String
+  amount         Decimal             @db.Decimal(10, 2)
+  commitmentDate DateTime
+  note           String?
+  createdById    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  partner        InvestmentPartner   @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  createdBy      User?               @relation("InvestmentCommitmentActor", fields: [createdById], references: [id], onDelete: SetNull)
+  payments       InvestmentPayment[]
+
+  @@index([partnerId])
+  @@index([commitmentDate])
+}
+
+model InvestmentPayment {
+  id            String               @id @default(cuid())
+  commitmentId  String
+  branchId      String
+  amount        Decimal              @db.Decimal(10, 2)
+  receivedSource String
+  paymentDate   DateTime
+  note          String?
+  createdById   String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  commitment    InvestmentCommitment @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
+  branch        Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy     User?                @relation("InvestmentPaymentActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([commitmentId])
+  @@index([branchId, paymentDate])
+  @@index([receivedSource])
 }
 
 model AuditLog {

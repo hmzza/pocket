@@ -94,7 +94,7 @@ export function LoanManagement() {
   async function loadLoans() {
     try {
       setError("");
-      const nextData = await fetchAdminLoans({ preset: "month", status: statusFilter, search: search.trim() || undefined });
+      const nextData = await fetchAdminLoans({ status: statusFilter, search: search.trim() || undefined });
       setData(nextData);
       const branchId = nextData.branches[0]?.id ?? "";
       setForm((current) => ({ ...current, branchId: current.branchId || branchId }));
@@ -240,12 +240,12 @@ export function LoanManagement() {
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Loan taken</p>
           <p className="mt-3 text-2xl font-black text-pocket-navy">{formatCurrency(data?.summary.totalLoanTaken ?? 0)}</p>
-          <p className="mt-2 text-sm text-pocket-navy/60">{data?.range.label ?? "This month"}</p>
+          <p className="mt-2 text-sm text-pocket-navy/60">All recorded loans.</p>
         </Card>
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Repaid</p>
           <p className="mt-3 text-2xl font-black text-emerald-700">{formatCurrency(data?.summary.totalLoanRepaid ?? 0)}</p>
-          <p className="mt-2 text-sm text-pocket-navy/60">Payments recorded.</p>
+          <p className="mt-2 text-sm text-pocket-navy/60">All payments recorded.</p>
         </Card>
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Outstanding</p>

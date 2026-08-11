@@ -267,7 +267,11 @@ export function FinanceManagement() {
     const expenseRatio = monthRevenue > 0 ? (monthExpensesTotal / monthRevenue) * 100 : 0;
     const operatingMargin = monthRevenue > 0 ? (monthNet / monthRevenue) * 100 : 0;
     const foodpandaPayout = estimateFoodpandaPayout(foodpandaGross);
-    const loanSummary = monthLoans?.summary ?? { totalLoanTaken: 0, totalLoanRepaid: 0, outstandingLoanBalance: 0 };
+    const loanSummary = {
+      totalLoanTaken: monthLoans?.periodSummary.totalLoanTaken ?? 0,
+      totalLoanRepaid: monthLoans?.periodSummary.totalLoanRepaid ?? 0,
+      outstandingLoanBalance: monthLoans?.summary.outstandingLoanBalance ?? 0
+    };
     const paymentMix = [...(monthDashboard?.breakdowns.payments ?? [])].sort((left, right) => right.revenue - left.revenue);
     const branchPerformance = buildBranchPerformance(monthDashboard?.breakdowns.branches ?? [], monthExpenses?.expenses ?? []);
     const topCategories = [...(monthExpenses?.categories ?? [])].sort((left, right) => right.amount - left.amount).slice(0, 6);
