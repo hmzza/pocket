@@ -2978,7 +2978,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     })
   ]);
 
-  const openingSource = openingBalance && (!previousClosing || openingBalance.balanceDate >= previousClosing.closingDate) ? openingBalance : null;
+  const openingSource = openingBalance && (!previousClosing || openingBalance.balanceDate > previousClosing.closingDate) ? openingBalance : null;
   const openingSourceType = openingSource ? "OPENING_BALANCE" : previousClosing ? "PREVIOUS_CLOSING" : "NONE";
   const opening = {
     CASH: openingSource ? parseDecimal(openingSource.cashBalance) : parseDecimal(previousClosing?.cashCounted),
