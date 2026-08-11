@@ -70,12 +70,16 @@ export function InvestmentManagement() {
   }
 
   function openForm(key: InvestmentFormKey) {
-    setExpandedForms((current) => ({ ...current, [key]: true }));
+    setExpandedForms({ partner: false, commitment: false, payment: false, [key]: true });
     scrollToForm(key);
   }
 
   function toggleForm(key: InvestmentFormKey) {
-    setExpandedForms((current) => ({ ...current, [key]: !current[key] }));
+    setExpandedForms((current) => (
+      current[key]
+        ? { partner: false, commitment: false, payment: false }
+        : { partner: false, commitment: false, payment: false, [key]: true }
+    ));
   }
 
   function togglePartnerHistory(partnerId: string) {
@@ -310,7 +314,7 @@ export function InvestmentManagement() {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-        <div className="space-y-5 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto xl:pr-2">
+        <div className="space-y-5 xl:sticky xl:top-6 xl:self-start">
           <div ref={partnerCardRef}>
           <Card className="p-5">
             <CollapsibleHeader title={partnerForm.id ? "Edit Partner" : "Add Partner"} open={expandedForms.partner} onToggle={() => toggleForm("partner")} />
