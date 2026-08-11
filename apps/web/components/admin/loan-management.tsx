@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -84,7 +84,6 @@ export function LoanManagement() {
   const [repaymentForm, setRepaymentForm] = useState<RepaymentFormState>(EMPTY_REPAYMENT_FORM);
   const [editingLoan, setEditingLoan] = useState<AdminLoan | null>(null);
   const [repayingLoan, setRepayingLoan] = useState<AdminLoan | null>(null);
-  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "paid">("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -94,7 +93,7 @@ export function LoanManagement() {
   async function loadLoans() {
     try {
       setError("");
-      const nextData = await fetchAdminLoans({ status: statusFilter, search: search.trim() || undefined });
+      const nextData = await fetchAdminLoans({ status: statusFilter });
       setData(nextData);
       const branchId = nextData.branches[0]?.id ?? "";
       setForm((current) => ({ ...current, branchId: current.branchId || branchId }));
@@ -257,37 +256,21 @@ export function LoanManagement() {
           <p className="mt-3 text-2xl font-black text-pocket-navy">{data?.summary.paidLoanCount ?? 0}</p>
           <p className="mt-2 text-sm text-pocket-navy/60">Fully repaid.</p>
         </Card>
-        <Card className="flex flex-col items-start justify-between gap-4 p-5">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p>
-            <p className="mt-3 text-sm text-pocket-navy/60">Refresh or start a new loan record.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => void loadLoans()}>
-              <RefreshCcw className="h-4 w-4" />
-            </Button>
-            <Button onClick={startCreate}>
-              <Plus className="h-4 w-4" />
-              New Loan
-            </Button>
-          </div>
-        </Card>
       </div>
 
       <Card className="p-5">
-        <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search lender" />
+        <div className="grid gap-2 md:max-w-xs">
+          <label className="text-sm font-semibold text-pocket-navy">Loan status</label>
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
             <option value="all">All loans</option>
             <option value="open">Open loans</option>
             <option value="paid">Paid loans</option>
           </select>
-          <Button variant="outline" onClick={() => void loadLoans()}>Apply</Button>
         </div>
       </Card>
 
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-        <Card className="p-5">
+        <Card className="p-5 xl:sticky xl:top-6 xl:self-start">
           <p className="text-lg font-black text-pocket-navy">{editingLoan ? "Edit Loan" : "Add Loan"}</p>
           <div className="mt-4 space-y-3">
             <div className="space-y-2">
