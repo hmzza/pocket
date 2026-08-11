@@ -2894,6 +2894,24 @@ async function readLoanCashflow(branchId: string, start: Date, end: Date) {
   }
 }
 
+async function readInvestmentCashflow(branchId: string, start: Date, end: Date) {
+  try {
+    return await prisma.investmentPayment.findMany({
+      where: {
+        branchId,
+        paymentDate: { gte: start, lte: end },
+        receivedSource: { in: [...MONEY_SOURCES] }
+      },
+      select: { receivedSource: true, amount: true }
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2021") {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   const date = normalizeClosingDate(closingDate);
   const start = startOfDay(date);
@@ -2903,7 +2921,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     prisma.openingBalance.findFirst({ where: { branchId, balanceDate: { lte: start } }, orderBy: { balanceDate: "desc" } })
   ]);
 
-  const [orders, foodpandaOrders, expenses, transfers, loanCashflow, currentClosing, recentClosings] = await Promise.all([
+  const [orders, foodpandaOrders, expenses, transfers, loanCashflow, investmentCashflow, currentClosing, recentClosings] = await Promise.all([
     prisma.order.findMany({
       where: {
         branchId,
@@ -2947,6 +2965,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
       orderBy: { transferDate: "desc" }
     }),
     readLoanCashflow(branchId, start, end),
+    readInvestmentCashflow(branchId, start, end),
     prisma.dailyClosing.findUnique({
       where: { branchId_closingDate: { branchId, closingDate: start } },
       include: { closedBy: true }
@@ -2989,10 +3008,14 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   for (const repayment of loanCashflow.loanRepayments) {
     loanOut[repayment.paidFrom as keyof typeof loanOut] += parseDecimal(repayment.amount);
   }
+  const investmentIn = emptyMoneyTotals();
+  for (const payment of investmentCashflow) {
+    investmentIn[payment.receivedSource as keyof typeof investmentIn] += parseDecimal(payment.amount);
+  }
   const expected = {
-    CASH: roundMoney(opening.CASH + sales.CASH - expenseTotals.CASH - transferOut.CASH + transferIn.CASH + loanIn.CASH - loanOut.CASH),
-    EASYPAISA: roundMoney(opening.EASYPAISA + sales.EASYPAISA - expenseTotals.EASYPAISA - transferOut.EASYPAISA + transferIn.EASYPAISA + loanIn.EASYPAISA - loanOut.EASYPAISA),
-    JAZZCASH: roundMoney(opening.JAZZCASH + sales.JAZZCASH - expenseTotals.JAZZCASH - transferOut.JAZZCASH + transferIn.JAZZCASH + loanIn.JAZZCASH - loanOut.JAZZCASH)
+    CASH: roundMoney(opening.CASH + sales.CASH - expenseTotals.CASH - transferOut.CASH + transferIn.CASH + loanIn.CASH + investmentIn.CASH - loanOut.CASH),
+    EASYPAISA: roundMoney(opening.EASYPAISA + sales.EASYPAISA - expenseTotals.EASYPAISA - transferOut.EASYPAISA + transferIn.EASYPAISA + loanIn.EASYPAISA + investmentIn.EASYPAISA - loanOut.EASYPAISA),
+    JAZZCASH: roundMoney(opening.JAZZCASH + sales.JAZZCASH - expenseTotals.JAZZCASH - transferOut.JAZZCASH + transferIn.JAZZCASH + loanIn.JAZZCASH + investmentIn.JAZZCASH - loanOut.JAZZCASH)
   };
 
   return {
@@ -3008,6 +3031,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     transferIn,
     transferOut,
     loanIn,
+    investmentIn,
     loanOut,
     expected,
     currentClosing: currentClosing ? {
@@ -3435,6 +3459,27 @@ const loanRepaymentSchema = z.object({
   note: z.string().max(500).optional().or(z.literal(""))
 });
 
+const investmentPartnerSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  note: z.string().max(500).optional().or(z.literal(""))
+});
+
+const investmentCommitmentSchema = z.object({
+  partnerId: z.string().cuid(),
+  amount: z.number().positive(),
+  commitmentDate: z.string().datetime(),
+  note: z.string().max(500).optional().or(z.literal(""))
+});
+
+const investmentPaymentSchema = z.object({
+  commitmentId: z.string().cuid(),
+  branchId: z.string().cuid(),
+  amount: z.number().positive(),
+  receivedSource: z.enum(MONEY_SOURCES),
+  paymentDate: z.string().datetime(),
+  note: z.string().max(500).optional().or(z.literal(""))
+});
+
 function serializeLoan(loan: Prisma.LoanGetPayload<{ include: { branch: true; createdBy: true; repayments: { include: { createdBy: true } } } }>) {
   const amount = parseDecimal(loan.amount);
   const repaidAmount = loan.repayments.reduce((sum, repayment) => sum + parseDecimal(repayment.amount), 0);
@@ -3472,12 +3517,111 @@ function serializeLoan(loan: Prisma.LoanGetPayload<{ include: { branch: true; cr
   };
 }
 
+type InvestmentPartnerWithRelations = Prisma.InvestmentPartnerGetPayload<{
+  include: {
+    createdBy: true;
+    commitments: {
+      include: {
+        createdBy: true;
+        payments: {
+          include: {
+            branch: true;
+            createdBy: true;
+          };
+        };
+      };
+    };
+  };
+}>;
+
+function serializeInvestmentData(partners: InvestmentPartnerWithRelations[]) {
+  const partnerTotals = partners.map((partner) => {
+    const committedAmount = partner.commitments.reduce((sum, commitment) => sum + parseDecimal(commitment.amount), 0);
+    const paidAmount = partner.commitments.reduce((sum, commitment) => sum + commitment.payments.reduce((paymentSum, payment) => paymentSum + parseDecimal(payment.amount), 0), 0);
+    return {
+      partner,
+      committedAmount: roundMoney(committedAmount),
+      paidAmount: roundMoney(paidAmount),
+      unpaidAmount: roundMoney(Math.max(0, committedAmount - paidAmount))
+    };
+  });
+  const totalCommitted = roundMoney(partnerTotals.reduce((sum, item) => sum + item.committedAmount, 0));
+  const totalPaid = roundMoney(partnerTotals.reduce((sum, item) => sum + item.paidAmount, 0));
+  const totalUnpaid = roundMoney(Math.max(0, totalCommitted - totalPaid));
+
+  return {
+    summary: {
+      totalCommitted,
+      totalPaid,
+      totalUnpaid,
+      partnerCount: partners.length
+    },
+    partners: partnerTotals.map(({ partner, committedAmount, paidAmount, unpaidAmount }) => ({
+      id: partner.id,
+      name: partner.name,
+      note: partner.note,
+      createdByName: partner.createdBy?.name ?? null,
+      createdAt: partner.createdAt.toISOString(),
+      committedAmount,
+      paidAmount,
+      unpaidAmount,
+      equityPercent: totalCommitted > 0 ? Number(((committedAmount / totalCommitted) * 100).toFixed(2)) : 0,
+      commitments: partner.commitments
+        .slice()
+        .sort((left, right) => right.commitmentDate.getTime() - left.commitmentDate.getTime())
+        .map((commitment) => {
+          const commitmentAmount = parseDecimal(commitment.amount);
+          const commitmentPaid = commitment.payments.reduce((sum, payment) => sum + parseDecimal(payment.amount), 0);
+          return {
+            id: commitment.id,
+            partnerId: commitment.partnerId,
+            amount: roundMoney(commitmentAmount),
+            paidAmount: roundMoney(commitmentPaid),
+            unpaidAmount: roundMoney(Math.max(0, commitmentAmount - commitmentPaid)),
+            commitmentDate: commitment.commitmentDate.toISOString(),
+            note: commitment.note,
+            createdByName: commitment.createdBy?.name ?? null,
+            createdAt: commitment.createdAt.toISOString(),
+            payments: commitment.payments
+              .slice()
+              .sort((left, right) => right.paymentDate.getTime() - left.paymentDate.getTime())
+              .map((payment) => ({
+                id: payment.id,
+                commitmentId: payment.commitmentId,
+                branchId: payment.branchId,
+                branchName: payment.branch.name,
+                amount: parseDecimal(payment.amount),
+                receivedSource: payment.receivedSource,
+                paymentDate: payment.paymentDate.toISOString(),
+                note: payment.note,
+                createdByName: payment.createdBy?.name ?? null,
+                createdAt: payment.createdAt.toISOString()
+              }))
+          };
+        })
+    }))
+  };
+}
+
+async function getInvestmentPaymentCapacity(commitmentId: string, excludingPaymentId?: string) {
+  const commitment = await prisma.investmentCommitment.findUnique({
+    where: { id: commitmentId },
+    include: { payments: true }
+  });
+  if (!commitment) {
+    throw Object.assign(new Error("Investment commitment not found."), { statusCode: 404 });
+  }
+  const paidAmount = commitment.payments
+    .filter((payment) => payment.id !== excludingPaymentId)
+    .reduce((sum, payment) => sum + parseDecimal(payment.amount), 0);
+  return roundMoney(parseDecimal(commitment.amount) - paidAmount);
+}
+
 router.get("/loans", async (req, res, next) => {
   try {
     const query = loanQuerySchema.parse(req.query);
     const range = buildDashboardRange(query);
     const where: Prisma.LoanWhereInput = {
-      loanDate: { gte: range.start, lte: range.end },
       ...(query.branchId ? { branchId: query.branchId } : {}),
       ...(query.search
         ? {
@@ -3488,7 +3632,33 @@ router.get("/loans", async (req, res, next) => {
           }
         : {})
     };
-    const [branches, loans] = await Promise.all([
+    const periodLoanWhere: Prisma.LoanWhereInput = {
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      loanDate: { gte: range.start, lte: range.end },
+      ...(query.search
+        ? {
+            lenderName: {
+              contains: query.search,
+              mode: "insensitive"
+            }
+          }
+        : {})
+    };
+    const periodRepaymentWhere: Prisma.LoanRepaymentWhereInput = {
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+      paymentDate: { gte: range.start, lte: range.end },
+      ...(query.search
+        ? {
+            loan: {
+              lenderName: {
+                contains: query.search,
+                mode: "insensitive"
+              }
+            }
+          }
+        : {})
+    };
+    const [branches, loans, periodLoans, periodRepayments] = await Promise.all([
       prisma.branch.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
       prisma.loan.findMany({
         where,
@@ -3498,6 +3668,14 @@ router.get("/loans", async (req, res, next) => {
           repayments: { include: { createdBy: true } }
         },
         orderBy: [{ loanDate: "desc" }, { createdAt: "desc" }]
+      }),
+      prisma.loan.findMany({
+        where: periodLoanWhere,
+        select: { amount: true }
+      }),
+      prisma.loanRepayment.findMany({
+        where: periodRepaymentWhere,
+        select: { amount: true }
       })
     ]);
 
@@ -3509,6 +3687,8 @@ router.get("/loans", async (req, res, next) => {
     const totalLoanTaken = serializedLoans.reduce((sum, loan) => sum + loan.amount, 0);
     const totalLoanRepaid = serializedLoans.reduce((sum, loan) => sum + loan.repaidAmount, 0);
     const outstandingLoanBalance = serializedLoans.reduce((sum, loan) => sum + loan.outstandingAmount, 0);
+    const periodLoanTaken = periodLoans.reduce((sum, loan) => sum + parseDecimal(loan.amount), 0);
+    const periodLoanRepaid = periodRepayments.reduce((sum, repayment) => sum + parseDecimal(repayment.amount), 0);
 
     return res.json({
       range: {
@@ -3533,6 +3713,10 @@ router.get("/loans", async (req, res, next) => {
         outstandingLoanBalance: roundMoney(outstandingLoanBalance),
         openLoanCount: serializedLoans.filter((loan) => loan.outstandingAmount > 0).length,
         paidLoanCount: serializedLoans.filter((loan) => loan.outstandingAmount <= 0).length
+      },
+      periodSummary: {
+        totalLoanTaken: roundMoney(periodLoanTaken),
+        totalLoanRepaid: roundMoney(periodLoanRepaid)
       },
       loans: serializedLoans
     });
@@ -3706,6 +3890,230 @@ router.delete("/loans/:id/repayments/:repaymentId", async (req, res, next) => {
   } catch (error) {
     try {
       rethrowDeleteError(error, "Loan payment");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
+router.get("/investments", async (_req, res, next) => {
+  try {
+    const [branches, partners] = await Promise.all([
+      prisma.branch.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+      prisma.investmentPartner.findMany({
+        include: {
+          createdBy: true,
+          commitments: {
+            include: {
+              createdBy: true,
+              payments: {
+                include: {
+                  branch: true,
+                  createdBy: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: [{ createdAt: "asc" }, { name: "asc" }]
+      })
+    ]);
+    const investmentData = serializeInvestmentData(partners);
+    return res.json({
+      ...investmentData,
+      branches: branches.map((branch) => ({
+        id: branch.id,
+        slug: branch.slug,
+        name: branch.name,
+        city: branch.city,
+        addressLine1: branch.addressLine1,
+        phone: branch.phone,
+        deliveryFee: parseDecimal(branch.deliveryFee)
+      })),
+      sources: MONEY_SOURCES
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/investments/partners", async (req, res, next) => {
+  try {
+    const payload = investmentPartnerSchema.parse(req.body);
+    const partner = await prisma.investmentPartner.create({
+      data: {
+        name: payload.name.trim(),
+        note: payload.note?.trim() || undefined,
+        createdById: req.user!.id
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.partner_create", entityType: "investment_partner", entityId: partner.id, payload });
+    return res.status(201).json({ partner });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/investments/partners/:id", async (req, res, next) => {
+  try {
+    const payload = investmentPartnerSchema.partial().parse(req.body);
+    const partner = await prisma.investmentPartner.update({
+      where: { id: req.params.id },
+      data: {
+        ...(payload.name ? { name: payload.name.trim() } : {}),
+        ...(payload.note !== undefined ? { note: payload.note.trim() || null } : {})
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.partner_update", entityType: "investment_partner", entityId: partner.id, payload });
+    return res.json({ partner });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/investments/partners/:id", async (req, res, next) => {
+  try {
+    await prisma.investmentPartner.delete({ where: { id: req.params.id } });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.partner_delete", entityType: "investment_partner", entityId: req.params.id, payload: { mode: "deleted" } });
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Investment partner");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
+router.post("/investments/commitments", async (req, res, next) => {
+  try {
+    const payload = investmentCommitmentSchema.parse(req.body);
+    const commitment = await prisma.investmentCommitment.create({
+      data: {
+        partnerId: payload.partnerId,
+        amount: payload.amount,
+        commitmentDate: new Date(payload.commitmentDate),
+        note: payload.note?.trim() || undefined,
+        createdById: req.user!.id
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.commitment_create", entityType: "investment_commitment", entityId: commitment.id, payload });
+    return res.status(201).json({ commitment });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/investments/commitments/:id", async (req, res, next) => {
+  try {
+    const payload = investmentCommitmentSchema.partial().parse(req.body);
+    if (typeof payload.amount === "number") {
+      const existing = await prisma.investmentCommitment.findUnique({
+        where: { id: req.params.id },
+        include: { payments: true }
+      });
+      if (!existing) {
+        return res.status(404).json({ message: "Investment commitment not found." });
+      }
+      const paidAmount = existing.payments.reduce((sum, payment) => sum + parseDecimal(payment.amount), 0);
+      if (payload.amount < paidAmount) {
+        return res.status(400).json({ message: "Commitment amount cannot be less than payments already recorded." });
+      }
+    }
+    const commitment = await prisma.investmentCommitment.update({
+      where: { id: req.params.id },
+      data: {
+        ...(payload.partnerId ? { partnerId: payload.partnerId } : {}),
+        ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
+        ...(payload.commitmentDate ? { commitmentDate: new Date(payload.commitmentDate) } : {}),
+        ...(payload.note !== undefined ? { note: payload.note.trim() || null } : {})
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.commitment_update", entityType: "investment_commitment", entityId: commitment.id, payload });
+    return res.json({ commitment });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/investments/commitments/:id", async (req, res, next) => {
+  try {
+    await prisma.investmentCommitment.delete({ where: { id: req.params.id } });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.commitment_delete", entityType: "investment_commitment", entityId: req.params.id, payload: { mode: "deleted" } });
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Investment commitment");
+    } catch (nextError) {
+      return next(nextError);
+    }
+  }
+});
+
+router.post("/investments/payments", async (req, res, next) => {
+  try {
+    const payload = investmentPaymentSchema.parse(req.body);
+    const unpaidAmount = await getInvestmentPaymentCapacity(payload.commitmentId);
+    if (payload.amount > unpaidAmount) {
+      return res.status(400).json({ message: `Payment cannot exceed unpaid commitment balance of Rs ${unpaidAmount}.` });
+    }
+    const payment = await prisma.investmentPayment.create({
+      data: {
+        commitmentId: payload.commitmentId,
+        branchId: payload.branchId,
+        amount: payload.amount,
+        receivedSource: payload.receivedSource,
+        paymentDate: new Date(payload.paymentDate),
+        note: payload.note?.trim() || undefined,
+        createdById: req.user!.id
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.payment_create", entityType: "investment_payment", entityId: payment.id, payload });
+    return res.status(201).json({ payment });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/investments/payments/:id", async (req, res, next) => {
+  try {
+    const payload = investmentPaymentSchema.partial().parse(req.body);
+    const existing = await prisma.investmentPayment.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ message: "Investment payment not found." });
+    }
+    const commitmentId = payload.commitmentId ?? existing.commitmentId;
+    const amount = typeof payload.amount === "number" ? payload.amount : parseDecimal(existing.amount);
+    const unpaidAmount = await getInvestmentPaymentCapacity(commitmentId, existing.id);
+    if (amount > unpaidAmount) {
+      return res.status(400).json({ message: `Payment cannot exceed unpaid commitment balance of Rs ${unpaidAmount}.` });
+    }
+    const payment = await prisma.investmentPayment.update({
+      where: { id: existing.id },
+      data: {
+        ...(payload.commitmentId ? { commitmentId: payload.commitmentId } : {}),
+        ...(payload.branchId ? { branchId: payload.branchId } : {}),
+        ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
+        ...(payload.receivedSource ? { receivedSource: payload.receivedSource } : {}),
+        ...(payload.paymentDate ? { paymentDate: new Date(payload.paymentDate) } : {}),
+        ...(payload.note !== undefined ? { note: payload.note.trim() || null } : {})
+      }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.payment_update", entityType: "investment_payment", entityId: payment.id, payload });
+    return res.json({ payment });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/investments/payments/:id", async (req, res, next) => {
+  try {
+    await prisma.investmentPayment.delete({ where: { id: req.params.id } });
+    await writeAuditLog({ actorId: req.user!.id, action: "investment.payment_delete", entityType: "investment_payment", entityId: req.params.id, payload: { mode: "deleted" } });
+    return res.json({ deleted: true });
+  } catch (error) {
+    try {
+      rethrowDeleteError(error, "Investment payment");
     } catch (nextError) {
       return next(nextError);
     }

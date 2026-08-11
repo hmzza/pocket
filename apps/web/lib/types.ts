@@ -438,7 +438,62 @@ export type AdminLoanData = {
     openLoanCount: number;
     paidLoanCount: number;
   };
+  periodSummary: {
+    totalLoanTaken: number;
+    totalLoanRepaid: number;
+  };
   loans: AdminLoan[];
+};
+
+export type AdminInvestmentPayment = {
+  id: string;
+  commitmentId: string;
+  branchId: string;
+  branchName: string;
+  amount: number;
+  receivedSource: MoneySource;
+  paymentDate: string;
+  note?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+};
+
+export type AdminInvestmentCommitment = {
+  id: string;
+  partnerId: string;
+  amount: number;
+  paidAmount: number;
+  unpaidAmount: number;
+  commitmentDate: string;
+  note?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+  payments: AdminInvestmentPayment[];
+};
+
+export type AdminInvestmentPartner = {
+  id: string;
+  name: string;
+  note?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
+  committedAmount: number;
+  paidAmount: number;
+  unpaidAmount: number;
+  equityPercent: number;
+  commitments: AdminInvestmentCommitment[];
+};
+
+export type AdminInvestmentData = {
+  branches: Branch[];
+  sources: MoneySource[];
+  summary: {
+    totalCommitted: number;
+    totalPaid: number;
+    totalUnpaid: number;
+    partnerCount: number;
+  };
+  partners: AdminInvestmentPartner[];
 };
 
 export type AdminPackagingRuleData = {
@@ -500,6 +555,7 @@ export type AdminDailyClosingData = {
   transferIn: Record<MoneySource, number>;
   transferOut: Record<MoneySource, number>;
   loanIn: Record<MoneySource, number>;
+  investmentIn: Record<MoneySource, number>;
   loanOut: Record<MoneySource, number>;
   expected: Record<MoneySource, number>;
   currentClosing: {

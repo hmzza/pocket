@@ -137,12 +137,13 @@ export function DailyClosingManagement() {
   }, [actual, data]);
 
   const totals = useMemo(() => {
-    if (!data) return { sales: 0, expenses: 0, transfers: 0, loanIn: 0, loanOut: 0 };
+    if (!data) return { sales: 0, expenses: 0, transfers: 0, loanIn: 0, investmentIn: 0, loanOut: 0 };
     return {
       sales: data.sales.CASH + data.sales.EASYPAISA + data.sales.JAZZCASH + data.foodpandaSales,
       expenses: data.expenses.CASH + data.expenses.EASYPAISA + data.expenses.JAZZCASH,
       transfers: data.transfersToday.reduce((sum, transfer) => sum + transfer.amount, 0),
       loanIn: data.loanIn.CASH + data.loanIn.EASYPAISA + data.loanIn.JAZZCASH,
+      investmentIn: data.investmentIn.CASH + data.investmentIn.EASYPAISA + data.investmentIn.JAZZCASH,
       loanOut: data.loanOut.CASH + data.loanOut.EASYPAISA + data.loanOut.JAZZCASH
     };
   }, [data]);
@@ -309,13 +310,14 @@ export function DailyClosingManagement() {
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard label="Business day total sales" value={formatCurrency(totals.sales)} description="Includes Foodpanda for display only." />
             <SummaryCard label="Expenses paid" value={formatCurrency(totals.expenses)} description="Deducted from the selected payment source." />
+            <SummaryCard label="Capital received" value={formatCurrency(totals.investmentIn)} description="Investment payments received in this business day." />
             <SummaryCard label="Transfers recorded" value={formatCurrency(totals.transfers)} description="Money moved between Cash, Easypaisa, and JazzCash." />
             <SummaryCard label="Foodpanda sales" value={formatCurrency(data.foodpandaSales)} description="Receivable only; not included in closing balance." />
           </div>
 
           <Card className="p-5">
             <p className="text-lg font-black text-pocket-navy">Expected balance calculation</p>
-            <p className="text-sm text-pocket-navy/60">Opening + sales + loan received + transfers in - expenses - loan repayments - transfers out = expected.</p>
+            <p className="text-sm text-pocket-navy/60">Opening + sales + loan received + investment received + transfers in - expenses - loan repayments - transfers out = expected.</p>
             <div className="mt-4 grid gap-4 xl:grid-cols-3">
               {moneySources.map(({ key, label }) => (
                 <div key={key} className="rounded-xl border border-pocket-navy/10 p-4">
@@ -324,6 +326,7 @@ export function DailyClosingManagement() {
                     <MovementRow label="Opening" value={data.opening[key]} />
                     <MovementRow label="Sales" value={data.sales[key]} sign="plus" />
                     <MovementRow label="Loan received" value={data.loanIn[key]} sign="plus" />
+                    <MovementRow label="Investment received" value={data.investmentIn[key]} sign="plus" />
                     <MovementRow label="Transfers in" value={data.transferIn[key]} sign="plus" />
                     <MovementRow label="Expenses" value={data.expenses[key]} sign="minus" />
                     <MovementRow label="Loan repayments" value={data.loanOut[key]} sign="minus" />

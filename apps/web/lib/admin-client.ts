@@ -8,6 +8,7 @@ import type {
   AdminCashPositionData,
   AdminFoodpandaSettlementData,
   AdminInventoryForecast,
+  AdminInvestmentData,
   AdminRecipeData,
   AdminInventoryData,
   AdminLoanData,
@@ -909,6 +910,76 @@ export async function createAdminLoanRepayment(loanId: string, payload: Record<s
 
 export async function deleteAdminLoanRepayment(loanId: string, repaymentId: string) {
   await adminFetch(`/api/admin/loans/${loanId}/repayments/${repaymentId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function fetchAdminInvestments(): Promise<AdminInvestmentData> {
+  return adminFetch<AdminInvestmentData>("/api/admin/investments");
+}
+
+export async function createAdminInvestmentPartner(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ partner: any }>("/api/admin/investments/partners", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.partner;
+}
+
+export async function updateAdminInvestmentPartner(partnerId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ partner: any }>(`/api/admin/investments/partners/${partnerId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.partner;
+}
+
+export async function deleteAdminInvestmentPartner(partnerId: string) {
+  await adminFetch(`/api/admin/investments/partners/${partnerId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function createAdminInvestmentCommitment(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ commitment: any }>("/api/admin/investments/commitments", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.commitment;
+}
+
+export async function updateAdminInvestmentCommitment(commitmentId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ commitment: any }>(`/api/admin/investments/commitments/${commitmentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.commitment;
+}
+
+export async function deleteAdminInvestmentCommitment(commitmentId: string) {
+  await adminFetch(`/api/admin/investments/commitments/${commitmentId}`, {
+    method: "DELETE"
+  });
+}
+
+export async function createAdminInvestmentPayment(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ payment: any }>("/api/admin/investments/payments", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.payment;
+}
+
+export async function updateAdminInvestmentPayment(paymentId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ payment: any }>(`/api/admin/investments/payments/${paymentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.payment;
+}
+
+export async function deleteAdminInvestmentPayment(paymentId: string) {
+  await adminFetch(`/api/admin/investments/payments/${paymentId}`, {
     method: "DELETE"
   });
 }
