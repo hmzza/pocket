@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,8 @@ const MONEY_SOURCES: Array<{ value: MoneySource; label: string }> = [
 
 const EMPTY_PARTNER_FORM = { id: "", name: "", note: "" };
 const EMPTY_COMMITMENT_FORM = { id: "", partnerId: "", amount: "", commitmentDate: getCurrentBusinessDateKey(), note: "" };
-const EMPTY_PAYMENT_FORM = { id: "", commitmentId: "", branchId: "", amount: "", receivedSource: "CASH" as MoneySource, paymentDate: getCurrentBusinessDateKey(), note: "" };
+const EMPTY_PAYMENT_FORM = { id: "", commitmentId: "", branchId: "", amount: "", receivedSource: "EASYPAISA" as MoneySource, paymentDate: getCurrentBusinessDateKey(), note: "" };
+type InvestmentFormKey = "partner" | "commitment" | "payment";
 
 function numberValue(value: string) {
   const parsed = Number(value);
@@ -45,10 +46,46 @@ export function InvestmentManagement() {
   const [partnerForm, setPartnerForm] = useState(EMPTY_PARTNER_FORM);
   const [commitmentForm, setCommitmentForm] = useState(EMPTY_COMMITMENT_FORM);
   const [paymentForm, setPaymentForm] = useState(EMPTY_PAYMENT_FORM);
+  const [expandedForms, setExpandedForms] = useState<Record<InvestmentFormKey, boolean>>({
+    partner: false,
+    commitment: false,
+    payment: false
+  });
+  const [expandedPartnerIds, setExpandedPartnerIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState("");
   const [error, setError] = useState("");
+  const partnerCardRef = useRef<HTMLDivElement>(null);
+  const commitmentCardRef = useRef<HTMLDivElement>(null);
+  const paymentCardRef = useRef<HTMLDivElement>(null);
+
+  function scrollToForm(key: InvestmentFormKey) {
+    const refs = {
+      partner: partnerCardRef,
+      commitment: commitmentCardRef,
+      payment: paymentCardRef
+    };
+    window.setTimeout(() => refs[key].current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
+  function openForm(key: InvestmentFormKey) {
+    setExpandedForms((current) => ({ ...current, [key]: true }));
+    scrollToForm(key);
+  }
+
+  function toggleForm(key: InvestmentFormKey) {
+    setExpandedForms((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function togglePartnerHistory(partnerId: string) {
+    setExpandedPartnerIds((current) => {
+      const next = new Set(current);
+      if (next.has(partnerId)) next.delete(partnerId);
+      else next.add(partnerId);
+      return next;
+    });
+  }
 
   async function loadInvestments() {
     try {
@@ -87,14 +124,17 @@ export function InvestmentManagement() {
 
   function startPartnerCreate() {
     setPartnerForm(EMPTY_PARTNER_FORM);
+    openForm("partner");
   }
 
   function startPartnerEdit(partner: AdminInvestmentPartner) {
     setPartnerForm({ id: partner.id, name: partner.name, note: partner.note ?? "" });
+    openForm("partner");
   }
 
   function startCommitmentCreate(partnerId?: string) {
     setCommitmentForm({ ...EMPTY_COMMITMENT_FORM, partnerId: partnerId ?? data?.partners[0]?.id ?? "" });
+    openForm("commitment");
   }
 
   function startCommitmentEdit(commitment: AdminInvestmentCommitment) {
@@ -105,6 +145,7 @@ export function InvestmentManagement() {
       commitmentDate: toBusinessDateInputValue(commitment.commitmentDate),
       note: commitment.note ?? ""
     });
+    openForm("commitment");
   }
 
   function startPaymentCreate(commitment?: AdminInvestmentCommitment) {
@@ -112,8 +153,10 @@ export function InvestmentManagement() {
       ...EMPTY_PAYMENT_FORM,
       commitmentId: commitment?.id ?? paymentCommitments[0]?.id ?? "",
       branchId: data?.branches[0]?.id ?? "",
+      receivedSource: "EASYPAISA",
       amount: commitment ? String(commitment.unpaidAmount) : ""
     });
+    openForm("payment");
   }
 
   function startPaymentEdit(payment: AdminInvestmentPayment) {
@@ -126,6 +169,7 @@ export function InvestmentManagement() {
       paymentDate: toBusinessDateInputValue(payment.paymentDate),
       note: payment.note ?? ""
     });
+    openForm("payment");
   }
 
   async function savePartner() {
@@ -258,31 +302,30 @@ export function InvestmentManagement() {
     <div className="space-y-6">
       {error ? <pre className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-3 font-sans text-sm font-semibold text-red-700">{error}</pre> : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="Committed" value={formatCurrency(data?.summary.totalCommitted ?? 0)} description="Equity is based on this total." />
         <SummaryCard label="Paid" value={formatCurrency(data?.summary.totalPaid ?? 0)} description="Cash actually received." tone="positive" />
         <SummaryCard label="Unpaid" value={formatCurrency(data?.summary.totalUnpaid ?? 0)} description="Committed but not yet paid." tone="warning" />
         <SummaryCard label="Partners" value={String(data?.summary.partnerCount ?? 0)} description="No partner data is seeded." />
-        <Card className="flex flex-col items-start justify-between gap-4 p-5">
-          <div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Actions</p><p className="mt-3 text-sm text-pocket-navy/60">Refresh or reset forms.</p></div>
-          <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void loadInvestments()}><RefreshCcw className="h-4 w-4" /></Button><Button onClick={startPartnerCreate}><Plus className="h-4 w-4" />Partner</Button></div>
-        </Card>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
-        <div className="space-y-5">
+        <div className="space-y-5 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto xl:pr-2">
+          <div ref={partnerCardRef}>
           <Card className="p-5">
-            <p className="text-lg font-black text-pocket-navy">{partnerForm.id ? "Edit Partner" : "Add Partner"}</p>
-            <div className="mt-4 space-y-3">
+            <CollapsibleHeader title={partnerForm.id ? "Edit Partner" : "Add Partner"} open={expandedForms.partner} onToggle={() => toggleForm("partner")} />
+            {expandedForms.partner ? <div className="mt-4 space-y-3">
               <Input value={partnerForm.name} onChange={(event) => setPartnerForm((current) => ({ ...current, name: event.target.value }))} placeholder="Partner name" />
               <Textarea value={partnerForm.note} onChange={(event) => setPartnerForm((current) => ({ ...current, note: event.target.value }))} placeholder="Optional note" />
               <div className="flex flex-wrap gap-2"><Button onClick={() => void savePartner()} disabled={saving}>{saving ? "Saving..." : partnerForm.id ? "Save Partner" : "Add Partner"}</Button>{partnerForm.id ? <Button variant="outline" onClick={startPartnerCreate}>Cancel</Button> : null}</div>
-            </div>
+            </div> : null}
           </Card>
+          </div>
 
+          <div ref={commitmentCardRef}>
           <Card className="p-5">
-            <p className="text-lg font-black text-pocket-navy">{commitmentForm.id ? "Edit Commitment" : "Add Commitment"}</p>
-            <div className="mt-4 space-y-3">
+            <CollapsibleHeader title={commitmentForm.id ? "Edit Commitment" : "Add Commitment"} open={expandedForms.commitment} onToggle={() => toggleForm("commitment")} />
+            {expandedForms.commitment ? <div className="mt-4 space-y-3">
               <select value={commitmentForm.partnerId} onChange={(event) => setCommitmentForm((current) => ({ ...current, partnerId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
                 <option value="">Select partner</option>
                 {(data?.partners ?? []).map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}
@@ -291,12 +334,14 @@ export function InvestmentManagement() {
               <Input type="date" value={commitmentForm.commitmentDate} onChange={(event) => setCommitmentForm((current) => ({ ...current, commitmentDate: event.target.value }))} />
               <Textarea value={commitmentForm.note} onChange={(event) => setCommitmentForm((current) => ({ ...current, note: event.target.value }))} placeholder="Optional note" />
               <div className="flex flex-wrap gap-2"><Button onClick={() => void saveCommitment()} disabled={saving}>{saving ? "Saving..." : commitmentForm.id ? "Save Commitment" : "Add Commitment"}</Button>{commitmentForm.id ? <Button variant="outline" onClick={() => startCommitmentCreate(commitmentForm.partnerId)}>Cancel</Button> : null}</div>
-            </div>
+            </div> : null}
           </Card>
+          </div>
 
+          <div ref={paymentCardRef}>
           <Card className="p-5">
-            <p className="text-lg font-black text-pocket-navy">{paymentForm.id ? "Edit Payment" : "Record Payment"}</p>
-            <div className="mt-4 space-y-3">
+            <CollapsibleHeader title={paymentForm.id ? "Edit Payment" : "Record Payment"} open={expandedForms.payment} onToggle={() => toggleForm("payment")} />
+            {expandedForms.payment ? <div className="mt-4 space-y-3">
               <select value={paymentForm.commitmentId} onChange={(event) => setPaymentForm((current) => ({ ...current, commitmentId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
                 <option value="">Select commitment</option>
                 {paymentCommitments.map((commitment) => <option key={commitment.id} value={commitment.id}>{commitment.partnerName} - unpaid {formatCurrency(commitment.unpaidAmount)}</option>)}
@@ -314,8 +359,9 @@ export function InvestmentManagement() {
               <Input type="date" value={paymentForm.paymentDate} onChange={(event) => setPaymentForm((current) => ({ ...current, paymentDate: event.target.value }))} />
               <Textarea value={paymentForm.note} onChange={(event) => setPaymentForm((current) => ({ ...current, note: event.target.value }))} placeholder="Optional note" />
               <div className="flex flex-wrap gap-2"><Button onClick={() => void savePayment()} disabled={saving}>{saving ? "Saving..." : paymentForm.id ? "Save Payment" : "Record Payment"}</Button>{paymentForm.id ? <Button variant="outline" onClick={() => startPaymentCreate()}>Cancel</Button> : null}</div>
-            </div>
+            </div> : null}
           </Card>
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -341,9 +387,15 @@ export function InvestmentManagement() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button size="sm" onClick={() => startCommitmentCreate(partner.id)}>Add Commitment</Button>
                 <Button size="sm" variant="outline" onClick={() => startPartnerEdit(partner)}><Pencil className="h-4 w-4" />Edit</Button>
+                {partner.commitments.length ? (
+                  <Button size="sm" variant="outline" onClick={() => togglePartnerHistory(partner.id)}>
+                    {expandedPartnerIds.has(partner.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    {expandedPartnerIds.has(partner.id) ? "Hide history" : "View history"}
+                  </Button>
+                ) : null}
                 <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void removePartner(partner)} disabled={deletingId === partner.id}><Trash2 className="h-4 w-4" />Delete</Button>
               </div>
-              {partner.commitments.length ? (
+              {partner.commitments.length && expandedPartnerIds.has(partner.id) ? (
                 <div className="mt-4 space-y-3">
                   {partner.commitments.map((commitment) => (
                     <div key={commitment.id} className="rounded-lg border border-pocket-navy/10 p-3">
@@ -381,6 +433,17 @@ export function InvestmentManagement() {
         </div>
       </div>
     </div>
+  );
+}
+
+function CollapsibleHeader({ title, open, onToggle }: { title: string; open: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" className="flex w-full items-center justify-between gap-3 text-left" onClick={onToggle}>
+      <span className="text-lg font-black text-pocket-navy">{title}</span>
+      <span className="grid h-9 w-9 place-items-center rounded-md border border-pocket-navy/10 text-pocket-navy">
+        {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+      </span>
+    </button>
   );
 }
 
