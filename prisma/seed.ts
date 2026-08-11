@@ -811,12 +811,7 @@ async function main() {
   ];
 
   const products = [];
-  const retiredProductSlugs = [
-    "garlic-mayo-fries",
-    "masala-fries",
-    "shawarma-drink-combo",
-    "shawarma-fries-drink-combo"
-  ];
+  const productsCreatedThisRun: string[] = [];
 
   for (const seed of productSeeds) {
     const existingProduct =
@@ -824,24 +819,7 @@ async function main() {
       (seed.legacySlug ? await prisma.product.findUnique({ where: { slug: seed.legacySlug } }) : null);
 
     const product = existingProduct
-      ? await prisma.product.update({
-          where: { id: existingProduct.id },
-          data: {
-            categoryId: categoryMap[seed.categorySlug].id,
-            slug: seed.slug,
-            sku: seed.sku,
-            name: seed.name,
-            description: seed.description,
-            ingredients: seed.ingredients,
-            basePrice: seed.basePrice,
-            calories: seed.calories,
-            featured: seed.featured,
-            bestSeller: seed.bestSeller,
-            nutritionInfo: seed.nutritionInfo,
-            sortOrder: seed.sortOrder,
-            isActive: true
-          }
-        })
+      ? existingProduct
       : await prisma.product.create({
           data: {
             categoryId: categoryMap[seed.categorySlug].id,
@@ -859,181 +837,124 @@ async function main() {
           }
         });
 
-    await prisma.productImage.deleteMany({ where: { productId: product.id } });
-    await prisma.productImage.createMany({
-      data: seed.images.map((image) => ({
-        productId: product.id,
-        ...image
-      }))
-    });
+    if (!existingProduct) {
+      productsCreatedThisRun.push(product.id);
 
-    await prisma.branchProduct.upsert({
-      where: { branchId_productId: { branchId: branch.id, productId: product.id } },
-      update: { price: seed.basePrice, isAvailable: true, stockStatus: "IN_STOCK" },
-      create: { branchId: branch.id, productId: product.id, price: seed.basePrice, isAvailable: true, stockStatus: "IN_STOCK" }
-    });
-
-    const existingGroups = await prisma.addOnGroup.findMany({
-      where: { productId: product.id },
-      include: { options: true }
-    });
-
-    async function syncAddOnGroup(config: {
-      name: string;
-      minSelect: number;
-      maxSelect: number;
-      isRequired: boolean;
-      sortOrder: number;
-      options: Array<{ name: string; priceDelta: number; sortOrder: number }>;
-    }) {
-      const existingGroup = existingGroups.find((group) => group.name === config.name);
-      const group = existingGroup
-        ? await prisma.addOnGroup.update({
-            where: { id: existingGroup.id },
-            data: {
-              minSelect: config.minSelect,
-              maxSelect: config.maxSelect,
-              isRequired: config.isRequired,
-              sortOrder: config.sortOrder
-            }
-          })
-        : await prisma.addOnGroup.create({
-            data: {
-              productId: product.id,
-              name: config.name,
-              minSelect: config.minSelect,
-              maxSelect: config.maxSelect,
-              isRequired: config.isRequired,
-              sortOrder: config.sortOrder
-            }
-          });
-
-      const existingOptions = existingGroup?.options ?? [];
-      for (const option of config.options) {
-        const existingOption = existingOptions.find((entry) => entry.name === option.name);
-        if (existingOption) {
-          await prisma.addOnOption.update({
-            where: { id: existingOption.id },
-            data: {
-              priceDelta: option.priceDelta,
-              sortOrder: option.sortOrder,
-              isActive: true
-            }
-          });
-        } else {
-          await prisma.addOnOption.create({
-            data: {
-              groupId: group.id,
-              name: option.name,
-              priceDelta: option.priceDelta,
-              sortOrder: option.sortOrder,
-              isActive: true
-            }
-          });
-        }
-      }
-    }
-
-    if (seed.slug === "pocket-mai-rocket" || seed.slug === "pocket-mai-rocket-make-it-a-meal") {
-      await syncAddOnGroup({
-        name: "Choose Sauce",
-        minSelect: 1,
-        maxSelect: 1,
-        isRequired: true,
-        sortOrder: 1,
-        options: [
-          { name: "Classic shawarma sauce", priceDelta: 0, sortOrder: 1 },
-          { name: "Spicy jalapeno sauce", priceDelta: 0, sortOrder: 2 }
-        ]
-      });
-    }
-
-    if (seed.slug === "loaded-fries") {
-      const legacyExtrasGroup = await prisma.addOnGroup.findFirst({
-        where: { productId: product.id, name: "Extras" },
-        select: { id: true }
-      });
-      if (legacyExtrasGroup) {
-        await prisma.addOnOption.updateMany({
-          where: { groupId: legacyExtrasGroup.id },
-          data: { isActive: false }
-        });
-      }
-    }
-
-    if (seed.slug === "thela-fries") {
-      await syncAddOnGroup({
-        name: "Extras",
-        minSelect: 0,
-        maxSelect: 1,
-        isRequired: false,
-        sortOrder: 1,
-        options: [{ name: "Garlic Mayo Sauce", priceDelta: 50, sortOrder: 1 }]
-      });
-    }
-
-    if (seed.slug.endsWith("make-it-a-meal")) {
-      await syncAddOnGroup({
-        name: "Choose your meal pairing",
-        minSelect: 1,
-        maxSelect: 1,
-        isRequired: true,
-        sortOrder: seed.slug === "pocket-mai-rocket-make-it-a-meal" ? 2 : 1,
-        options: mealSelectionOptions.map((option, index) => ({
-          name: option.name,
-          priceDelta: option.priceDelta,
-          sortOrder: index + 1
+      await prisma.productImage.createMany({
+        data: seed.images.map((image) => ({
+          productId: product.id,
+          ...image
         }))
       });
+
+      await prisma.branchProduct.create({
+        data: { branchId: branch.id, productId: product.id, price: seed.basePrice, isAvailable: true, stockStatus: "IN_STOCK" }
+      });
+
+      async function createAddOnGroup(config: {
+        name: string;
+        minSelect: number;
+        maxSelect: number;
+        isRequired: boolean;
+        sortOrder: number;
+        options: Array<{ name: string; priceDelta: number; sortOrder: number }>;
+      }) {
+        await prisma.addOnGroup.create({
+          data: {
+            productId: product.id,
+            name: config.name,
+            minSelect: config.minSelect,
+            maxSelect: config.maxSelect,
+            isRequired: config.isRequired,
+            sortOrder: config.sortOrder,
+            options: {
+              create: config.options.map((option) => ({
+                name: option.name,
+                priceDelta: option.priceDelta,
+                sortOrder: option.sortOrder,
+                isActive: true
+              }))
+            }
+          }
+        });
+      }
+
+      if (seed.slug === "pocket-mai-rocket" || seed.slug === "pocket-mai-rocket-make-it-a-meal") {
+        await createAddOnGroup({
+          name: "Choose Sauce",
+          minSelect: 1,
+          maxSelect: 1,
+          isRequired: true,
+          sortOrder: 1,
+          options: [
+            { name: "Classic shawarma sauce", priceDelta: 0, sortOrder: 1 },
+            { name: "Spicy jalapeno sauce", priceDelta: 0, sortOrder: 2 }
+          ]
+        });
+      }
+
+      if (seed.slug === "thela-fries") {
+        await createAddOnGroup({
+          name: "Extras",
+          minSelect: 0,
+          maxSelect: 1,
+          isRequired: false,
+          sortOrder: 1,
+          options: [{ name: "Garlic Mayo Sauce", priceDelta: 50, sortOrder: 1 }]
+        });
+      }
+
+      if (seed.slug.endsWith("make-it-a-meal")) {
+        await createAddOnGroup({
+          name: "Choose your meal pairing",
+          minSelect: 1,
+          maxSelect: 1,
+          isRequired: true,
+          sortOrder: seed.slug === "pocket-mai-rocket-make-it-a-meal" ? 2 : 1,
+          options: mealSelectionOptions.map((option, index) => ({
+            name: option.name,
+            priceDelta: option.priceDelta,
+            sortOrder: index + 1
+          }))
+        });
+      }
     }
 
     products.push(product);
   }
 
-  // Initial editable cost settings. These map the current catalog names to the
-  // supplied menu names (for example, Thela Fries is the current Theyla Fries).
-  const productCostDefaults = [
-    { slugs: ["classic-pocket"], sellingPrice: 480, foodPackagingCost: 200 },
-    { slugs: ["spicy-pocket"], sellingPrice: 580, foodPackagingCost: 205 },
-    { slugs: ["pocket-mai-rocket"], sellingPrice: 750, foodPackagingCost: 238 },
-    { slugs: ["thela-fries"], sellingPrice: 280, foodPackagingCost: 120 },
-    { slugs: ["loaded-fries"], sellingPrice: 430, foodPackagingCost: 270 },
-    { slugs: ["chocolate", "vanilla", "mango", "oreo", "strawberry"], sellingPrice: 350, foodPackagingCost: 135 },
-    { slugs: ["kiwi-passion", "strawberry-cherry", "watermelon-guava"], sellingPrice: 400, foodPackagingCost: 125 }
-  ];
+  // Initial editable cost settings apply only to products created by this seed run.
+  // Existing products keep admin-managed prices, images, add-ons, and cost settings.
+  if (productsCreatedThisRun.length) {
+    const productCostDefaults = [
+      { slugs: ["classic-pocket"], sellingPrice: 480, foodPackagingCost: 200 },
+      { slugs: ["spicy-pocket"], sellingPrice: 580, foodPackagingCost: 205 },
+      { slugs: ["pocket-mai-rocket"], sellingPrice: 750, foodPackagingCost: 238 },
+      { slugs: ["thela-fries"], sellingPrice: 280, foodPackagingCost: 120 },
+      { slugs: ["loaded-fries"], sellingPrice: 430, foodPackagingCost: 270 },
+      { slugs: ["chocolate", "vanilla", "mango", "oreo", "strawberry"], sellingPrice: 350, foodPackagingCost: 135 },
+      { slugs: ["kiwi-passion", "strawberry-cherry", "watermelon-guava"], sellingPrice: 400, foodPackagingCost: 125 }
+    ];
 
-  for (const defaults of productCostDefaults) {
-    const matchingProducts = await prisma.product.findMany({ where: { slug: { in: defaults.slugs } }, select: { id: true } });
-    if (!matchingProducts.length) continue;
-    await prisma.product.updateMany({
-      where: { id: { in: matchingProducts.map((product) => product.id) } },
-      data: {
-        basePrice: defaults.sellingPrice,
-        foodPackagingCost: defaults.foodPackagingCost,
-        costSettingsUpdatedAt: new Date()
-      }
-    });
-    await prisma.branchProduct.updateMany({
-      where: { branchId: branch.id, productId: { in: matchingProducts.map((product) => product.id) } },
-      data: { price: defaults.sellingPrice }
-    });
-  }
-
-  await prisma.product.updateMany({
-    where: { slug: { in: retiredProductSlugs } },
-    data: { isActive: false }
-  });
-
-  const retiredProducts = await prisma.product.findMany({
-    where: { slug: { in: retiredProductSlugs } },
-    select: { id: true }
-  });
-
-  if (retiredProducts.length) {
-    await prisma.branchProduct.updateMany({
-      where: { branchId: branch.id, productId: { in: retiredProducts.map((product) => product.id) } },
-      data: { isAvailable: false }
-    });
+    for (const defaults of productCostDefaults) {
+      const matchingProducts = await prisma.product.findMany({
+        where: { id: { in: productsCreatedThisRun }, slug: { in: defaults.slugs } },
+        select: { id: true }
+      });
+      if (!matchingProducts.length) continue;
+      await prisma.product.updateMany({
+        where: { id: { in: matchingProducts.map((product) => product.id) } },
+        data: {
+          basePrice: defaults.sellingPrice,
+          foodPackagingCost: defaults.foodPackagingCost,
+          costSettingsUpdatedAt: new Date()
+        }
+      });
+      await prisma.branchProduct.updateMany({
+        where: { branchId: branch.id, productId: { in: matchingProducts.map((product) => product.id) } },
+        data: { price: defaults.sellingPrice }
+      });
+    }
   }
 
   const supplier = await prisma.supplier.upsert({
@@ -1042,34 +963,28 @@ async function main() {
     create: { id: "default-supplier", name: "Capital Fresh Foods", phone: "+92-51-1111111" }
   });
 
-  const ingredients = await Promise.all(
-    INVENTORY_ITEMS.map((item) =>
-      prisma.ingredient.upsert({
-        where: { sku: item.sku },
-        update: {
-          name: item.name,
-          unit: item.unit,
-          type: item.type,
-          isActive: true,
-          reorderLevel: item.reorderLevel,
-          costPerUnit: item.costPerUnit,
-          caloriesPerUnit: item.caloriesPerUnit,
-          supplierId: supplier.id
-        },
-        create: {
-          sku: item.sku,
-          name: item.name,
-          unit: item.unit,
-          type: item.type,
-          isActive: true,
-          reorderLevel: item.reorderLevel,
-          costPerUnit: item.costPerUnit,
-          caloriesPerUnit: item.caloriesPerUnit,
-          supplierId: supplier.id
-        }
-      })
-    )
-  );
+  const ingredients = [];
+  const ingredientsCreatedThisRun: string[] = [];
+  for (const item of INVENTORY_ITEMS) {
+    const existingIngredient = await prisma.ingredient.findUnique({ where: { sku: item.sku } });
+    const ingredient = existingIngredient ?? await prisma.ingredient.create({
+      data: {
+        sku: item.sku,
+        name: item.name,
+        unit: item.unit,
+        type: item.type,
+        isActive: true,
+        reorderLevel: item.reorderLevel,
+        costPerUnit: item.costPerUnit,
+        caloriesPerUnit: item.caloriesPerUnit,
+        supplierId: supplier.id
+      }
+    });
+    if (!existingIngredient) {
+      ingredientsCreatedThisRun.push(ingredient.id);
+    }
+    ingredients.push(ingredient);
+  }
 
   const ingredientBySku = new Map(ingredients.map((ingredient) => [ingredient.sku, ingredient]));
 
@@ -1077,24 +992,18 @@ async function main() {
     const ingredient = ingredientBySku.get(item.sku);
     if (!ingredient) continue;
 
-    const inventory = await prisma.branchInventory.upsert({
-      where: { branchId_ingredientId: { branchId: branch.id, ingredientId: ingredient.id } },
-      update: {
-        quantityOnHand: item.openingStock,
-        lowStockAlert: item.openingStock <= item.reorderLevel
-      },
-      create: {
+    const existingInventory = await prisma.branchInventory.findUnique({
+      where: { branchId_ingredientId: { branchId: branch.id, ingredientId: ingredient.id } }
+    });
+
+    if (existingInventory) continue;
+
+    const inventory = await prisma.branchInventory.create({
+      data: {
         branchId: branch.id,
         ingredientId: ingredient.id,
         quantityOnHand: item.openingStock,
         lowStockAlert: item.openingStock <= item.reorderLevel
-      }
-    });
-
-    await prisma.inventoryTransaction.deleteMany({
-      where: {
-        branchInventoryId: inventory.id,
-        referenceType: "SEED"
       }
     });
 
@@ -1112,27 +1021,16 @@ async function main() {
   }
 
   for (const product of products) {
-    const recipe = PRODUCT_RECIPE_BY_SLUG[product.slug] ?? [];
+    if (!productsCreatedThisRun.includes(product.id)) continue;
 
-    await prisma.productIngredient.deleteMany({
-      where: { productId: product.id }
-    });
+    const recipe = PRODUCT_RECIPE_BY_SLUG[product.slug] ?? [];
 
     for (const component of recipe) {
       const ingredient = ingredientBySku.get(component.ingredientSku);
       if (!ingredient) continue;
 
-      await prisma.productIngredient.upsert({
-        where: {
-          productId_ingredientId: {
-            productId: product.id,
-            ingredientId: ingredient.id
-          }
-        },
-        update: {
-          quantityNeeded: component.quantity
-        },
-        create: {
+      await prisma.productIngredient.create({
+        data: {
           productId: product.id,
           ingredientId: ingredient.id,
           quantityNeeded: component.quantity
@@ -1145,26 +1043,14 @@ async function main() {
   for (const [preparedSku, recipe] of Object.entries(PREPARED_RECIPE_BY_SKU)) {
     const parent = ingredientBySku.get(preparedSku);
     if (!parent) continue;
-
-    await prisma.ingredientComponent.deleteMany({
-      where: { parentIngredientId: parent.id }
-    });
+    if (!ingredientsCreatedThisRun.includes(parent.id)) continue;
 
     for (const component of recipe) {
       const ingredient = ingredientBySku.get(component.ingredientSku);
       if (!ingredient) continue;
 
-      await prisma.ingredientComponent.upsert({
-        where: {
-          parentIngredientId_componentIngredientId: {
-            parentIngredientId: parent.id,
-            componentIngredientId: ingredient.id
-          }
-        },
-        update: {
-          quantityNeeded: component.quantity
-        },
-        create: {
+      await prisma.ingredientComponent.create({
+        data: {
           parentIngredientId: parent.id,
           componentIngredientId: ingredient.id,
           quantityNeeded: component.quantity
@@ -1174,26 +1060,28 @@ async function main() {
 
   }
 
-  await prisma.packagingRule.deleteMany();
-  for (const rule of PACKAGING_RULES) {
-    const packaging = ingredientBySku.get(rule.packagingSku);
-    if (!packaging) continue;
-    const product = rule.productSlug ? products.find((entry) => entry.slug === rule.productSlug) : null;
-    const category = rule.categorySlug ? categoryMap[rule.categorySlug] : null;
-    if (rule.productSlug && !product) continue;
-    if (rule.categorySlug && !category) continue;
+  const existingPackagingRuleCount = await prisma.packagingRule.count();
+  if (existingPackagingRuleCount === 0) {
+    for (const rule of PACKAGING_RULES) {
+      const packaging = ingredientBySku.get(rule.packagingSku);
+      if (!packaging) continue;
+      const product = rule.productSlug ? products.find((entry) => entry.slug === rule.productSlug) : null;
+      const category = rule.categorySlug ? categoryMap[rule.categorySlug] : null;
+      if (rule.productSlug && !product) continue;
+      if (rule.categorySlug && !category) continue;
 
-    await prisma.packagingRule.create({
-      data: {
-        productId: product?.id ?? null,
-        categoryId: product ? null : category?.id ?? null,
-        serviceType: rule.serviceType,
-        packagingIngredientId: packaging.id,
-        quantityMode: rule.quantityMode,
-        quantity: rule.quantity,
-        itemStep: rule.quantityMode === "PER_ITEM_STEP" ? rule.itemStep ?? 1 : null
-      }
-    });
+      await prisma.packagingRule.create({
+        data: {
+          productId: product?.id ?? null,
+          categoryId: product ? null : category?.id ?? null,
+          serviceType: rule.serviceType,
+          packagingIngredientId: packaging.id,
+          quantityMode: rule.quantityMode,
+          quantity: rule.quantity,
+          itemStep: rule.quantityMode === "PER_ITEM_STEP" ? rule.itemStep ?? 1 : null
+        }
+      });
+    }
   }
 
   const classicPocket = products.find((product) => product.slug === "classic-pocket");

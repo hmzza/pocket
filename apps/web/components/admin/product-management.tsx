@@ -631,7 +631,8 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
       return;
     }
 
-    const payload = {
+    const priceChanged = !editingProduct || basePrice !== editingProduct.basePrice;
+    const payload: Record<string, unknown> = {
       categoryId: form.categoryId,
       slug: form.slug.trim() || undefined,
       name: form.name.trim(),
@@ -640,7 +641,6 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean),
-      basePrice,
       calories: form.calories ? Number(form.calories) : undefined,
       featured: form.featured,
       bestSeller: form.bestSeller,
@@ -656,6 +656,9 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
         }))
         .filter((component) => component.componentProductId && Number.isFinite(component.quantity) && component.quantity > 0)
     };
+    if (priceChanged) {
+      payload.basePrice = basePrice;
+    }
 
     setSaving(true);
     setError("");
