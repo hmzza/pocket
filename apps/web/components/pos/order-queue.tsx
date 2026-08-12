@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, CheckCircle2, ChevronLeft, Clock3, FileText, ListChecks, PencilLine, RefreshCcw, Search, Trash2, Truck } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, Clock3, FileText, ListChecks, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,12 +18,13 @@ import {
 import type { AdminOrder } from "@/lib/types";
 import { formatCurrency, toBusinessDateInputValue } from "@/lib/utils";
 
-type QueueScope = "active" | "watch_later" | "delivered" | "all";
+type QueueScope = "active" | "watch_later" | "delivered" | "unpaid" | "all";
 
 const scopeOptions: Array<{ value: QueueScope; label: string }> = [
   { value: "active", label: "Active" },
   { value: "watch_later", label: "Watch Later" },
   { value: "delivered", label: "Delivered" },
+  { value: "unpaid", label: "Unpaid" },
   { value: "all", label: "All" }
 ];
 
@@ -527,6 +528,9 @@ function PosOrderQueueView({
         ...(pendingStatus ? { status: pendingStatus } : {}),
         ...(pendingPaymentStatus ? { paymentStatus: pendingPaymentStatus } : {})
       };
+    }).sort((first, second) => {
+      const placedAtDifference = new Date(first.placedAt).getTime() - new Date(second.placedAt).getTime();
+      return placedAtDifference || first.id.localeCompare(second.id);
     });
     const currentBusinessDate = toBusinessDateInputValue(new Date());
     const activeOrders = sourceOrders.filter(
@@ -537,14 +541,14 @@ function PosOrderQueueView({
     );
     const watchLaterOrders = sourceOrders.filter((order) => order.status === "WATCH_LATER");
     const deliveredOrders = sourceOrders.filter((order) => order.status === "DELIVERED");
-    const cancelledOrders = sourceOrders.filter((order) => order.status === "CANCELLED");
+    const unpaidOrders = sourceOrders.filter((order) => order.paymentStatus === "PENDING");
     const queuedCount = activeOrders.length;
 
     return {
       activeOrders,
       watchLaterOrders,
       deliveredOrders,
-      cancelledOrders,
+      unpaidOrders,
       todayOrders: sourceOrders,
       queuedCount
     };
@@ -703,10 +707,11 @@ function PosOrderQueueView({
   const showActiveLane = scope === "active" || showingAllLanes;
   const showWatchLaterLane = scope === "watch_later" || showingAllLanes;
   const showDeliveredLane = scope === "delivered";
+  const showUnpaidLane = scope === "unpaid";
 
   return (
     <div className={embedded ? "flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1" : "space-y-2.5"}>
-      <div className={embedded ? "flex flex-col gap-2 rounded-3xl border border-white/10 bg-white/90 p-2 text-slate-900 shadow-sm" : "flex flex-col gap-2 rounded-3xl border border-white/10 bg-white/90 p-2.5 text-slate-900 shadow-sm lg:flex-row lg:items-center lg:justify-between"}>
+      <div className={embedded ? "flex items-start justify-between gap-2 rounded-3xl border border-white/10 bg-white/90 p-2 text-slate-900 shadow-sm" : "flex flex-col gap-2 rounded-3xl border border-white/10 bg-white/90 p-2.5 text-slate-900 shadow-sm lg:flex-row lg:items-center lg:justify-between"}>
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-600">Counter Orders</p>
           <h2 className={embedded ? "mt-0.5 text-[1.2rem] font-black leading-none" : "mt-0.5 text-[1.55rem] font-black leading-none"}>Queue Board</h2>
@@ -714,7 +719,36 @@ function PosOrderQueueView({
             {todayOnly ? `${derived.todayOrders.length} orders in this business day. Staff view is read-only.` : `${derived.queuedCount} active orders today, ${derived.watchLaterOrders.length} watch later, ${derived.deliveredOrders.length} completed.`}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {embedded ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-8 px-0"
+                title="Mark all orders as complete"
+                aria-label="Mark all orders as complete"
+                onClick={() => void markAllCompleted()}
+                disabled={!derived.activeOrders.length || !!updatingOrderId}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-8 w-8 px-0"
+                title="Refresh queue"
+                aria-label="Refresh queue"
+                onClick={() => {
+                  setRefreshing(true);
+                  void loadOrders(scope);
+                }}
+                disabled={refreshing}
+              >
+                <RefreshCcw className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          ) : null}
           {todayOnly && !embedded ? (
             <Button variant="outline" className="h-8 px-3 text-xs" onClick={() => router.push("/pos/queue")}>
               <ListChecks className="h-3.5 w-3.5" />
@@ -732,22 +766,18 @@ function PosOrderQueueView({
               Mark all completed
             </Button>
           ) : null}
-          <Button
-            variant="outline"
-            className="h-8 px-3 text-xs"
-            onClick={() => {
-              setRefreshing(true);
-              void loadOrders(scope);
-            }}
-            disabled={refreshing}
-          >
-            <RefreshCcw className="h-3.5 w-3.5" />
-            Refresh
-          </Button>
           {!embedded ? (
-            <Button variant="outline" className="h-8 px-3 text-xs" onClick={() => router.push("/pos")}>
-              <ChevronLeft className="h-3.5 w-3.5" />
-              Back to POS
+            <Button
+              variant="outline"
+              className="h-8 px-3 text-xs"
+              onClick={() => {
+                setRefreshing(true);
+                void loadOrders(scope);
+              }}
+              disabled={refreshing}
+            >
+              <RefreshCcw className="h-3.5 w-3.5" />
+              Refresh
             </Button>
           ) : null}
         </div>
@@ -775,16 +805,6 @@ function PosOrderQueueView({
               </option>
             ))}
           </select> : <div className="flex h-9 items-center rounded-2xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700">Business day orders · 6AM-6AM PKT</div>}
-          <div className={embedded ? "hidden" : "flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-1.5"}>
-            <Truck className="h-3.5 w-3.5 text-orange-600" />
-            <p className="text-[11px] font-semibold text-slate-700">Compact receipts with quick one-tap actions.</p>
-          </div>
-          {embedded ? (
-            <div className="xl:col-span-2 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-1.5">
-              <Truck className="h-3.5 w-3.5 text-orange-600" />
-              <p className="text-[11px] font-semibold text-slate-700">Compact receipts with quick one-tap actions.</p>
-            </div>
-          ) : null}
         </div>
       </Card>
 
@@ -863,17 +883,22 @@ function PosOrderQueueView({
             emptyText="No completed orders match the current filter."
           />
         ) : null}
-
-        {scope === "all" && derived.cancelledOrders.length ? (
-          <Card className={embedded ? "rounded-3xl border-white/10 bg-white/90 p-2 shadow-sm" : "rounded-3xl border-white/10 bg-white/90 p-2.5 shadow-sm"}>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-600">Discarded</p>
-                <p className="mt-1 text-[11px] text-slate-500">Cancelled orders are kept for reference only.</p>
-              </div>
-              <p className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">{derived.cancelledOrders.length}</p>
-            </div>
-          </Card>
+        {showUnpaidLane ? (
+          <OrderSection
+            title="Unpaid Orders"
+            description="Orders with payment still marked as pending."
+            orders={derived.unpaidOrders}
+            embedded={embedded}
+            onTogglePaymentStatus={togglePaymentStatus}
+            busy={!!updatingOrderId}
+            mutedOrderId={updatingOrderId}
+            exitingOrderIds={exitingOrderIds}
+            onChangeStatus={changeStatus}
+            onEdit={openEdit}
+            onDelete={deleteOrder}
+            onDetails={openDetails}
+            emptyText="No unpaid orders match the current filter."
+          />
         ) : null}
       </div>
     </div>
