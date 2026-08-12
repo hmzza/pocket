@@ -670,11 +670,13 @@ export type AdminUser = {
   username: string;
   email: string;
   phone?: string;
-  roleCode: "ADMIN" | "SUPER_ADMIN" | "POS_STAFF" | "CUSTOMER";
+  roleCode: "SUPER_ADMIN" | "POS_STAFF" | "CUSTOMER";
   roleLabel: string;
   isActive: boolean;
   canAccessAdmin: boolean;
   canAccessPos: boolean;
+  permissionKeys: string[];
+  permissions: Array<{ key: string; label: string }>;
   branchId?: string;
   branchName?: string;
   branches?: Array<{ id: string; name: string; slug: string; isPrimary: boolean }>;

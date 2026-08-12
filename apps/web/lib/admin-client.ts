@@ -414,6 +414,8 @@ export async function fetchAdminSession() {
       email: string;
       canAccessAdmin: boolean;
       canAccessPos: boolean;
+      permissions: string[];
+      availablePermissions: Array<{ key: string; label: string; routePrefix: string; permissionGroup: string; sortOrder: number }>;
       branches: Branch[];
       primaryBranchId: string | null;
       canSwitchBranches: boolean;
@@ -959,6 +961,11 @@ export async function deleteAdminLoanRepayment(loanId: string, repaymentId: stri
   await adminFetch(`/api/admin/loans/${loanId}/repayments/${repaymentId}`, {
     method: "DELETE"
   });
+}
+
+export async function fetchAdminPermissions() {
+  const data = await adminFetch<{ permissions: Array<{ key: string; label: string; routePrefix: string; permissionGroup: string; sortOrder: number }> }>("/api/admin/permissions");
+  return data.permissions;
 }
 
 export async function fetchAdminInvestments(): Promise<AdminInvestmentData> {

@@ -86,6 +86,7 @@ model Role {
   code      RoleCode @unique
   label     String
   users     User[]
+  permissionGrants RolePermission[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -128,6 +129,48 @@ model User {
   investmentCommitments InvestmentCommitment[] @relation("InvestmentCommitmentActor")
   investmentPayments    InvestmentPayment[]    @relation("InvestmentPaymentActor")
   branchAccesses        UserBranchAccess[]
+  permissionGrants      UserPermission[]
+}
+
+model Permission {
+  id            String           @id @default(cuid())
+  key           String           @unique
+  label         String
+  routePrefix   String
+  permissionGroup String
+  sortOrder     Int              @default(0)
+  isActive      Boolean          @default(true)
+  userGrants    UserPermission[]
+  roleGrants    RolePermission[]
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([routePrefix])
+  @@index([isActive, sortOrder])
+}
+
+model UserPermission {
+  id           String     @id @default(cuid())
+  userId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, permissionId])
+  @@index([permissionId])
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime   @default(now())
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
 }
 
 model Branch {

@@ -7,10 +7,11 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
+import { requirePermission } from "../lib/permissions.js";
 
 const router = Router();
 
-router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF));
+router.use(authenticate, authorize(RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF), requirePermission("POS"));
 
 const querySchema = z.object({
   scope: z.enum(["active", "watch_later", "delivered", "unpaid", "all"]).default("active"),

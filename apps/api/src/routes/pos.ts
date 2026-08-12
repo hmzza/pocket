@@ -11,10 +11,11 @@ import { signReceiptToken } from "../lib/receipt-token.js";
 import { applyInventoryChanges, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
 import { syncMealPairingOptions } from "../lib/meal-options.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
+import { requirePermission } from "../lib/permissions.js";
 
 const router = Router();
 
-router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF));
+router.use(authenticate, authorize(RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF), requirePermission("POS"));
 
 const posProductInclude = {
   category: true,

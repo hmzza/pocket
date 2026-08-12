@@ -30,16 +30,11 @@ async function main() {
     return;
   }
 
-  const [customerRole, adminRole, superAdminRole, posStaffRole] = await Promise.all([
+  const [customerRole, superAdminRole, posStaffRole] = await Promise.all([
     prisma.role.upsert({
       where: { code: RoleCode.CUSTOMER },
       update: { label: "Customer" },
       create: { code: RoleCode.CUSTOMER, label: "Customer" }
-    }),
-    prisma.role.upsert({
-      where: { code: RoleCode.ADMIN },
-      update: { label: "Admin" },
-      create: { code: RoleCode.ADMIN, label: "Admin" }
     }),
     prisma.role.upsert({
       where: { code: RoleCode.SUPER_ADMIN },
