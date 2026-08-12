@@ -3,14 +3,14 @@
 import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, Car, LayoutGrid, ListChecks, LogOut, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
+import { CalendarDays, Car, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { PosOrderQueue } from "@/components/pos/order-queue";
-import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession, updatePosOrder } from "@/lib/pos-client";
+import { PosToolbar } from "@/components/pos/pos-toolbar";
+import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 
@@ -809,54 +809,7 @@ export function PosTerminal() {
   return (
     <div className="pos-terminal min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_22%),linear-gradient(135deg,_#111827,_#1f2937_55%,_#0f172a)] px-4 py-5 text-white md:px-5">
       <div className="mx-auto max-w-[1680px] space-y-5">
-        <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-300">Pocket POS</p>
-            <h1 className="mt-1.5 text-[1.7rem] font-black leading-none">Counter Terminal</h1>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <div className="rounded-xl border border-white/10 bg-slate-950/45 px-3 py-1.5 leading-tight">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-300/80">Logged in as</p>
-              <p className="text-sm font-bold text-white">{sessionUser?.name || sessionUser?.username || "POS user"}</p>
-              {sessionUser?.username ? <p className="text-[10px] text-white/55">@{sessionUser.username}</p> : null}
-            </div>
-            {sessionUser ? <BranchSwitcher user={sessionUser} /> : null}
-            <Button
-              variant="outline"
-              className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
-              onClick={() => setSplitView((current) => !current)}
-            >
-              <LayoutGrid className="h-4 w-4" />
-              {splitView ? "Close Split" : "Split View"}
-            </Button>
-            <Button
-              variant="outline"
-              className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
-              onClick={() => router.push("/pos/orders")}
-            >
-              View Orders
-            </Button>
-            <Button
-              variant="outline"
-              className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
-              onClick={() => router.push("/pos/queue")}
-            >
-              <ListChecks className="h-4 w-4" />
-              Queue
-            </Button>
-            <Button
-              variant="outline"
-              className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"
-              onClick={async () => {
-                await logoutPosSession().catch(() => null);
-                router.replace("/pos/login");
-              }}
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </Button>
-          </div>
-        </div>
+        {sessionUser ? <PosToolbar user={sessionUser} active="pos" splitView={splitView} onToggleSplit={() => setSplitView((current) => !current)} /> : null}
 
         {error ? (
           <div className="rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-100 whitespace-pre-line">
