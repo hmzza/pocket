@@ -101,7 +101,7 @@ export function FixedExpenseManagement({ embedded = false, onExpensesChanged }: 
 
   async function save() {
     if (!form.branchId || !form.name.trim() || !form.monthlyAmount) {
-      setError("Branch, expense name, and monthly amount are required.");
+      setError("Expense name and monthly amount are required.");
       return;
     }
     setSaving(true);
