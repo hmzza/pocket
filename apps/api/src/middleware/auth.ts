@@ -1,10 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
-import type { RoleCode, User } from "@prisma/client";
+import { RoleCode, type User } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { verifyToken } from "../lib/auth.js";
+import { getEffectivePermissionKeys } from "../lib/permissions.js";
 
 export type RequestUser = Pick<User, "id" | "email" | "name" | "username" | "canAccessAdmin" | "canAccessPos"> & {
   role: RoleCode;
+  permissions: string[];
 };
 
 export const AUTH_COOKIE_NAME = "pocket_session";
@@ -28,21 +30,23 @@ export async function authenticate(req: Request, res: Response, next: NextFuncti
     const payload = verifyToken(token);
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      include: { role: true }
+      include: { role: true, permissionGrants: { include: { permission: true } } }
     });
 
     if (!user || !user.isActive) {
       return res.status(401).json({ message: "Invalid session." });
     }
 
+    const permissions = await getEffectivePermissionKeys(user.id, user.role.code);
     req.user = {
       id: user.id,
       email: user.email,
       name: user.name,
       username: user.username,
-      canAccessAdmin: user.canAccessAdmin,
-      canAccessPos: user.canAccessPos,
-      role: user.role.code
+      canAccessAdmin: user.role.code === RoleCode.SUPER_ADMIN || permissions.some((permission) => permission !== "POS"),
+      canAccessPos: user.role.code === RoleCode.SUPER_ADMIN || permissions.includes("POS"),
+      role: user.role.code,
+      permissions
     };
 
     return next();

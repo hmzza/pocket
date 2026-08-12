@@ -6,6 +6,7 @@ import { hashPassword, signToken, verifyPassword } from "../lib/auth.js";
 import { buildUniqueUsername } from "../lib/username.js";
 import { AUTH_COOKIE_NAME, authenticate } from "../middleware/auth.js";
 import { getAccessibleBranchesForUser } from "../lib/branch-context.js";
+import { getEffectivePermissionKeys, PERMISSION_DEFINITIONS } from "../lib/permissions.js";
 
 const router = Router();
 
@@ -122,6 +123,7 @@ function setAuthCookie(res: Response, user: AuthenticatedUser) {
 
 async function buildAuthResponse(user: AuthenticatedUser) {
   const branchAccess = await getAccessibleBranchesForUser({ id: user.id, role: user.role.code });
+  const permissionKeys = await getEffectivePermissionKeys(user.id, user.role.code);
 
   return {
     user: {
@@ -131,8 +133,10 @@ async function buildAuthResponse(user: AuthenticatedUser) {
       email: user.email,
       phone: user.phone,
       role: user.role.code,
-      canAccessAdmin: user.canAccessAdmin,
-      canAccessPos: user.canAccessPos,
+      canAccessAdmin: user.role.code === RoleCode.SUPER_ADMIN || permissionKeys.some((permission) => permission !== "POS"),
+      canAccessPos: user.role.code === RoleCode.SUPER_ADMIN || permissionKeys.includes("POS"),
+      permissions: permissionKeys,
+      availablePermissions: PERMISSION_DEFINITIONS,
       branches: branchAccess.branches,
       primaryBranchId: branchAccess.primaryBranchId,
       canSwitchBranches: branchAccess.canSwitchBranches
@@ -169,7 +173,8 @@ router.post("/admin-login", async (req, res, next) => {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
-    if (!user.canAccessAdmin && user.role.code !== RoleCode.ADMIN && user.role.code !== RoleCode.SUPER_ADMIN) {
+    const permissions = await getEffectivePermissionKeys(user.id, user.role.code);
+    if (user.role.code !== RoleCode.SUPER_ADMIN && !permissions.some((permission) => permission !== "POS")) {
       return res.status(403).json({ message: "Admin access is restricted to admin roles." });
     }
 
@@ -190,10 +195,8 @@ router.post("/pos-login", async (req, res, next) => {
     }
 
     if (
-      !user.canAccessPos &&
-      user.role.code !== RoleCode.ADMIN &&
       user.role.code !== RoleCode.SUPER_ADMIN &&
-      user.role.code !== RoleCode.POS_STAFF
+      !(await getEffectivePermissionKeys(user.id, user.role.code)).includes("POS")
     ) {
       return res.status(403).json({ message: "POS access is restricted to approved staff accounts." });
     }
@@ -219,6 +222,7 @@ router.get("/me", authenticate, async (req, res) => {
     }
   });
   const branchAccess = await getAccessibleBranchesForUser({ id: user!.id, role: user!.role.code });
+  const permissionKeys = await getEffectivePermissionKeys(user!.id, user!.role.code);
 
   return res.json({
     user: {
@@ -228,8 +232,10 @@ router.get("/me", authenticate, async (req, res) => {
       email: user!.email,
       phone: user!.phone,
       role: user!.role.code,
-      canAccessAdmin: user!.canAccessAdmin,
-      canAccessPos: user!.canAccessPos,
+      canAccessAdmin: user!.role.code === RoleCode.SUPER_ADMIN || permissionKeys.some((permission) => permission !== "POS"),
+      canAccessPos: user!.role.code === RoleCode.SUPER_ADMIN || permissionKeys.includes("POS"),
+      permissions: permissionKeys,
+      availablePermissions: PERMISSION_DEFINITIONS,
       branches: branchAccess.branches,
       primaryBranchId: branchAccess.primaryBranchId,
       canSwitchBranches: branchAccess.canSwitchBranches,

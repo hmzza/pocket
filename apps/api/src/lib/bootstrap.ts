@@ -2,6 +2,7 @@ import { RoleCode } from "@prisma/client";
 import { prisma } from "./prisma.js";
 import { hashPassword } from "./auth.js";
 import { env } from "../config.js";
+import { ensurePermissionCatalog } from "./permissions.js";
 
 const ADMIN_USERNAME = "superadmin_pocket";
 const ADMIN_EMAIL = "admin@pocketshawarma.com";
@@ -14,6 +15,7 @@ const ADMIN_BOOTSTRAP_VERSION = 1;
  * narrower than the full seed so deploys do not overwrite catalog data.
  */
 export async function ensureBootstrapAdmin() {
+  await ensurePermissionCatalog();
   const role = await prisma.role.upsert({
     where: { code: RoleCode.SUPER_ADMIN },
     update: { label: "Super Admin" },

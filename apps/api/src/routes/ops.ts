@@ -1,4 +1,4 @@
-import { OrderStatus, RoleCode } from "@prisma/client";
+import { OrderStatus, PaymentStatus, RoleCode } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
@@ -7,13 +7,14 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
+import { requirePermission } from "../lib/permissions.js";
 
 const router = Router();
 
-router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF));
+router.use(authenticate, authorize(RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF), requirePermission("POS"));
 
 const querySchema = z.object({
-  scope: z.enum(["active", "watch_later", "delivered", "all"]).default("active"),
+  scope: z.enum(["active", "watch_later", "delivered", "unpaid", "all"]).default("active"),
   search: z.string().optional(),
   today: z.enum(["true"]).optional()
 });
@@ -96,7 +97,9 @@ router.get("/orders", async (req, res, next) => {
           ? { status: OrderStatus.WATCH_LATER }
         : query.scope === "delivered"
           ? { status: OrderStatus.DELIVERED }
-          : {};
+          : query.scope === "unpaid"
+            ? { paymentStatus: PaymentStatus.PENDING, status: { not: OrderStatus.CANCELLED } }
+            : { status: { not: OrderStatus.CANCELLED } };
 
     const orders = await prisma.order.findMany({
       where: {
@@ -132,7 +135,7 @@ router.get("/orders", async (req, res, next) => {
           }
         }
       },
-      orderBy: { placedAt: "desc" }
+      orderBy: [{ placedAt: "asc" }, { id: "asc" }]
     });
 
     return res.json({ orders: orders.map(serializeOrder) });

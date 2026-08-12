@@ -60,7 +60,7 @@ function ProfileMenu({ user }: { user: PosUser }) {
         {getInitials(user)}
       </button>
       {open ? (
-        <div className="absolute right-0 top-[calc(100%+0.55rem)] z-50 w-56 overflow-hidden rounded-xl border border-white/10 bg-white text-slate-900 shadow-2xl">
+        <div className="absolute right-0 top-[calc(100%+0.55rem)] z-[100] w-56 overflow-hidden rounded-xl border border-white/10 bg-white text-slate-900 shadow-2xl">
           <div className="border-b border-slate-200 px-4 py-3">
             <p className="truncate text-sm font-bold">{user.name || user.username || "POS user"}</p>
           </div>
@@ -92,7 +92,7 @@ export function PosToolbar({
   const router = useRouter();
 
   return (
-    <div className="flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
+    <div className="relative z-50 flex flex-col gap-3 rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur md:flex-row md:items-center md:justify-between">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-amber-300">Pocket POS</p>
         <h1 className="mt-1.5 text-[1.7rem] font-black leading-none">Counter Terminal</h1>

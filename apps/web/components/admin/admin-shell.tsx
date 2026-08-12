@@ -13,27 +13,26 @@ const links: Array<{
   href: string;
   label: string;
   icon: typeof LayoutDashboard;
-  disabled?: boolean;
+  permissionKey: string;
 }> = [
-  { href: "/admin", label: "Overview", icon: LayoutDashboard },
-  { href: "/admin/analytics", label: "Business Analytics", icon: BarChart3 },
-  { href: "/admin/analytics/products", label: "Product Analytics", icon: ChartNoAxesCombined },
-  { href: "/admin/foodpanda", label: "Foodpanda", icon: Bike },
-  { href: "/admin/health", label: "Business Health", icon: Activity },
-  { href: "/admin/products", label: "Products", icon: Boxes },
-  { href: "/admin/website", label: "Website Control", icon: SlidersHorizontal },
-  { href: "/admin/users", label: "Users", icon: Users },
-  { href: "/admin/inventory", label: "Inventory", icon: Package2 },
-  { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
-  { href: "/admin/customers", label: "Customers", icon: Users },
-  { href: "/admin/expenses", label: "Expenses", icon: Receipt },
-  { href: "/admin/capital", label: "Capital", icon: HandCoins },
-  { href: "/admin/finances", label: "Finances", icon: Banknote },
-  { href: "/admin/finances/daily-closing", label: "Daily Closing", icon: History },
-  { href: "/admin/finances/foodpanda-settlements", label: "Foodpanda Settlements", icon: Bike }
+  { href: "/admin", label: "Overview", icon: LayoutDashboard, permissionKey: "OVERVIEW" },
+  { href: "/admin/analytics", label: "Business Analytics", icon: BarChart3, permissionKey: "BUSINESS_ANALYTICS" },
+  { href: "/admin/analytics/products", label: "Product Analytics", icon: ChartNoAxesCombined, permissionKey: "PRODUCT_ANALYTICS" },
+  { href: "/admin/foodpanda", label: "Foodpanda", icon: Bike, permissionKey: "FOODPANDA" },
+  { href: "/admin/health", label: "Business Health", icon: Activity, permissionKey: "BUSINESS_HEALTH" },
+  { href: "/admin/products", label: "Products", icon: Boxes, permissionKey: "PRODUCTS" },
+  { href: "/admin/website", label: "Website Control", icon: SlidersHorizontal, permissionKey: "WEBSITE" },
+  { href: "/admin/users", label: "Users", icon: Users, permissionKey: "USERS" },
+  { href: "/admin/inventory", label: "Inventory", icon: Package2, permissionKey: "INVENTORY" },
+  { href: "/admin/orders", label: "Orders", icon: ShoppingCart, permissionKey: "ORDERS" },
+  { href: "/admin/customers", label: "Customers", icon: Users, permissionKey: "CUSTOMERS" },
+  { href: "/admin/expenses", label: "Expenses", icon: Receipt, permissionKey: "EXPENSES" },
+  { href: "/admin/capital", label: "Capital", icon: HandCoins, permissionKey: "CAPITAL" },
+  { href: "/admin/finances", label: "Finances", icon: Banknote, permissionKey: "FINANCES" },
+  { href: "/admin/finances/daily-closing", label: "Daily Closing", icon: History, permissionKey: "DAILY_CLOSING" },
+  { href: "/admin/finances/foodpanda-settlements", label: "Foodpanda Settlements", icon: Bike, permissionKey: "FOODPANDA_SETTLEMENTS" },
+  { href: "/pos", label: "POS", icon: ShoppingCart, permissionKey: "POS" }
 ];
-
-const staffRestrictedRoutes = ["/admin/analytics", "/admin/foodpanda", "/admin/health", "/admin/products", "/admin/website", "/admin/users", "/admin/capital", "/admin/loans", "/admin/finances"];
 
 type AdminSession = Awaited<ReturnType<typeof fetchAdminSession>>;
 
@@ -51,8 +50,8 @@ export function AdminShell({ title, description, children }: { title: string; de
         const nextSession = await fetchAdminSession();
         if (
           !cancelled &&
-          !nextSession.user.canAccessAdmin &&
-          !["ADMIN", "SUPER_ADMIN"].includes(nextSession.user.role)
+          nextSession.user.role !== "SUPER_ADMIN" &&
+          !nextSession.user.permissions.some((permission) => permission !== "POS")
         ) {
           router.replace("/admin/login");
           return;
@@ -76,12 +75,14 @@ export function AdminShell({ title, description, children }: { title: string; de
     };
   }, [router]);
 
-  const isStaff = session?.user.role === "POS_STAFF";
-  const restrictedForStaff = isStaff && staffRestrictedRoutes.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+  const isStaff = session?.user.role !== "SUPER_ADMIN";
+  const activeLink = [...links].sort((first, second) => second.href.length - first.href.length).find((link) => pathname === link.href || pathname.startsWith(`${link.href}/`));
+  const restrictedForStaff = isStaff && (!activeLink || !session?.user.permissions.includes(activeLink.permissionKey));
 
   useEffect(() => {
-    if (ready && restrictedForStaff) {
-      router.replace("/admin");
+    if (ready && restrictedForStaff && pathname === "/admin" && session?.user.permissions.length) {
+      const firstAllowedLink = links.find((link) => session.user.permissions.includes(link.permissionKey));
+      if (firstAllowedLink) router.replace(firstAllowedLink.href);
     }
   }, [ready, restrictedForStaff, router]);
 
@@ -90,8 +91,8 @@ export function AdminShell({ title, description, children }: { title: string; de
       return links;
     }
 
-    return links.filter((link) => !staffRestrictedRoutes.some((route) => link.href === route || link.href.startsWith(`${route}/`)));
-  }, [isStaff]);
+    return links.filter((link) => session?.user.permissions.includes(link.permissionKey));
+  }, [isStaff, session?.user.permissions]);
 
   const initial = useMemo(() => title.charAt(0), [title]);
 
@@ -100,7 +101,15 @@ export function AdminShell({ title, description, children }: { title: string; de
   }
 
   if (restrictedForStaff) {
-    return <div className="min-h-[60vh]" />;
+    return (
+      <div className="grid min-h-[60vh] place-items-center rounded-lg border border-pocket-navy/10 bg-white p-8 text-center shadow-panel">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Access not assigned</p>
+          <h2 className="mt-2 text-2xl font-black text-pocket-navy">This section is not available for your account.</h2>
+          <p className="mt-2 text-sm text-pocket-navy/60">Ask a Super Admin to assign the required permission.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -117,11 +126,10 @@ export function AdminShell({ title, description, children }: { title: string; de
           {visibleLinks.map((link) => (
             <Link
               key={link.href}
-              href={link.disabled ? "#" : link.href}
+              href={link.href}
               className={cn(
                 "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-semibold transition",
-                pathname === link.href ? "bg-pocket-orange text-white" : "text-pocket-navy hover:bg-pocket-cream",
-                link.disabled && "pointer-events-none opacity-40"
+                pathname === link.href ? "bg-pocket-orange text-white" : "text-pocket-navy hover:bg-pocket-cream"
               )}
             >
               <link.icon className="h-4 w-4" />

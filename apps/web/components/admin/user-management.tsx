@@ -1,43 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { KeyRound, PencilLine, Plus, Search, Trash2, UserPlus } from "lucide-react";
+import { Check, ChevronDown, KeyRound, PencilLine, Plus, Search, Trash2 } from "lucide-react";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createAdminUser, deleteAdminUser, fetchAdminBranches, fetchAdminUsers, updateAdminUser } from "@/lib/admin-client";
+import { createAdminUser, deleteAdminUser, fetchAdminBranches, fetchAdminPermissions, fetchAdminUsers, updateAdminUser } from "@/lib/admin-client";
 import type { AdminUser, Branch } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type UserFormState = {
-  name: string;
   username: string;
-  phone: string;
   password: string;
-  roleCode: AdminUser["roleCode"] | "";
+  roleCode: "SUPER_ADMIN" | "POS_STAFF" | "";
   branchId: string;
-  isActive: boolean;
-  canAccessAdmin: boolean;
-  canAccessPos: boolean;
+  permissionKeys: string[];
 };
 
 const emptyForm: UserFormState = {
-  name: "",
   username: "",
-  phone: "",
   password: "",
   roleCode: "POS_STAFF",
   branchId: "",
-  isActive: true,
-  canAccessAdmin: false,
-  canAccessPos: true
+  permissionKeys: []
 };
 
 const roleOptions: Array<{ value: UserFormState["roleCode"]; label: string; description: string }> = [
   { value: "SUPER_ADMIN", label: "Super Admin", description: "Full platform access." },
-  { value: "ADMIN", label: "Admin", description: "Manage website, orders, finances, inventory." },
-  { value: "POS_STAFF", label: "Staff", description: "Orders, expenses, inventory, today's dashboard." }
+  { value: "POS_STAFF", label: "Staff", description: "Only the selected tabs and POS access." }
 ];
 
 function formatRelativeDate(value: string) {
@@ -52,6 +43,7 @@ function formatRelativeDate(value: string) {
 export function UserManagement() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [permissions, setPermissions] = useState<Array<{ key: string; label: string; routePrefix: string; permissionGroup: string; sortOrder: number }>>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
@@ -59,6 +51,7 @@ export function UserManagement() {
   const [form, setForm] = useState<UserFormState>(emptyForm);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
 
   async function loadUsers() {
     try {
@@ -82,56 +75,59 @@ export function UserManagement() {
     }
   }
 
+  async function loadPermissions() {
+    try {
+      setPermissions(await fetchAdminPermissions());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load permissions.");
+    }
+  }
+
   useEffect(() => {
     void loadUsers();
   }, [search]);
 
   useEffect(() => {
     void loadBranches();
+    void loadPermissions();
   }, []);
 
   const counts = useMemo(() => {
     return {
       active: users.filter((user) => user.isActive).length,
       staff: users.filter((user) => user.roleCode === "POS_STAFF").length,
-      admins: users.filter((user) => user.roleCode !== "POS_STAFF").length
+      admins: users.filter((user) => user.roleCode === "SUPER_ADMIN").length
     };
   }, [users]);
 
   function openCreate() {
     setEditingUser(null);
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
+    setPermissionsOpen(false);
   }
 
   function openEdit(user: AdminUser) {
     setEditingUser(user);
     setForm({
-      name: user.name,
       username: user.username,
-      phone: user.phone ?? "",
       password: "",
-      roleCode: user.roleCode,
+      roleCode: user.roleCode === "CUSTOMER" ? "POS_STAFF" : user.roleCode,
       branchId: user.branchId ?? branches[0]?.id ?? "",
-      isActive: user.isActive,
-      canAccessAdmin: user.canAccessAdmin,
-      canAccessPos: user.canAccessPos
+      permissionKeys: user.permissionKeys ?? []
     });
+    setPermissionsOpen(false);
   }
 
   async function submitUser() {
     setSaving(true);
     setError("");
     try {
-      if (!form.name.trim() || !form.username.trim() || !form.roleCode) {
-        throw new Error("Name, username, and role are required.");
+      if (!form.username.trim() || !form.roleCode) {
+        throw new Error("Username and role are required.");
       }
 
       if (!editingUser && !form.password.trim()) {
         throw new Error("Password is required for new accounts.");
-      }
-
-      if (!form.canAccessAdmin && !form.canAccessPos) {
-        throw new Error("Select at least one access option.");
       }
 
       if (form.roleCode !== "SUPER_ADMIN" && !form.branchId) {
@@ -140,34 +136,27 @@ export function UserManagement() {
 
       if (editingUser) {
         await updateAdminUser(editingUser.id, {
-          name: form.name,
           username: form.username,
-          phone: form.phone,
           roleCode: form.roleCode,
           branchId: form.roleCode === "SUPER_ADMIN" ? "" : form.branchId,
-          isActive: form.isActive,
-          canAccessAdmin: form.canAccessAdmin,
-          canAccessPos: form.canAccessPos,
+          permissionKeys: form.roleCode === "SUPER_ADMIN" ? [] : form.permissionKeys,
           ...(form.password.trim() ? { password: form.password } : {})
         });
         setNotice("User updated.");
       } else {
         await createAdminUser({
-          name: form.name,
           username: form.username,
-          phone: form.phone,
           password: form.password,
           roleCode: form.roleCode,
           branchId: form.roleCode === "SUPER_ADMIN" ? "" : form.branchId,
-          isActive: form.isActive,
-          canAccessAdmin: form.canAccessAdmin,
-          canAccessPos: form.canAccessPos
+          permissionKeys: form.roleCode === "SUPER_ADMIN" ? [] : form.permissionKeys
         });
         setNotice("User created.");
       }
 
       setForm(emptyForm);
       setEditingUser(null);
+      setPermissionsOpen(false);
       await loadUsers();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save user.");
@@ -230,10 +219,6 @@ export function UserManagement() {
                 placeholder="Search name, username, or phone"
               />
             </div>
-            <Button type="button" onClick={openCreate}>
-              <UserPlus className="h-4 w-4" />
-              Add User
-            </Button>
           </div>
         </div>
       </Card>
@@ -255,7 +240,6 @@ export function UserManagement() {
 
           <div className="mt-5 space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Full name" />
               <Input
                 value={form.username}
                 onChange={(event) => setForm((current) => ({ ...current, username: event.target.value }))}
@@ -264,8 +248,7 @@ export function UserManagement() {
                 spellCheck={false}
               />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="Phone" />
+            <div>
               <Input
                 type="password"
                 value={form.password}
@@ -306,35 +289,37 @@ export function UserManagement() {
                   </select>
                 </div>
               ) : null}
-              <div className="flex items-end gap-2 rounded-xl border border-pocket-navy/10 bg-pocket-cream px-3 py-2">
-                <input
-                  id="user-active"
-                  type="checkbox"
-                  checked={form.isActive}
-                  onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))}
-                />
-                <label htmlFor="user-active" className="text-sm font-semibold text-pocket-navy">
-                  Account active
-                </label>
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="flex items-center gap-2 rounded-xl border border-pocket-navy/10 bg-white px-3 py-3 text-sm font-semibold text-pocket-navy">
-                <input
-                  type="checkbox"
-                  checked={form.canAccessAdmin}
-                  onChange={(event) => setForm((current) => ({ ...current, canAccessAdmin: event.target.checked }))}
-                />
-                Admin dashboard access
-              </label>
-              <label className="flex items-center gap-2 rounded-xl border border-pocket-navy/10 bg-white px-3 py-3 text-sm font-semibold text-pocket-navy">
-                <input
-                  type="checkbox"
-                  checked={form.canAccessPos}
-                  onChange={(event) => setForm((current) => ({ ...current, canAccessPos: event.target.checked }))}
-                />
-                POS access
-              </label>
+              {form.roleCode === "POS_STAFF" ? (
+                <div className="relative">
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Allowed sections</label>
+                  <button
+                    type="button"
+                    onClick={() => setPermissionsOpen((current) => !current)}
+                    className="flex h-11 w-full items-center justify-between rounded-xl border border-pocket-navy/10 bg-white px-3 text-left text-sm text-pocket-navy"
+                  >
+                    <span className="truncate">{form.permissionKeys.length ? `${form.permissionKeys.length} sections selected` : "Select sections"}</span>
+                    <ChevronDown className="h-4 w-4 text-pocket-navy/50" />
+                  </button>
+                  {permissionsOpen ? (
+                    <div className="absolute left-0 right-0 top-[4.7rem] z-30 max-h-72 overflow-auto rounded-xl border border-pocket-navy/10 bg-white p-2 shadow-panel">
+                      {permissions.map((permission) => {
+                        const selected = form.permissionKeys.includes(permission.key);
+                        return (
+                          <button
+                            key={permission.key}
+                            type="button"
+                            onClick={() => setForm((current) => ({ ...current, permissionKeys: selected ? current.permissionKeys.filter((key) => key !== permission.key) : [...current.permissionKeys, permission.key] }))}
+                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold text-pocket-navy hover:bg-pocket-cream"
+                          >
+                            <span className={cn("grid h-4 w-4 place-items-center rounded border", selected ? "border-pocket-orange bg-pocket-orange text-white" : "border-pocket-navy/20")}>{selected ? <Check className="h-3 w-3" /> : null}</span>
+                            {permission.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <div className="flex flex-wrap gap-3">
               <Button type="button" onClick={() => void submitUser()} disabled={saving}>
@@ -373,7 +358,7 @@ export function UserManagement() {
                         <p className="mt-1 text-xs text-pocket-navy/60">{user.branchName}</p>
                       ) : null}
                       <p className="mt-1 text-xs text-pocket-navy/60">
-                        {user.canAccessAdmin ? "Admin" : "No admin"} · {user.canAccessPos ? "POS" : "No POS"}
+                        {user.roleCode === "SUPER_ADMIN" ? "All sections" : user.permissions?.length ? user.permissions.map((permission) => permission.label).join(", ") : "No sections assigned"}
                       </p>
                     </div>
                     <div className="text-sm text-pocket-navy/60">

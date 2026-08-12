@@ -84,7 +84,7 @@ export function BranchSwitcher({ user }: { user: BranchSwitcherUser }) {
   }
 
   return (
-    <div className="relative">
+    <div className="relative z-[70]">
       {error ? <AdminToast message={error} variant="error" onClose={() => setError("")} /> : null}
       <button
         type="button"
@@ -98,7 +98,7 @@ export function BranchSwitcher({ user }: { user: BranchSwitcherUser }) {
       </button>
 
       {menuOpen ? (
-        <div className="absolute right-0 top-12 z-40 w-72 overflow-hidden rounded-lg border border-pocket-navy/10 bg-white shadow-panel">
+        <div className="absolute right-0 top-12 z-[100] w-72 overflow-hidden rounded-lg border border-pocket-navy/10 bg-white shadow-panel">
           <div className="border-b border-pocket-navy/10 px-4 py-3">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Current branch</p>
           </div>
@@ -185,4 +185,3 @@ export function BranchSwitcher({ user }: { user: BranchSwitcherUser }) {
     </div>
   );
 }
-

@@ -14,6 +14,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
 import { syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
+import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -31,7 +32,7 @@ const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/image
 const API_UPLOADS_VENDOR_RATE_LISTS_DIR = fileURLToPath(new URL("../../public/uploads/vendor-rate-lists/", import.meta.url));
 const VENDORS_WORKBOOK_PATH = fileURLToPath(new URL("../../../../data/vendors.xlsx", import.meta.url));
 
-router.use(authenticate, authorize(RoleCode.ADMIN, RoleCode.SUPER_ADMIN));
+router.use(authenticate, authorize(RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF), requireAdminRoutePermission());
 
 const dashboardQueryBaseSchema = z.object({
   preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
@@ -516,7 +517,7 @@ function addVendorCategory(categories: VendorCategoryRecord[], name: string) {
   return [...categories, { name: normalizedName, createdAt: now, updatedAt: now }];
 }
 
-const manageableUserRoleCodes = ["ADMIN", "SUPER_ADMIN", "POS_STAFF"] as const;
+const manageableUserRoleCodes = ["SUPER_ADMIN", "POS_STAFF"] as const;
 type ManageableUserRoleCode = (typeof manageableUserRoleCodes)[number];
 
 const userQuerySchema = z.object({
@@ -524,7 +525,7 @@ const userQuerySchema = z.object({
 });
 
 const userWriteSchema = z.object({
-  name: z.string().min(2).max(80),
+  name: z.string().min(2).max(80).optional(),
   username: z.string().min(2).max(80).optional(),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().min(8).max(20).optional().or(z.literal("")),
@@ -533,7 +534,8 @@ const userWriteSchema = z.object({
   branchId: z.string().cuid().optional().or(z.literal("")),
   isActive: z.boolean().optional(),
   canAccessAdmin: z.boolean().optional(),
-  canAccessPos: z.boolean().optional()
+  canAccessPos: z.boolean().optional(),
+  permissionKeys: z.array(z.string()).optional()
 });
 
 const userPatchSchema = userWriteSchema.partial().extend({
@@ -565,6 +567,12 @@ function serializeManagedUser(user: {
       slug: string;
     };
   }>;
+  permissionGrants?: Array<{
+    permission: {
+      key: string;
+      label: string;
+    };
+  }>;
 }) {
   const branches = user.branchAccesses ?? [];
   const primaryBranch = branches.find((branch) => branch.isPrimary) ?? branches[0] ?? null;
@@ -578,8 +586,10 @@ function serializeManagedUser(user: {
     roleCode: user.role.code as ManageableUserRoleCode,
     roleLabel: user.role.label,
     isActive: user.isActive,
-    canAccessAdmin: user.canAccessAdmin,
-    canAccessPos: user.canAccessPos,
+    canAccessAdmin: user.role.code === RoleCode.SUPER_ADMIN || (user.permissionGrants ?? []).some((grant) => grant.permission.key !== "POS"),
+    canAccessPos: user.role.code === RoleCode.SUPER_ADMIN || (user.permissionGrants ?? []).some((grant) => grant.permission.key === "POS"),
+    permissionKeys: user.role.code === RoleCode.SUPER_ADMIN ? PERMISSION_DEFINITIONS.map((permission) => permission.key) : (user.permissionGrants ?? []).map((grant) => grant.permission.key),
+    permissions: user.role.code === RoleCode.SUPER_ADMIN ? PERMISSION_DEFINITIONS.map(({ key, label }) => ({ key, label })) : (user.permissionGrants ?? []).map((grant) => grant.permission),
     branchId: primaryBranch?.branchId ?? "",
     branchName: primaryBranch?.branch.name ?? "",
     branches: branches.map((branch) => ({
@@ -592,6 +602,31 @@ function serializeManagedUser(user: {
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString()
   };
+}
+
+function validatePermissionKeys(requestedKeys?: string[]) {
+  const allowedKeys = new Set(PERMISSION_DEFINITIONS.map((permission) => permission.key));
+  const permissionKeys = [...new Set(requestedKeys ?? [])];
+  const invalidKey = permissionKeys.find((key) => !allowedKeys.has(key as typeof PERMISSION_DEFINITIONS[number]["key"]));
+  if (invalidKey) {
+    throw Object.assign(new Error(`Unknown permission: ${invalidKey}.`), { statusCode: 400, code: "UNKNOWN_PERMISSION" });
+  }
+  return permissionKeys;
+}
+
+async function replaceUserPermissions(userId: string, roleCode: RoleCode, requestedKeys?: string[]) {
+  if (roleCode === RoleCode.SUPER_ADMIN) {
+    await prisma.userPermission.deleteMany({ where: { userId } });
+    return;
+  }
+
+  const permissionKeys = validatePermissionKeys(requestedKeys);
+
+  const permissions = await prisma.permission.findMany({ where: { key: { in: permissionKeys }, isActive: true } });
+  await prisma.$transaction([
+    prisma.userPermission.deleteMany({ where: { userId } }),
+    prisma.userPermission.createMany({ data: permissions.map((permission) => ({ userId, permissionId: permission.id })) })
+  ]);
 }
 
 async function replaceUserPrimaryBranchAccess(userId: string, roleCode: RoleCode, branchId?: string | null) {
@@ -5852,6 +5887,10 @@ router.patch("/branches/:id", async (req, res, next) => {
   }
 });
 
+router.get("/permissions", async (_req, res) => {
+  return res.json({ permissions: PERMISSION_DEFINITIONS });
+});
+
 router.get("/users", async (req, res, next) => {
   try {
     const query = userQuerySchema.parse(req.query);
@@ -5873,7 +5912,7 @@ router.get("/users", async (req, res, next) => {
             }
           : {})
       },
-      include: { role: true, branchAccesses: { include: { branch: true } } },
+      include: { role: true, branchAccesses: { include: { branch: true } }, permissionGrants: { include: { permission: true } } },
       orderBy: [{ createdAt: "desc" }]
     });
 
@@ -5888,26 +5927,29 @@ router.post("/users", async (req, res, next) => {
     const payload = userWriteSchema.parse(req.body);
     const role = await prisma.role.findUniqueOrThrow({ where: { code: payload.roleCode as RoleCode } });
     const passwordHash = await hashPassword(payload.password);
-    const username = (payload.username?.trim().toLowerCase() || buildUniqueUsername(payload.email || payload.name)).trim();
+    const username = (payload.username?.trim().toLowerCase() || buildUniqueUsername(payload.email || payload.name || "staff")).trim();
     const email = payload.email?.trim().toLowerCase() || `${username}@pocket.local`;
+    const permissionKeys = payload.roleCode === "SUPER_ADMIN" ? PERMISSION_DEFINITIONS.map((permission) => permission.key) : (payload.permissionKeys ?? []);
+    validatePermissionKeys(permissionKeys);
     const user = await prisma.user.create({
       data: {
         roleId: role.id,
-        name: payload.name.trim(),
+        name: payload.name?.trim() || username,
         username,
         email,
         phone: payload.phone?.trim() || null,
         passwordHash,
         isActive: payload.isActive ?? true,
-        canAccessAdmin: payload.canAccessAdmin ?? true,
-        canAccessPos: payload.canAccessPos ?? true
+        canAccessAdmin: role.code === RoleCode.SUPER_ADMIN || permissionKeys.some((key) => key !== "POS"),
+        canAccessPos: role.code === RoleCode.SUPER_ADMIN || permissionKeys.includes("POS")
       },
       include: { role: true }
     });
     await replaceUserPrimaryBranchAccess(user.id, role.code, payload.branchId || null);
+    await replaceUserPermissions(user.id, role.code, permissionKeys);
     const savedUser = await prisma.user.findUniqueOrThrow({
       where: { id: user.id },
-      include: { role: true, branchAccesses: { include: { branch: true } } }
+      include: { role: true, branchAccesses: { include: { branch: true } }, permissionGrants: { include: { permission: true } } }
     });
 
     await writeAuditLog({
@@ -5945,6 +5987,10 @@ router.patch("/users/:id", async (req, res, next) => {
     const role =
       payload.roleCode !== undefined ? await prisma.role.findUniqueOrThrow({ where: { code: payload.roleCode as RoleCode } }) : null;
 
+    const nextPermissionKeys = role?.code === RoleCode.SUPER_ADMIN
+      ? PERMISSION_DEFINITIONS.map((permission) => permission.key)
+      : payload.permissionKeys;
+    if (nextPermissionKeys !== undefined) validatePermissionKeys(nextPermissionKeys);
     const user = await prisma.user.update({
       where: { id: current.id },
       data: {
@@ -5960,8 +6006,7 @@ router.patch("/users/:id", async (req, res, next) => {
         ...(payload.phone !== undefined ? { phone: payload.phone?.trim() || null } : {}),
         ...(role ? { roleId: role.id } : {}),
         ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
-        ...(payload.canAccessAdmin !== undefined ? { canAccessAdmin: payload.canAccessAdmin } : {}),
-        ...(payload.canAccessPos !== undefined ? { canAccessPos: payload.canAccessPos } : {}),
+        ...(nextPermissionKeys !== undefined ? { canAccessAdmin: nextPermissionKeys.some((key) => key !== "POS"), canAccessPos: nextPermissionKeys.includes("POS") } : {}),
         ...(payload.password !== undefined ? { passwordHash: await hashPassword(payload.password) } : {})
       },
       include: { role: true }
@@ -5970,9 +6015,12 @@ router.patch("/users/:id", async (req, res, next) => {
       const nextBranchId = payload.branchId || current.branchAccesses.find((access) => access.isPrimary)?.branchId || current.branchAccesses[0]?.branchId;
       await replaceUserPrimaryBranchAccess(user.id, user.role.code, nextBranchId);
     }
+    if (nextPermissionKeys !== undefined || role) {
+      await replaceUserPermissions(user.id, user.role.code, nextPermissionKeys ?? []);
+    }
     const savedUser = await prisma.user.findUniqueOrThrow({
       where: { id: user.id },
-      include: { role: true, branchAccesses: { include: { branch: true } } }
+      include: { role: true, branchAccesses: { include: { branch: true } }, permissionGrants: { include: { permission: true } } }
     });
 
     await writeAuditLog({

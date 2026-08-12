@@ -147,7 +147,7 @@ export async function lookupPosCustomer(phone: string) {
   return data.customer;
 }
 
-export async function fetchPosOrders(params?: { scope?: "active" | "watch_later" | "delivered" | "all"; search?: string; today?: boolean }) {
+export async function fetchPosOrders(params?: { scope?: "active" | "watch_later" | "delivered" | "unpaid" | "all"; search?: string; today?: boolean }) {
   const query = new URLSearchParams();
   if (params?.scope) query.set("scope", params.scope);
   if (params?.search) query.set("search", params.search);
