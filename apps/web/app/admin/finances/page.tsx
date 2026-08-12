@@ -6,8 +6,7 @@ import { FinanceManagement } from "@/components/admin/finance-management";
 
 export default function AdminFinancesPage() {
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
-      <AdminShell title="Finances" description="Monthly break-even tracking, Foodpanda payout estimates, and expense context in one place.">
+    <AdminShell title="Finances" description="Monthly break-even tracking, Foodpanda payout estimates, and expense context in one place.">
         <AdminPinGate
           title="Enter finance PIN"
           description="This page unlocks only after the correct PIN is entered."
@@ -16,6 +15,5 @@ export default function AdminFinancesPage() {
           <FinanceManagement />
         </AdminPinGate>
       </AdminShell>
-    </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, KeyRound, PencilLine, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronDown, KeyRound, PencilLine, Plus, Search, Trash2 } from "lucide-react";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -52,6 +52,7 @@ export function UserManagement() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [permissionDraft, setPermissionDraft] = useState<string[]>([]);
 
   async function loadUsers() {
     try {
@@ -103,6 +104,7 @@ export function UserManagement() {
   function openCreate() {
     setEditingUser(null);
     setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
+    setPermissionDraft([]);
     setPermissionsOpen(false);
   }
 
@@ -115,6 +117,22 @@ export function UserManagement() {
       branchId: user.branchId ?? branches[0]?.id ?? "",
       permissionKeys: user.permissionKeys ?? []
     });
+    setPermissionDraft(user.permissionKeys ?? []);
+    setPermissionsOpen(false);
+  }
+
+  function openPermissionPicker() {
+    setPermissionDraft(form.permissionKeys);
+    setPermissionsOpen(true);
+  }
+
+  function cancelPermissionPicker() {
+    setPermissionDraft(form.permissionKeys);
+    setPermissionsOpen(false);
+  }
+
+  function savePermissionPicker() {
+    setForm((current) => ({ ...current, permissionKeys: permissionDraft }));
     setPermissionsOpen(false);
   }
 
@@ -239,6 +257,20 @@ export function UserManagement() {
           </div>
 
           <div className="mt-5 space-y-4">
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Role</label>
+              <select
+                value={form.roleCode}
+                onChange={(event) => setForm((current) => ({ ...current, roleCode: event.target.value as UserFormState["roleCode"] }))}
+                className="h-11 w-full rounded-xl border border-pocket-navy/10 bg-white px-3 text-sm"
+              >
+                {roleOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Input
                 value={form.username}
@@ -247,8 +279,6 @@ export function UserManagement() {
                 autoComplete="off"
                 spellCheck={false}
               />
-            </div>
-            <div>
               <Input
                 type="password"
                 value={form.password}
@@ -257,22 +287,8 @@ export function UserManagement() {
                 autoComplete="new-password"
               />
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Role</label>
-                <select
-                  value={form.roleCode}
-                  onChange={(event) => setForm((current) => ({ ...current, roleCode: event.target.value as UserFormState["roleCode"] }))}
-                  className="h-11 w-full rounded-xl border border-pocket-navy/10 bg-white px-3 text-sm"
-                >
-                  {roleOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {form.roleCode !== "SUPER_ADMIN" ? (
+            {form.roleCode === "POS_STAFF" ? (
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Branch</label>
                   <select
@@ -288,39 +304,19 @@ export function UserManagement() {
                     ))}
                   </select>
                 </div>
-              ) : null}
-              {form.roleCode === "POS_STAFF" ? (
-                <div className="relative">
+                <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Allowed sections</label>
                   <button
                     type="button"
-                    onClick={() => setPermissionsOpen((current) => !current)}
+                    onClick={openPermissionPicker}
                     className="flex h-11 w-full items-center justify-between rounded-xl border border-pocket-navy/10 bg-white px-3 text-left text-sm text-pocket-navy"
                   >
                     <span className="truncate">{form.permissionKeys.length ? `${form.permissionKeys.length} sections selected` : "Select sections"}</span>
                     <ChevronDown className="h-4 w-4 text-pocket-navy/50" />
                   </button>
-                  {permissionsOpen ? (
-                    <div className="absolute left-0 right-0 top-[4.7rem] z-30 max-h-72 overflow-auto rounded-xl border border-pocket-navy/10 bg-white p-2 shadow-panel">
-                      {permissions.map((permission) => {
-                        const selected = form.permissionKeys.includes(permission.key);
-                        return (
-                          <button
-                            key={permission.key}
-                            type="button"
-                            onClick={() => setForm((current) => ({ ...current, permissionKeys: selected ? current.permissionKeys.filter((key) => key !== permission.key) : [...current.permissionKeys, permission.key] }))}
-                            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-semibold text-pocket-navy hover:bg-pocket-cream"
-                          >
-                            <span className={cn("grid h-4 w-4 place-items-center rounded border", selected ? "border-pocket-orange bg-pocket-orange text-white" : "border-pocket-navy/20")}>{selected ? <Check className="h-3 w-3" /> : null}</span>
-                            {permission.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-3">
               <Button type="button" onClick={() => void submitUser()} disabled={saving}>
                 <KeyRound className="h-4 w-4" />
@@ -332,6 +328,38 @@ export function UserManagement() {
             </div>
           </div>
         </Card>
+
+        {permissionsOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-pocket-charcoal/40 px-4 py-8" role="dialog" aria-modal="true" aria-labelledby="permission-picker-title">
+            <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-panel" onClick={(event) => event.stopPropagation()}>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Staff access</p>
+                <h2 id="permission-picker-title" className="mt-2 text-2xl font-black text-pocket-navy">Choose allowed sections</h2>
+                <p className="mt-1 text-sm text-pocket-navy/60">POS includes the terminal, queue, POS orders, editing, deletion, and receipts.</p>
+              </div>
+              <div className="mt-5 grid max-h-[60vh] gap-2 overflow-y-auto sm:grid-cols-2">
+                {permissions.map((permission) => {
+                  const selected = permissionDraft.includes(permission.key);
+                  return (
+                    <label key={permission.key} className="flex cursor-pointer items-center gap-3 rounded-xl border border-pocket-navy/10 px-3 py-3 text-sm font-semibold text-pocket-navy hover:bg-pocket-cream">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => setPermissionDraft((current) => selected ? current.filter((key) => key !== permission.key) : [...current, permission.key])}
+                        className="h-4 w-4 accent-orange-500"
+                      />
+                      <span>{permission.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="mt-6 flex justify-end gap-3">
+                <Button type="button" variant="outline" onClick={cancelPermissionPicker}>Cancel</Button>
+                <Button type="button" onClick={savePermissionPicker}>Save</Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <Card className="overflow-hidden">
           <div className="border-b border-pocket-navy/10 px-5 py-4">

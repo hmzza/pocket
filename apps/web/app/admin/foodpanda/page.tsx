@@ -81,8 +81,7 @@ export default function FoodpandaAnalyticsPage() {
   const selectedRange = dashboard ? `${formatPakistanDateTime(dashboard.range.start)} – ${formatPakistanDateTime(dashboard.range.end)}` : "Select a date range";
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
-      <AdminShell title="Foodpanda Analytics" description="See how much Foodpanda contributes to sales, and what the commission costs the business.">
+    <AdminShell title="Foodpanda Analytics" description="See how much Foodpanda contributes to sales, and what the commission costs the business.">
         <div className="rounded-2xl border border-pocket-navy/10 bg-white p-4 shadow-panel">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-pocket-cream text-pocket-orange"><Bike className="h-5 w-5" /></div><div><p className="font-bold text-pocket-navy">Platform performance</p><p className="text-sm text-pocket-navy/60">Foodpanda commission is fixed at 38%; retained payout is 62%.</p></div></div>
@@ -112,6 +111,5 @@ export default function FoodpandaAnalyticsPage() {
           </>
         )}
       </AdminShell>
-    </div>
   );
 }

@@ -55,8 +55,7 @@ export default function AdminCustomersPage() {
   const topCustomers = [...customers].sort((left, right) => right.totalSpend - left.totalSpend).slice(0, 8);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
-      <AdminShell title="Customers" description="Order history, spend, and loyalty tier visibility.">
+    <AdminShell title="Customers" description="Order history, spend, and loyalty tier visibility.">
         {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
         {loading ? (
           <Card className="p-6 text-sm text-pocket-navy/60">Loading customers...</Card>
@@ -109,6 +108,5 @@ export default function AdminCustomersPage() {
           </div>
         )}
       </AdminShell>
-    </div>
   );
 }
