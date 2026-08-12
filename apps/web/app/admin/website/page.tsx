@@ -7,8 +7,7 @@ import { WebsiteControlPanel } from "@/components/admin/website-control-panel";
 
 export default function AdminWebsitePage() {
   return (
-    <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
-      <AdminShell title="Website Control Panel" description="Manage homepage images, slider timing, public website items, and launch flags from one place.">
+    <AdminShell title="Website Control Panel" description="Manage homepage images, slider timing, public website items, and launch flags from one place.">
         <AdminPinGate
           title="Enter website controls PIN"
           description="This page unlocks only after the correct PIN is entered."
@@ -20,6 +19,5 @@ export default function AdminWebsitePage() {
           </div>
         </AdminPinGate>
       </AdminShell>
-    </div>
   );
 }

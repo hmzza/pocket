@@ -91,8 +91,7 @@ export default function BusinessAnalyticsPage() {
   const selectedPeriodLabel = period === "today" ? "Today" : period === "7d" ? "1 week" : period === "month" ? "This month" : period === "custom" && startDate && endDate ? `${startDate} to ${endDate}` : "Custom range";
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 py-10 md:px-6">
-      <AdminShell title="Business Analytics" description="Understand when, where, and how customers buy so every operating decision has context.">
+    <AdminShell title="Business Analytics" description="Understand when, where, and how customers buy so every operating decision has context.">
         <div className="rounded-2xl border border-pocket-navy/10 bg-white p-4 shadow-panel">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-xl bg-pocket-cream text-pocket-orange"><BarChart3 className="h-5 w-5" /></div><div><p className="font-bold text-pocket-navy">{selectedPeriodLabel}</p><p className="text-sm text-pocket-navy/60">Sales, customers, channels, and peak trading windows</p></div></div>
@@ -146,6 +145,5 @@ export default function BusinessAnalyticsPage() {
           </>
         )}
       </AdminShell>
-    </div>
   );
 }
