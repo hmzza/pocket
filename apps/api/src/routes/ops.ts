@@ -6,6 +6,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
+import { resolveBranchContext } from "../lib/branch-context.js";
 
 const router = Router();
 
@@ -87,6 +88,7 @@ function todayPakistanRange() {
 router.get("/orders", async (req, res, next) => {
   try {
     const query = querySchema.parse(req.query);
+    const branchContext = await resolveBranchContext(req);
     const where =
       query.scope === "active"
         ? { status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.WATCH_LATER] } }
@@ -99,6 +101,7 @@ router.get("/orders", async (req, res, next) => {
     const orders = await prisma.order.findMany({
       where: {
         ...where,
+        branchId: branchContext.branchId,
         ...(query.today ? { placedAt: todayPakistanRange() } : {}),
         ...(query.search
           ? {
@@ -141,6 +144,7 @@ router.get("/orders", async (req, res, next) => {
 router.patch("/orders/:id/status", async (req, res, next) => {
   try {
     const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);
+    const branchContext = await resolveBranchContext(req);
     const order = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
         where: { id: req.params.id }
@@ -148,6 +152,9 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 
       if (!currentOrder) {
         throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+      }
+      if (currentOrder.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This order belongs to another branch."), { statusCode: 403 });
       }
 
       if (isTerminalStatus(currentOrder.status) && currentOrder.status !== payload.status) {
@@ -189,6 +196,14 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 router.patch("/orders/:id/payment-status", async (req, res, next) => {
   try {
     const payload = paymentStatusSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const currentOrder = await prisma.order.findUnique({ where: { id: req.params.id }, select: { branchId: true } });
+    if (!currentOrder) {
+      return res.status(404).json({ message: "Order not found." });
+    }
+    if (currentOrder.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This order belongs to another branch." });
+    }
     const order = await prisma.order.update({
       where: { id: req.params.id },
       data: { paymentStatus: payload.paymentStatus }
@@ -211,6 +226,7 @@ router.patch("/orders/:id/payment-status", async (req, res, next) => {
 router.patch("/orders/bulk-status", async (req, res, next) => {
   try {
     const payload = bulkStatusSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
     const updatedOrders = await prisma.$transaction(async (transaction) => {
       const orders = await transaction.order.findMany({
         where: { id: { in: payload.orderIds } }
@@ -218,6 +234,9 @@ router.patch("/orders/bulk-status", async (req, res, next) => {
 
       if (orders.length !== payload.orderIds.length) {
         throw Object.assign(new Error("One or more orders were not found."), { statusCode: 404 });
+      }
+      if (orders.some((order) => order.branchId !== branchContext.branchId)) {
+        throw Object.assign(new Error("One or more orders belong to another branch."), { statusCode: 403 });
       }
 
       await transaction.order.updateMany({
@@ -262,6 +281,7 @@ router.patch("/orders/bulk-status", async (req, res, next) => {
 
 router.delete("/orders/:id", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const deletedOrder = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
         where: { id: req.params.id },
@@ -277,6 +297,9 @@ router.delete("/orders/:id", async (req, res, next) => {
 
       if (!currentOrder) {
         throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+      }
+      if (currentOrder.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This order belongs to another branch."), { statusCode: 403 });
       }
 
       if (currentOrder.status !== OrderStatus.CANCELLED) {

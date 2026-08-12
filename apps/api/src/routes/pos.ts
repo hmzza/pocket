@@ -507,12 +507,13 @@ router.get("/catalog", async (req, res, next) => {
 router.get("/orders/lookup", async (req, res, next) => {
   try {
     const query = z.object({ orderNumber: z.string().min(3).max(40) }).parse(req.query);
+    const branchContext = await resolveBranchContext(req);
     const order = await prisma.order.findUnique({
       where: { orderNumber: query.orderNumber },
       include: posOrderInclude
     });
 
-    if (!order || order.channel !== OrderChannel.POS) {
+    if (!order || order.channel !== OrderChannel.POS || order.branchId !== branchContext.branchId) {
       return res.status(404).json({ message: "POS order not found." });
     }
 
@@ -525,13 +526,18 @@ router.get("/orders/lookup", async (req, res, next) => {
   }
 });
 
-router.get("/orders/:orderId", async (req, res) => {
+router.get("/orders/:orderId", async (req, res, next) => {
+  const branchContext = await resolveBranchContext(req).catch((error) => {
+    next(error);
+    return null;
+  });
+  if (!branchContext) return;
   const order = await prisma.order.findUnique({
     where: { id: req.params.orderId },
     include: posOrderInclude
   });
 
-  if (!order || order.channel !== OrderChannel.POS) {
+  if (!order || order.channel !== OrderChannel.POS || order.branchId !== branchContext.branchId) {
     return res.status(404).json({ message: "POS order not found." });
   }
 

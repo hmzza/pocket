@@ -420,7 +420,7 @@ export function ExpenseManagement() {
     const nextCategory = form.category.trim();
     const nextVendor = vendorChoice === "__custom__" ? form.vendor.trim() : vendorChoice.trim();
     if (!form.branchId || !form.title.trim() || !nextCategory || !form.amount || !form.expenseDate || !form.paymentSource) {
-      setError("Branch, title, category, amount, paid from, and date are required.");
+      setError("Title, category, amount, paid from, and date are required.");
       return;
     }
 

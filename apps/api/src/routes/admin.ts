@@ -1512,10 +1512,12 @@ router.delete("/foodpanda-settlements/:weekStart", async (req, res, next) => {
 
 router.get("/foodpanda", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const query = dashboardQuerySchema.parse(req.query);
     const range = buildDashboardRange(query);
     const orders = await prisma.order.findMany({
       where: {
+        branchId: branchContext.branchId,
         serviceType: ServiceType.FOODPANDA,
         placedAt: {
           gte: range.start,
@@ -1595,11 +1597,13 @@ router.get("/foodpanda", async (req, res, next) => {
 
 router.get("/analytics/sales", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const query = dashboardQuerySchema.parse(req.query);
     const range = buildDashboardRange(query);
     const segmentWhere = buildAdminSegmentWhere(query.segment);
     const orders = await prisma.order.findMany({
       where: {
+        branchId: branchContext.branchId,
         placedAt: {
           gte: range.start,
           lte: range.end
@@ -1713,6 +1717,7 @@ const productAnalyticsExportInclude = {
 
 router.get("/products/analytics/export", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const query = productAnalyticsExportQuerySchema.parse(req.query);
     const range = buildDashboardRange(query);
     const [products, orders] = await Promise.all([
@@ -1722,6 +1727,7 @@ router.get("/products/analytics/export", async (req, res, next) => {
       }),
       prisma.order.findMany({
         where: {
+          branchId: branchContext.branchId,
           placedAt: { gte: range.start, lte: range.end },
           ...buildAdminSegmentWhere(query.segment)
         },
@@ -4522,19 +4528,16 @@ router.patch("/inventory/recipes/prepared/:id", async (req, res, next) => {
   }
 });
 
-router.get("/inventory/forecast", async (_req, res, next) => {
+router.get("/inventory/forecast", async (req, res, next) => {
   try {
-    const branch = await prisma.branch.findFirst({ where: { isActive: true }, orderBy: { name: "asc" } });
-    if (!branch) {
-      return res.json({ horizons: [] });
-    }
+    const branchContext = await resolveBranchContext(req);
 
     const now = new Date();
     const start30 = startOfDay(addDays(now, -29));
     const [orders, productIngredients, packagingRules, products, inventories, wastageTransactions] = await Promise.all([
       prisma.order.findMany({
         where: {
-          branchId: branch.id,
+          branchId: branchContext.branchId,
           status: { not: OrderStatus.CANCELLED },
           placedAt: { gte: start30, lte: now }
         },
@@ -4554,14 +4557,14 @@ router.get("/inventory/forecast", async (_req, res, next) => {
       }),
       prisma.product.findMany({ select: { id: true, categoryId: true } }),
       prisma.branchInventory.findMany({
-        where: { branchId: branch.id, ingredient: { isActive: true } },
+        where: { branchId: branchContext.branchId, ingredient: { isActive: true } },
         include: { ingredient: true }
       }),
       prisma.inventoryTransaction.findMany({
         where: {
           type: InventoryTransactionType.WASTAGE,
           createdAt: { gte: start30, lte: now },
-          branchInventory: { branchId: branch.id }
+          branchInventory: { branchId: branchContext.branchId }
         },
         include: { branchInventory: true }
       })
@@ -4688,7 +4691,7 @@ router.get("/inventory/forecast", async (_req, res, next) => {
     };
 
     return res.json({
-      branchId: branch.id,
+      branchId: branchContext.branchId,
       generatedAt: now.toISOString(),
       horizons: [buildHorizon("Tomorrow", 1), buildHorizon("Next 7 days", 7), buildHorizon("Next 30 days", 30)]
     });
@@ -4757,6 +4760,7 @@ router.patch("/inventory/transactions/:id", async (req, res, next) => {
 
 router.get("/orders", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const query = z
       .object({
         status: z.nativeEnum(OrderStatus).optional(),
@@ -4783,6 +4787,7 @@ router.get("/orders", async (req, res, next) => {
 
     const orders = await prisma.order.findMany({
       where: {
+        branchId: branchContext.branchId,
         placedAt: {
           gte: rangeStart,
           lte: rangeEnd
@@ -4828,12 +4833,13 @@ router.get("/orders", async (req, res, next) => {
 
 router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
   try {
-    const deletedCount = await prisma.order.count();
+    const branchContext = await resolveBranchContext(req);
+    const deletedCount = await prisma.order.count({ where: { branchId: branchContext.branchId } });
     await prisma.$transaction(async (transaction) => {
-      await transaction.order.deleteMany({});
       await transaction.inventoryTransaction.deleteMany({
-        where: { referenceType: "ORDER" }
+        where: { referenceType: "ORDER", branchInventory: { branchId: branchContext.branchId } }
       });
+      await transaction.order.deleteMany({ where: { branchId: branchContext.branchId } });
     }, INVENTORY_TRANSACTION_OPTIONS);
 
     await writeAuditLog({
@@ -4841,7 +4847,7 @@ router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next)
       action: "order.bulk_delete",
       entityType: "order",
       entityId: "bulk",
-      payload: { deletedCount }
+      payload: { deletedCount, branchId: branchContext.branchId }
     });
 
     return res.json({ deletedCount });
@@ -4852,6 +4858,7 @@ router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next)
 
 router.delete("/orders/:id", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const order = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
         where: { id: req.params.id },
@@ -4867,6 +4874,9 @@ router.delete("/orders/:id", async (req, res, next) => {
 
       if (!currentOrder) {
         throw new Error("Order not found.");
+      }
+      if (currentOrder.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This order belongs to another branch."), { statusCode: 403 });
       }
 
       if (currentOrder.status !== OrderStatus.CANCELLED) {
@@ -4906,6 +4916,7 @@ router.delete("/orders/:id", async (req, res, next) => {
 
 router.patch("/orders/:id/status", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);
     const order = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
@@ -4922,6 +4933,9 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 
       if (!currentOrder) {
         throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+      }
+      if (currentOrder.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This order belongs to another branch."), { statusCode: 403 });
       }
 
       if (isTerminalStatus(currentOrder.status) && currentOrder.status !== payload.status) {
@@ -4984,7 +4998,13 @@ router.patch("/orders/:id/status", async (req, res, next) => {
   }
 });
 
-router.get("/customers", async (_req, res) => {
+router.get("/customers", async (req, res, next) => {
+  const branchContext = await resolveBranchContext(req).catch((error) => {
+    next(error);
+    return null;
+  });
+  if (!branchContext) return;
+
   const customers = await prisma.user.findMany({
     where: { role: { is: { code: RoleCode.CUSTOMER } } },
     select: {
@@ -4994,6 +5014,7 @@ router.get("/customers", async (_req, res) => {
       phone: true,
       createdAt: true,
       orders: {
+        where: { branchId: branchContext.branchId },
         orderBy: { placedAt: "desc" }
       },
       addresses: {
