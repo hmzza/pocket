@@ -6,8 +6,8 @@ import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createAdminUser, deleteAdminUser, fetchAdminUsers, updateAdminUser } from "@/lib/admin-client";
-import type { AdminUser } from "@/lib/types";
+import { createAdminUser, deleteAdminUser, fetchAdminBranches, fetchAdminUsers, updateAdminUser } from "@/lib/admin-client";
+import type { AdminUser, Branch } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type UserFormState = {
@@ -16,6 +16,7 @@ type UserFormState = {
   phone: string;
   password: string;
   roleCode: AdminUser["roleCode"] | "";
+  branchId: string;
   isActive: boolean;
   canAccessAdmin: boolean;
   canAccessPos: boolean;
@@ -27,6 +28,7 @@ const emptyForm: UserFormState = {
   phone: "",
   password: "",
   roleCode: "POS_STAFF",
+  branchId: "",
   isActive: true,
   canAccessAdmin: false,
   canAccessPos: true
@@ -49,6 +51,7 @@ function formatRelativeDate(value: string) {
 
 export function UserManagement() {
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
@@ -69,9 +72,23 @@ export function UserManagement() {
     }
   }
 
+  async function loadBranches() {
+    try {
+      const data = await fetchAdminBranches();
+      setBranches(data.branches);
+      setForm((current) => ({ ...current, branchId: current.branchId || data.primaryBranchId || data.branches[0]?.id || "" }));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load branches.");
+    }
+  }
+
   useEffect(() => {
     void loadUsers();
   }, [search]);
+
+  useEffect(() => {
+    void loadBranches();
+  }, []);
 
   const counts = useMemo(() => {
     return {
@@ -83,7 +100,7 @@ export function UserManagement() {
 
   function openCreate() {
     setEditingUser(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, branchId: branches[0]?.id ?? "" });
   }
 
   function openEdit(user: AdminUser) {
@@ -94,6 +111,7 @@ export function UserManagement() {
       phone: user.phone ?? "",
       password: "",
       roleCode: user.roleCode,
+      branchId: user.branchId ?? branches[0]?.id ?? "",
       isActive: user.isActive,
       canAccessAdmin: user.canAccessAdmin,
       canAccessPos: user.canAccessPos
@@ -116,12 +134,17 @@ export function UserManagement() {
         throw new Error("Select at least one access option.");
       }
 
+      if (form.roleCode !== "SUPER_ADMIN" && !form.branchId) {
+        throw new Error("Select a branch for this user.");
+      }
+
       if (editingUser) {
         await updateAdminUser(editingUser.id, {
           name: form.name,
           username: form.username,
           phone: form.phone,
           roleCode: form.roleCode,
+          branchId: form.roleCode === "SUPER_ADMIN" ? "" : form.branchId,
           isActive: form.isActive,
           canAccessAdmin: form.canAccessAdmin,
           canAccessPos: form.canAccessPos,
@@ -135,6 +158,7 @@ export function UserManagement() {
           phone: form.phone,
           password: form.password,
           roleCode: form.roleCode,
+          branchId: form.roleCode === "SUPER_ADMIN" ? "" : form.branchId,
           isActive: form.isActive,
           canAccessAdmin: form.canAccessAdmin,
           canAccessPos: form.canAccessPos
@@ -265,6 +289,23 @@ export function UserManagement() {
                   ))}
                 </select>
               </div>
+              {form.roleCode !== "SUPER_ADMIN" ? (
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Branch</label>
+                  <select
+                    value={form.branchId}
+                    onChange={(event) => setForm((current) => ({ ...current, branchId: event.target.value }))}
+                    className="h-11 w-full rounded-xl border border-pocket-navy/10 bg-white px-3 text-sm"
+                  >
+                    <option value="">Select branch</option>
+                    {branches.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
               <div className="flex items-end gap-2 rounded-xl border border-pocket-navy/10 bg-pocket-cream px-3 py-2">
                 <input
                   id="user-active"
@@ -326,6 +367,11 @@ export function UserManagement() {
                     <div>
                       <p className="text-sm font-semibold text-pocket-navy">{user.roleLabel}</p>
                       <p className="text-xs text-pocket-navy/60">{user.isActive ? "Active" : "Disabled"}</p>
+                      {user.roleCode === "SUPER_ADMIN" ? (
+                        <p className="mt-1 text-xs text-pocket-navy/60">All branches</p>
+                      ) : user.branchName ? (
+                        <p className="mt-1 text-xs text-pocket-navy/60">{user.branchName}</p>
+                      ) : null}
                       <p className="mt-1 text-xs text-pocket-navy/60">
                         {user.canAccessAdmin ? "Admin" : "No admin"} · {user.canAccessPos ? "POS" : "No POS"}
                       </p>

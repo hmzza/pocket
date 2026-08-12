@@ -254,12 +254,6 @@ export function DailyClosingManagement() {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm font-semibold text-pocket-navy">
-              Branch
-              <select className="mt-1 h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm" value={branchId} onChange={(event) => { setBranchId(event.target.value); void loadSnapshot(event.target.value, date); }}>
-                {inventory?.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-              </select>
-            </label>
-            <label className="text-sm font-semibold text-pocket-navy">
               Business day
               <Input className="mt-1" type="date" value={date} onChange={(event) => { setDate(event.target.value); void loadSnapshot(branchId, event.target.value); }} />
             </label>

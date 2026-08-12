@@ -112,7 +112,6 @@ function mapExpenseToForm(expense: AdminExpense): ExpenseFormState {
 
 function ExpenseEditor({
   open,
-  branches,
   value,
   editingExpense,
   titleOptions,
@@ -129,7 +128,6 @@ function ExpenseEditor({
   onSubmit
 }: {
   open: boolean;
-  branches: AdminExpenseData["branches"];
   value: ExpenseFormState;
   editingExpense: AdminExpense | null;
   titleOptions: string[];
@@ -161,20 +159,6 @@ function ExpenseEditor({
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Branch</label>
-            <select
-              value={value.branchId}
-              onChange={(event) => onChange({ ...value, branchId: event.target.value })}
-              className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
-            >
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          </div>
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Date</label>
             <Input type="date" value={value.expenseDate} onChange={(event) => onChange({ ...value, expenseDate: event.target.value })} />
@@ -376,13 +360,12 @@ export function ExpenseManagement() {
   const filteredExpenses = useMemo(() => {
     if (!data) return [];
     return data.expenses.filter((expense) => {
-      const matchesBranch = !branchId || expense.branchId === branchId;
       const matchesSearch =
         !search ||
         `${expense.title} ${expense.category} ${expense.vendor ?? ""} ${expense.billReference ?? ""}`.toLowerCase().includes(search.toLowerCase());
-      return matchesBranch && matchesSearch;
+      return matchesSearch;
     });
-  }, [branchId, data, search]);
+  }, [data, search]);
 
   const categoryOptions = useMemo(() => {
     const fromData = data?.categories.map((entry) => entry.label) ?? [];
@@ -538,7 +521,6 @@ export function ExpenseManagement() {
     <div className="space-y-6">
       <ExpenseEditor
         open={editorOpen}
-        branches={data?.branches ?? []}
         value={form}
         editingExpense={editingExpense}
         titleOptions={titleOptions}
@@ -675,21 +657,7 @@ export function ExpenseManagement() {
             <p className="text-sm text-pocket-navy/60">Set the same start and end date to view one specific day.</p>
           </div>
         ) : null}
-        <div className="mt-4 grid gap-4 lg:grid-cols-[220px_220px_1fr]">
-          <select
-            value={branchId}
-            onChange={(event) => {
-              setBranchId(event.target.value);
-            }}
-            className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
-          >
-            <option value="">All branches</option>
-            {(data?.branches ?? []).map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </select>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[220px_1fr]">
           <select
             value={categoryFilter}
             onChange={(event) => {

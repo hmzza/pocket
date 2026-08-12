@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { PosOrderQueue } from "@/components/pos/order-queue";
 import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, logoutPosSession, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
@@ -315,10 +316,9 @@ export function PosTerminal() {
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [branches, setBranches] = useState<Array<{ id: string; name: string }>>([]);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [products, setProducts] = useState<PosCatalogProduct[]>([]);
-  const [sessionUser, setSessionUser] = useState<{ name: string; username: string } | null>(null);
+  const [sessionUser, setSessionUser] = useState<Awaited<ReturnType<typeof fetchPosSession>>["user"] | null>(null);
   const [branchId, setBranchId] = useState("");
   const [categoryId, setCategoryId] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -359,7 +359,6 @@ export function PosTerminal() {
       branchId: nextBranchId || branchId || undefined
     });
 
-    setBranches(data.branches);
     setCategories(data.categories.map((category) => ({ id: category.id, name: category.name })));
     setProducts(data.products);
     if (!branchId || nextBranchId) {
@@ -382,7 +381,7 @@ export function PosTerminal() {
         }
 
         if (!cancelled) {
-          setSessionUser({ name: session.user.name, username: session.user.username });
+          setSessionUser(session.user);
         }
 
         await loadCatalog();
@@ -821,22 +820,7 @@ export function PosTerminal() {
               <p className="text-sm font-bold text-white">{sessionUser?.name || sessionUser?.username || "POS user"}</p>
               {sessionUser?.username ? <p className="text-[10px] text-white/55">@{sessionUser.username}</p> : null}
             </div>
-            <select
-              value={branchId}
-              onChange={(event) => {
-                const nextBranchId = event.target.value;
-                setBranchId(nextBranchId);
-                void loadCatalog(nextBranchId);
-              }}
-              disabled={orderCompleted}
-              className="pos-dark-field h-10 rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm"
-            >
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
+            {sessionUser ? <BranchSwitcher user={sessionUser} /> : null}
             <Button
               variant="outline"
               className="h-10 border-white/15 bg-white/5 px-4 text-white hover:bg-white/10"

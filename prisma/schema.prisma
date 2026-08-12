@@ -127,6 +127,7 @@ model User {
   investmentPartners    InvestmentPartner[]    @relation("InvestmentPartnerActor")
   investmentCommitments InvestmentCommitment[] @relation("InvestmentCommitmentActor")
   investmentPayments    InvestmentPayment[]    @relation("InvestmentPaymentActor")
+  branchAccesses        UserBranchAccess[]
 }
 
 model Branch {
@@ -157,6 +158,21 @@ model Branch {
   loans          Loan[]
   loanRepayments LoanRepayment[]
   investmentPayments InvestmentPayment[]
+  userAccesses   UserBranchAccess[]
+}
+
+model UserBranchAccess {
+  id        String   @id @default(cuid())
+  userId    String
+  branchId  String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([branchId])
+  @@index([userId, isPrimary])
 }
 
 model BranchHours {

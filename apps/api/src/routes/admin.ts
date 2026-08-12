@@ -13,6 +13,7 @@ import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
 import { syncMealPairingOptions } from "../lib/meal-options.js";
+import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -210,6 +211,19 @@ function normalizeSlug(value: string) {
 function buildProductSlug(name: string) {
   const base = normalizeSlug(name).slice(0, 40) || "product";
   return `${base}-${Date.now().toString(36)}`;
+}
+
+async function buildUniqueBranchSlug(name: string, city: string) {
+  const base = normalizeSlug(`${name}-${city}`).slice(0, 48) || `branch-${Date.now().toString(36)}`;
+  let slug = base;
+  let suffix = 2;
+
+  while (await prisma.branch.findUnique({ where: { slug }, select: { id: true } })) {
+    slug = `${base}-${suffix}`;
+    suffix += 1;
+  }
+
+  return slug;
 }
 
 const INVENTORY_ITEM_TYPES = ["RAW", "PREPARED", "PACKAGING", "RETAIL"] as const;
@@ -516,6 +530,7 @@ const userWriteSchema = z.object({
   phone: z.string().min(8).max(20).optional().or(z.literal("")),
   password: z.string().min(8),
   roleCode: z.enum(manageableUserRoleCodes),
+  branchId: z.string().cuid().optional().or(z.literal("")),
   isActive: z.boolean().optional(),
   canAccessAdmin: z.boolean().optional(),
   canAccessPos: z.boolean().optional()
@@ -541,7 +556,19 @@ function serializeManagedUser(user: {
     code: RoleCode;
     label: string;
   };
+  branchAccesses?: Array<{
+    branchId: string;
+    isPrimary: boolean;
+    branch: {
+      id: string;
+      name: string;
+      slug: string;
+    };
+  }>;
 }) {
+  const branches = user.branchAccesses ?? [];
+  const primaryBranch = branches.find((branch) => branch.isPrimary) ?? branches[0] ?? null;
+
   return {
     id: user.id,
     name: user.name,
@@ -553,10 +580,124 @@ function serializeManagedUser(user: {
     isActive: user.isActive,
     canAccessAdmin: user.canAccessAdmin,
     canAccessPos: user.canAccessPos,
+    branchId: primaryBranch?.branchId ?? "",
+    branchName: primaryBranch?.branch.name ?? "",
+    branches: branches.map((branch) => ({
+      id: branch.branch.id,
+      name: branch.branch.name,
+      slug: branch.branch.slug,
+      isPrimary: branch.isPrimary
+    })),
     lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString()
   };
+}
+
+async function replaceUserPrimaryBranchAccess(userId: string, roleCode: RoleCode, branchId?: string | null) {
+  if (roleCode === RoleCode.SUPER_ADMIN) {
+    await prisma.userBranchAccess.deleteMany({ where: { userId } });
+    return;
+  }
+
+  const activeBranch = branchId
+    ? await prisma.branch.findFirst({ where: { id: branchId, isActive: true }, select: { id: true } })
+    : await prisma.branch.findFirst({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true } });
+
+  if (!activeBranch) {
+    throw Object.assign(new Error("An active branch is required for this user."), {
+      statusCode: 400,
+      code: "USER_BRANCH_REQUIRED",
+      entity: "User",
+      action: "save",
+      details: { nextStep: "Create or activate a branch first." }
+    });
+  }
+
+  await prisma.$transaction([
+    prisma.userBranchAccess.deleteMany({ where: { userId } }),
+    prisma.userBranchAccess.create({
+      data: {
+        userId,
+        branchId: activeBranch.id,
+        isPrimary: true
+      }
+    })
+  ]);
+}
+
+const branchWriteSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  city: z.string().trim().min(2).max(80),
+  addressLine1: z.string().trim().min(2).max(180),
+  phone: z.string().trim().min(5).max(30),
+  email: z.string().trim().email().optional().or(z.literal("")),
+  deliveryFee: z.number().nonnegative().max(100_000).default(0),
+  isActive: z.boolean().default(true)
+});
+
+const branchPatchSchema = branchWriteSchema.partial();
+
+function serializeAdminBranch(branch: {
+  id: string;
+  slug: string;
+  name: string;
+  city: string;
+  addressLine1: string;
+  phone: string;
+  email: string | null;
+  deliveryFee: Prisma.Decimal | number | string;
+  isActive: boolean;
+}) {
+  return {
+    id: branch.id,
+    slug: branch.slug,
+    name: branch.name,
+    city: branch.city,
+    addressLine1: branch.addressLine1,
+    phone: branch.phone,
+    email: branch.email ?? "",
+    deliveryFee: parseDecimal(branch.deliveryFee),
+    isActive: branch.isActive
+  };
+}
+
+async function initializeBranchSetup(transaction: Prisma.TransactionClient, branchId: string) {
+  const [products, ingredients] = await Promise.all([
+    transaction.product.findMany({
+      where: { isActive: true },
+      select: { id: true, basePrice: true }
+    }),
+    transaction.ingredient.findMany({
+      where: { isActive: true },
+      select: { id: true }
+    })
+  ]);
+
+  if (products.length) {
+    await transaction.branchProduct.createMany({
+      data: products.map((product) => ({
+        branchId,
+        productId: product.id,
+        price: product.basePrice,
+        isAvailable: true,
+        stockStatus: "IN_STOCK"
+      })),
+      skipDuplicates: true
+    });
+  }
+
+  if (ingredients.length) {
+    await transaction.branchInventory.createMany({
+      data: ingredients.map((ingredient) => ({
+        branchId,
+        ingredientId: ingredient.id,
+        quantityOnHand: 0,
+        lowStockAlert: false
+      })),
+      skipDuplicates: true
+    });
+  }
 }
 
 const imageUploadSchema = z.object({
@@ -962,6 +1103,7 @@ function buildSalesSeries(orders: Array<{ placedAt: Date; totalAmount: Prisma.De
 
 router.get("/dashboard", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const query = dashboardQuerySchema.parse(req.query);
     const range = buildDashboardRange(query);
     const { previousStart, previousEnd } = getPreviousRange(range.start, range.end);
@@ -974,6 +1116,7 @@ router.get("/dashboard", async (req, res, next) => {
             gte: range.start,
             lte: range.end
           },
+          branchId: branchContext.branchId,
           ...segmentWhere
         },
         include: {
@@ -994,6 +1137,7 @@ router.get("/dashboard", async (req, res, next) => {
             gte: previousStart,
             lt: previousEnd
           },
+          branchId: branchContext.branchId,
           ...segmentWhere
         },
         select: {
@@ -1003,7 +1147,7 @@ router.get("/dashboard", async (req, res, next) => {
       }),
       prisma.user.count({ where: { role: { is: { code: RoleCode.CUSTOMER } } } }),
       prisma.branchInventory.findMany({
-        where: { lowStockAlert: true },
+        where: { branchId: branchContext.branchId, lowStockAlert: true },
         include: { branch: true, ingredient: true },
         take: 8
       })
@@ -2273,6 +2417,7 @@ const inventoryMovementSchema = z
 router.get("/inventory", async (req, res, next) => {
   try {
     const query = inventoryQuerySchema.parse(req.query);
+    const branchContext = await resolveBranchContext(req);
     const ingredientStatusWhere: Prisma.IngredientWhereInput =
       query.status === "active"
         ? { isActive: true }
@@ -2281,7 +2426,7 @@ router.get("/inventory", async (req, res, next) => {
           : {};
 
     const itemWhere: Prisma.BranchInventoryWhereInput = {
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      branchId: branchContext.branchId,
       ...(query.lowStock ? { lowStockAlert: true } : {}),
       ...(query.status !== "all" ? { ingredient: ingredientStatusWhere } : {}),
       ...(query.search
@@ -2295,24 +2440,11 @@ router.get("/inventory", async (req, res, next) => {
     };
 
     const summaryWhere: Prisma.BranchInventoryWhereInput = {
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      branchId: branchContext.branchId,
       ...(query.status !== "all" ? { ingredient: ingredientStatusWhere } : {})
     };
 
-    const [branches, items, summaryBase, recentTransactions] = await Promise.all([
-      prisma.branch.findMany({
-        where: { isActive: true },
-        select: {
-          id: true,
-          slug: true,
-          name: true,
-          city: true,
-          addressLine1: true,
-          phone: true,
-          deliveryFee: true
-        },
-        orderBy: { name: "asc" }
-      }),
+    const [items, summaryBase, recentTransactions] = await Promise.all([
       prisma.branchInventory.findMany({
         where: itemWhere,
         include: {
@@ -2332,7 +2464,7 @@ router.get("/inventory", async (req, res, next) => {
         include: { ingredient: true }
       }),
       prisma.inventoryTransaction.findMany({
-        where: query.branchId ? { branchInventory: { branchId: query.branchId } } : undefined,
+        where: { branchInventory: { branchId: branchContext.branchId } },
         include: {
           actor: true,
           branchInventory: {
@@ -2354,7 +2486,7 @@ router.get("/inventory", async (req, res, next) => {
     const totalUnits = summaryBase.reduce((sum, item) => sum + parseDecimal(item.quantityOnHand), 0);
 
     return res.json({
-      branches: branches.map((branch) => ({
+      branches: branchContext.branches.map((branch) => ({
         ...branch,
         deliveryFee: parseDecimal(branch.deliveryFee)
       })),
@@ -2415,7 +2547,9 @@ router.get("/inventory", async (req, res, next) => {
 
 router.post("/inventory/items", async (req, res, next) => {
   try {
-    const payload = inventoryItemSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = inventoryItemSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const ingredient = await prisma.$transaction(async (transaction) => {
       const trimmedName = payload.name.trim();
       const normalizedSku = await buildNextInventorySku(transaction, payload.type, trimmedName);
@@ -2663,7 +2797,9 @@ router.delete("/inventory/items/:id", async (req, res, next) => {
 
 router.post("/inventory/transactions", async (req, res, next) => {
   try {
-    const payload = inventoryMovementSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = inventoryMovementSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const inventory = await prisma.branchInventory.findUnique({
       where: {
         branchId_ingredientId: {
@@ -3080,18 +3216,18 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   };
 }
 
-router.get("/finance/cash-position", async (_req, res, next) => {
+router.get("/finance/cash-position", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const todayStart = startOfDay(new Date());
     const todayEnd = endOfDay(new Date());
-    const [branches, pendingSettlements, receivedToday, fixedExpenses, loans] = await Promise.all([
-      prisma.branch.findMany({ where: { isActive: true }, select: { id: true } }),
+    const [pendingSettlements, receivedToday, fixedExpenses, loans] = await Promise.all([
       prisma.foodpandaSettlement.findMany({ where: { status: { not: "RECEIVED" } }, select: { expectedNet: true } }),
       prisma.foodpandaSettlement.findMany({ where: { status: "RECEIVED", receivedAt: { gte: todayStart, lte: todayEnd } }, select: { amountReceived: true, receivedSource: true } }),
-      prisma.fixedExpense.findMany({ where: { isActive: true }, select: { monthlyAmount: true } }),
-      prisma.loan.findMany({ select: { amount: true, repayments: { select: { amount: true } } } })
+      prisma.fixedExpense.findMany({ where: { branchId: branchContext.branchId, isActive: true }, select: { monthlyAmount: true } }),
+      prisma.loan.findMany({ where: { branchId: branchContext.branchId }, select: { amount: true, repayments: { select: { amount: true } } } })
     ]);
-    const snapshots = await Promise.all(branches.map((branch) => buildClosingSnapshot(branch.id, new Date())));
+    const snapshots = [await buildClosingSnapshot(branchContext.branchId, new Date())];
     const available = emptyMoneyTotals();
     for (const snapshot of snapshots) {
       for (const source of MONEY_SOURCES) available[source] += snapshot.expected[source];
@@ -3229,19 +3365,17 @@ router.delete("/inventory/rules/:id", async (req, res, next) => {
 
 router.get("/inventory/transfers", async (req, res, next) => {
   try {
-    const query = z.object({ branchId: z.string().cuid().optional() }).parse(req.query);
-    const [branches, transfers] = await Promise.all([
-      prisma.branch.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-      prisma.moneyTransfer.findMany({
-        where: query.branchId ? { branchId: query.branchId } : undefined,
-        include: { branch: true, createdBy: true },
-        orderBy: { transferDate: "desc" },
-        take: 50
-      })
-    ]);
+    z.object({ branchId: z.string().cuid().optional() }).parse(req.query);
+    const branchContext = await resolveBranchContext(req);
+    const transfers = await prisma.moneyTransfer.findMany({
+      where: { branchId: branchContext.branchId },
+      include: { branch: true, createdBy: true },
+      orderBy: { transferDate: "desc" },
+      take: 50
+    });
     return res.json({
       sources: MONEY_SOURCES,
-      branches: branches.map((branch) => ({ id: branch.id, name: branch.name })),
+      branches: branchContext.branches.map((branch) => ({ id: branch.id, name: branch.name })),
       transfers: transfers.map((transfer) => ({
         id: transfer.id,
         branchId: transfer.branchId,
@@ -3262,7 +3396,9 @@ router.get("/inventory/transfers", async (req, res, next) => {
 
 router.post("/inventory/transfers", async (req, res, next) => {
   try {
-    const payload = transferSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = transferSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const transfer = await prisma.moneyTransfer.create({
       data: {
         branchId: payload.branchId,
@@ -3310,9 +3446,10 @@ router.delete("/inventory/transfers/:id", async (req, res, next) => {
 router.get("/inventory/closing", async (req, res, next) => {
   try {
     const query = closingQuerySchema.parse(req.query);
-    const snapshot = await buildClosingSnapshot(query.branchId, query.date ? new Date(`${query.date}T12:00:00`) : new Date());
+    const branchContext = await resolveBranchContext(req);
+    const snapshot = await buildClosingSnapshot(branchContext.branchId, query.date ? new Date(`${query.date}T12:00:00`) : new Date());
     const balanceDate = normalizeClosingDate(query.date ? new Date(`${query.date}T12:00:00`) : new Date());
-    const openingBalance = await prisma.openingBalance.findUnique({ where: { branchId_balanceDate: { branchId: query.branchId, balanceDate } } });
+    const openingBalance = await prisma.openingBalance.findUnique({ where: { branchId_balanceDate: { branchId: branchContext.branchId, balanceDate } } });
     return res.json({
       ...snapshot,
       openingBalance: openingBalance ? {
@@ -3331,7 +3468,9 @@ router.get("/inventory/closing", async (req, res, next) => {
 
 router.post("/inventory/opening-balance", async (req, res, next) => {
   try {
-    const payload = openingBalanceSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = openingBalanceSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const balanceDate = normalizeClosingDate(new Date(payload.balanceDate));
     const openingBalance = await prisma.openingBalance.upsert({
       where: { branchId_balanceDate: { branchId: payload.branchId, balanceDate } },
@@ -3361,7 +3500,9 @@ router.post("/inventory/opening-balance", async (req, res, next) => {
 
 router.post("/inventory/closing", async (req, res, next) => {
   try {
-    const payload = closingSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = closingSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const snapshot = await buildClosingSnapshot(payload.branchId, new Date(payload.closingDate));
     const closingDate = normalizeClosingDate(new Date(payload.closingDate));
     const closing = await prisma.dailyClosing.upsert({
@@ -3620,9 +3761,10 @@ async function getInvestmentPaymentCapacity(commitmentId: string, excludingPayme
 router.get("/loans", async (req, res, next) => {
   try {
     const query = loanQuerySchema.parse(req.query);
+    const branchContext = await resolveBranchContext(req);
     const range = buildDashboardRange(query);
     const where: Prisma.LoanWhereInput = {
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      branchId: branchContext.branchId,
       ...(query.search
         ? {
             lenderName: {
@@ -3633,7 +3775,7 @@ router.get("/loans", async (req, res, next) => {
         : {})
     };
     const periodLoanWhere: Prisma.LoanWhereInput = {
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      branchId: branchContext.branchId,
       loanDate: { gte: range.start, lte: range.end },
       ...(query.search
         ? {
@@ -3645,7 +3787,7 @@ router.get("/loans", async (req, res, next) => {
         : {})
     };
     const periodRepaymentWhere: Prisma.LoanRepaymentWhereInput = {
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      branchId: branchContext.branchId,
       paymentDate: { gte: range.start, lte: range.end },
       ...(query.search
         ? {
@@ -3658,8 +3800,7 @@ router.get("/loans", async (req, res, next) => {
           }
         : {})
     };
-    const [branches, loans, periodLoans, periodRepayments] = await Promise.all([
-      prisma.branch.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
+    const [loans, periodLoans, periodRepayments] = await Promise.all([
       prisma.loan.findMany({
         where,
         include: {
@@ -3697,7 +3838,7 @@ router.get("/loans", async (req, res, next) => {
         end: range.end.toISOString(),
         label: range.label
       },
-      branches: branches.map((branch) => ({
+      branches: branchContext.branches.map((branch) => ({
         id: branch.id,
         slug: branch.slug,
         name: branch.name,
@@ -3727,7 +3868,9 @@ router.get("/loans", async (req, res, next) => {
 
 router.post("/loans", async (req, res, next) => {
   try {
-    const payload = loanSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = loanSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const loan = await prisma.loan.create({
       data: {
         branchId: payload.branchId,
@@ -3761,6 +3904,7 @@ router.post("/loans", async (req, res, next) => {
 
 router.patch("/loans/:id", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const payload = loanSchema.partial().parse(req.body);
     const existing = await prisma.loan.findUnique({
       where: { id: req.params.id },
@@ -3768,6 +3912,9 @@ router.patch("/loans/:id", async (req, res, next) => {
     });
     if (!existing) {
       return res.status(404).json({ message: "Loan not found." });
+    }
+    if (existing.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This loan belongs to another branch." });
     }
     const repaidAmount = existing.repayments.reduce((sum, repayment) => sum + parseDecimal(repayment.amount), 0);
     if (typeof payload.amount === "number" && payload.amount < repaidAmount) {
@@ -3827,6 +3974,7 @@ router.delete("/loans/:id", async (req, res, next) => {
 
 router.post("/loans/:id/repayments", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const payload = loanRepaymentSchema.parse(req.body);
     const loan = await prisma.loan.findUnique({
       where: { id: req.params.id },
@@ -3834,6 +3982,9 @@ router.post("/loans/:id/repayments", async (req, res, next) => {
     });
     if (!loan) {
       return res.status(404).json({ message: "Loan not found." });
+    }
+    if (loan.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This loan belongs to another branch." });
     }
     const repaidAmount = loan.repayments.reduce((sum, repayment) => sum + parseDecimal(repayment.amount), 0);
     const remainingAmount = roundMoney(parseDecimal(loan.amount) - repaidAmount);
@@ -3896,32 +4047,30 @@ router.delete("/loans/:id/repayments/:repaymentId", async (req, res, next) => {
   }
 });
 
-router.get("/investments", async (_req, res, next) => {
+router.get("/investments", async (req, res, next) => {
   try {
-    const [branches, partners] = await Promise.all([
-      prisma.branch.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
-      prisma.investmentPartner.findMany({
-        include: {
-          createdBy: true,
-          commitments: {
-            include: {
-              createdBy: true,
-              payments: {
-                include: {
-                  branch: true,
-                  createdBy: true
-                }
+    const branchContext = await resolveBranchContext(req);
+    const partners = await prisma.investmentPartner.findMany({
+      include: {
+        createdBy: true,
+        commitments: {
+          include: {
+            createdBy: true,
+            payments: {
+              include: {
+                branch: true,
+                createdBy: true
               }
             }
           }
-        },
-        orderBy: [{ createdAt: "asc" }, { name: "asc" }]
-      })
-    ]);
+        }
+      },
+      orderBy: [{ createdAt: "asc" }, { name: "asc" }]
+    });
     const investmentData = serializeInvestmentData(partners);
     return res.json({
       ...investmentData,
-      branches: branches.map((branch) => ({
+      branches: branchContext.branches.map((branch) => ({
         id: branch.id,
         slug: branch.slug,
         name: branch.name,
@@ -4052,7 +4201,9 @@ router.delete("/investments/commitments/:id", async (req, res, next) => {
 
 router.post("/investments/payments", async (req, res, next) => {
   try {
-    const payload = investmentPaymentSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = investmentPaymentSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const unpaidAmount = await getInvestmentPaymentCapacity(payload.commitmentId);
     if (payload.amount > unpaidAmount) {
       return res.status(400).json({ message: `Payment cannot exceed unpaid commitment balance of Rs ${unpaidAmount}.` });
@@ -4077,10 +4228,14 @@ router.post("/investments/payments", async (req, res, next) => {
 
 router.patch("/investments/payments/:id", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const payload = investmentPaymentSchema.partial().parse(req.body);
     const existing = await prisma.investmentPayment.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       return res.status(404).json({ message: "Investment payment not found." });
+    }
+    if (existing.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This investment payment belongs to another branch." });
     }
     const commitmentId = payload.commitmentId ?? existing.commitmentId;
     const amount = typeof payload.amount === "number" ? payload.amount : parseDecimal(existing.amount);
@@ -4092,7 +4247,7 @@ router.patch("/investments/payments/:id", async (req, res, next) => {
       where: { id: existing.id },
       data: {
         ...(payload.commitmentId ? { commitmentId: payload.commitmentId } : {}),
-        ...(payload.branchId ? { branchId: payload.branchId } : {}),
+        branchId: branchContext.branchId,
         ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
         ...(payload.receivedSource ? { receivedSource: payload.receivedSource } : {}),
         ...(payload.paymentDate ? { paymentDate: new Date(payload.paymentDate) } : {}),
@@ -5107,7 +5262,7 @@ function fixedExpenseMonthLabel(monthKey: string) {
   return new Intl.DateTimeFormat("en-PK", { month: "long", year: "numeric", timeZone: REPORT_TIME_ZONE }).format(new Date(Date.UTC(year, month - 1, 1)));
 }
 
-function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: ReturnType<typeof buildDashboardRange>): Prisma.ExpenseWhereInput {
+function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: ReturnType<typeof buildDashboardRange>, branchId: string): Prisma.ExpenseWhereInput {
   return {
     AND: [
       {
@@ -5121,7 +5276,7 @@ function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: Ret
       gte: range.start,
       lte: range.end
     },
-    ...(query.branchId ? { branchId: query.branchId } : {}),
+    branchId,
     ...(query.category ? { category: { equals: query.category, mode: "insensitive" as const } } : {}),
     ...(query.search
       ? {
@@ -5139,14 +5294,10 @@ function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: Ret
 router.get("/fixed-expenses", async (req, res, next) => {
   try {
     const query = fixedExpenseMonthSchema.parse(req.query);
+    const branchContext = await resolveBranchContext(req);
     const monthKey = query.monthKey ?? getPakistanMonthKey();
-    const [branches, fixedExpenses] = await Promise.all([
-      prisma.branch.findMany({
-        where: { isActive: true },
-        select: { id: true, slug: true, name: true, city: true, addressLine1: true, phone: true, deliveryFee: true },
-        orderBy: { name: "asc" }
-      }),
-      prisma.fixedExpense.findMany({
+    const fixedExpenses = await prisma.fixedExpense.findMany({
+        where: { branchId: branchContext.branchId },
         include: {
           branch: true,
           occurrences: {
@@ -5156,8 +5307,7 @@ router.get("/fixed-expenses", async (req, res, next) => {
           }
         },
         orderBy: { name: "asc" }
-      })
-    ]);
+      });
 
     const activeExpenses = fixedExpenses.filter((fixedExpense) => fixedExpense.isActive);
     const totalFixedExpenses = activeExpenses.reduce((sum, fixedExpense) => sum + parseDecimal(fixedExpense.monthlyAmount), 0);
@@ -5172,7 +5322,7 @@ router.get("/fixed-expenses", async (req, res, next) => {
     return res.json({
       monthKey,
       monthLabel: fixedExpenseMonthLabel(monthKey),
-      branches: branches.map((branch) => ({ ...branch, deliveryFee: parseDecimal(branch.deliveryFee) })),
+      branches: branchContext.branches.map((branch) => ({ ...branch, deliveryFee: parseDecimal(branch.deliveryFee) })),
       summary: {
         totalFixedExpenses: Number(totalFixedExpenses.toFixed(2)),
         paid: Number(paid.toFixed(2)),
@@ -5211,9 +5361,10 @@ router.get("/fixed-expenses", async (req, res, next) => {
 
 router.post("/fixed-expenses/generate", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const query = fixedExpenseMonthSchema.parse(req.body ?? {});
     const monthKey = query.monthKey ?? getPakistanMonthKey();
-    const fixedExpenses = await prisma.fixedExpense.findMany({ where: { isActive: true, autoRepeat: true } });
+    const fixedExpenses = await prisma.fixedExpense.findMany({ where: { branchId: branchContext.branchId, isActive: true, autoRepeat: true } });
     let generated = 0;
 
     await prisma.$transaction(async (transaction) => {
@@ -5258,7 +5409,9 @@ router.post("/fixed-expenses/generate", async (req, res, next) => {
 
 router.post("/fixed-expenses", async (req, res, next) => {
   try {
-    const payload = fixedExpenseSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = fixedExpenseSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const fixedExpense = await prisma.fixedExpense.create({
       data: { ...payload, createdById: req.user!.id }
     });
@@ -5283,10 +5436,18 @@ router.patch("/fixed-expenses/occurrences/:id", async (req, res, next) => {
 
 router.patch("/fixed-expenses/:id", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const payload = fixedExpenseSchema.partial().parse(req.body);
+    const existing = await prisma.fixedExpense.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ message: "Fixed expense not found." });
+    }
+    if (existing.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This fixed expense belongs to another branch." });
+    }
     const fixedExpense = await prisma.fixedExpense.update({
       where: { id: req.params.id },
-      data: { ...payload, ...(payload.name ? { name: payload.name.trim() } : {}), ...(payload.category ? { category: payload.category.trim() } : {}) }
+      data: { ...payload, branchId: branchContext.branchId, ...(payload.name ? { name: payload.name.trim() } : {}), ...(payload.category ? { category: payload.category.trim() } : {}) }
     });
     return res.json({ fixedExpense });
   } catch (error) {
@@ -5316,32 +5477,18 @@ router.delete("/fixed-expenses/:id", async (req, res, next) => {
 router.get("/expenses", async (req, res, next) => {
   try {
     const query = expenseQuerySchema.parse(req.query);
+    const branchContext = await resolveBranchContext(req);
     const range = buildDashboardRange(query);
-    const where = buildExpenseWhere(query, range);
+    const where = buildExpenseWhere(query, range, branchContext.branchId);
 
-    const [branches, expenses] = await Promise.all([
-      prisma.branch.findMany({
-        where: { isActive: true },
-        select: {
-          id: true,
-          slug: true,
-          name: true,
-          city: true,
-          addressLine1: true,
-          phone: true,
-          deliveryFee: true
-        },
-        orderBy: { name: "asc" }
-      }),
-      prisma.expense.findMany({
+    const expenses = await prisma.expense.findMany({
         where,
         include: {
           branch: true,
           createdBy: true
         },
         orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }]
-      })
-    ]);
+      });
 
     const totalAmount = expenses.reduce((sum, item) => sum + parseDecimal(item.amount), 0);
     const categoryTotals = new Map<string, { label: string; amount: number; count: number }>();
@@ -5370,7 +5517,7 @@ router.get("/expenses", async (req, res, next) => {
         end: range.end.toISOString(),
         label: range.label
       },
-      branches: branches.map((branch) => ({
+      branches: branchContext.branches.map((branch) => ({
         ...branch,
         deliveryFee: parseDecimal(branch.deliveryFee)
       })),
@@ -5411,9 +5558,10 @@ router.get("/expenses", async (req, res, next) => {
 router.get("/expenses/export", async (req, res, next) => {
   try {
     const query = expenseQuerySchema.parse(req.query);
+    const branchContext = await resolveBranchContext(req);
     const range = buildDashboardRange(query);
     const expenses = await prisma.expense.findMany({
-      where: buildExpenseWhere(query, range),
+      where: buildExpenseWhere(query, range, branchContext.branchId),
       include: {
         branch: true,
         createdBy: true
@@ -5426,7 +5574,7 @@ router.get("/expenses/export", async (req, res, next) => {
       ["Period", range.label],
       ["Start", range.start.toISOString()],
       ["End", range.end.toISOString()],
-      ["Branch", query.branchId ? expenses[0]?.branch.name ?? "Selected branch" : "All branches"],
+      ["Branch", branchContext.branch.name],
       ["Category filter", query.category ?? "All categories"],
       ["Search filter", query.search ?? "None"],
       ["Entries", expenses.length],
@@ -5459,7 +5607,7 @@ router.get("/expenses/export", async (req, res, next) => {
 
     const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "buffer" });
     const fileMonth = query.monthKey ?? range.start.toISOString().slice(0, 7);
-    const safeBranch = query.branchId ? (expenses[0]?.branch.slug ?? "branch") : "all-branches";
+    const safeBranch = branchContext.branch.slug;
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename=\"pocket-expenses-${fileMonth}-${safeBranch}.xlsx\"`);
@@ -5471,7 +5619,9 @@ router.get("/expenses/export", async (req, res, next) => {
 
 router.post("/expenses", async (req, res, next) => {
   try {
-    const payload = expenseSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = expenseSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
     const expense = await prisma.expense.create({
       data: {
         branchId: payload.branchId,
@@ -5507,11 +5657,19 @@ router.post("/expenses", async (req, res, next) => {
 
 router.patch("/expenses/:id", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const payload = expenseSchema.partial().parse(req.body);
+    const existing = await prisma.expense.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      return res.status(404).json({ message: "Expense not found." });
+    }
+    if (existing.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This expense belongs to another branch." });
+    }
     const expense = await prisma.expense.update({
       where: { id: req.params.id },
       data: {
-        ...(payload.branchId ? { branchId: payload.branchId } : {}),
+        branchId: branchContext.branchId,
         ...(payload.title ? { title: payload.title.trim() } : {}),
         ...(payload.category ? { category: payload.category.trim() } : {}),
         ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
@@ -5576,6 +5734,103 @@ router.delete("/expenses/:id", async (req, res, next) => {
   }
 });
 
+router.get("/branches", async (req, res, next) => {
+  try {
+    const access = await getAccessibleBranchesForUser(req.user!);
+    const requestedBranchId = readRequestedBranchId(req);
+    const selectedBranch =
+      (requestedBranchId ? access.branches.find((branch) => branch.id === requestedBranchId) : undefined) ??
+      access.branches.find((branch) => branch.id === access.primaryBranchId) ??
+      access.branches[0] ??
+      null;
+    return res.json({
+      branches: access.branches.map((branch) => ({
+        ...branch,
+        deliveryFee: parseDecimal(branch.deliveryFee)
+      })),
+      selectedBranchId: selectedBranch?.id ?? "",
+      primaryBranchId: access.primaryBranchId,
+      canSwitchBranches: access.canSwitchBranches
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/branches", async (req, res, next) => {
+  try {
+    if (req.user!.role !== RoleCode.SUPER_ADMIN) {
+      return res.status(403).json({ message: "Only Super Admin can add branches." });
+    }
+
+    const payload = branchWriteSchema.parse(req.body);
+    const slug = await buildUniqueBranchSlug(payload.name, payload.city);
+    const branch = await prisma.$transaction(async (transaction) => {
+      const created = await transaction.branch.create({
+        data: {
+          slug,
+          name: payload.name,
+          city: payload.city,
+          addressLine1: payload.addressLine1,
+          phone: payload.phone,
+          email: payload.email?.trim() || null,
+          deliveryFee: payload.deliveryFee,
+          isActive: payload.isActive
+        }
+      });
+
+      await initializeBranchSetup(transaction, created.id);
+      return created;
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "branch.create",
+      entityType: "branch",
+      entityId: branch.id,
+      payload: serializeAdminBranch(branch)
+    });
+
+    return res.status(201).json({ branch: serializeAdminBranch(branch) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/branches/:id", async (req, res, next) => {
+  try {
+    if (req.user!.role !== RoleCode.SUPER_ADMIN) {
+      return res.status(403).json({ message: "Only Super Admin can update branches." });
+    }
+
+    const payload = branchPatchSchema.parse(req.body);
+    const branch = await prisma.branch.update({
+      where: { id: req.params.id },
+      data: {
+        ...(payload.name !== undefined ? { name: payload.name } : {}),
+        ...(payload.city !== undefined ? { city: payload.city } : {}),
+        ...(payload.addressLine1 !== undefined ? { addressLine1: payload.addressLine1 } : {}),
+        ...(payload.phone !== undefined ? { phone: payload.phone } : {}),
+        ...(payload.email !== undefined ? { email: payload.email?.trim() || null } : {}),
+        ...(payload.deliveryFee !== undefined ? { deliveryFee: payload.deliveryFee } : {}),
+        ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {})
+      }
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "branch.update",
+      entityType: "branch",
+      entityId: branch.id,
+      payload
+    });
+
+    return res.json({ branch: serializeAdminBranch(branch) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/users", async (req, res, next) => {
   try {
     const query = userQuerySchema.parse(req.query);
@@ -5597,7 +5852,7 @@ router.get("/users", async (req, res, next) => {
             }
           : {})
       },
-      include: { role: true },
+      include: { role: true, branchAccesses: { include: { branch: true } } },
       orderBy: [{ createdAt: "desc" }]
     });
 
@@ -5628,6 +5883,11 @@ router.post("/users", async (req, res, next) => {
       },
       include: { role: true }
     });
+    await replaceUserPrimaryBranchAccess(user.id, role.code, payload.branchId || null);
+    const savedUser = await prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      include: { role: true, branchAccesses: { include: { branch: true } } }
+    });
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -5638,11 +5898,12 @@ router.post("/users", async (req, res, next) => {
         name: user.name,
         username: user.username,
         email: user.email,
-        roleCode: user.role.code
+        roleCode: user.role.code,
+        branchId: payload.branchId || null
       }
     });
 
-    return res.status(201).json({ user: serializeManagedUser(user) });
+    return res.status(201).json({ user: serializeManagedUser(savedUser) });
   } catch (error) {
     return next(error);
   }
@@ -5653,7 +5914,7 @@ router.patch("/users/:id", async (req, res, next) => {
     const payload = userPatchSchema.parse(req.body);
     const current = await prisma.user.findUnique({
       where: { id: req.params.id },
-      include: { role: true }
+      include: { role: true, branchAccesses: { include: { branch: true } } }
     });
 
     if (!current) {
@@ -5684,6 +5945,14 @@ router.patch("/users/:id", async (req, res, next) => {
       },
       include: { role: true }
     });
+    if (payload.branchId !== undefined || role) {
+      const nextBranchId = payload.branchId || current.branchAccesses.find((access) => access.isPrimary)?.branchId || current.branchAccesses[0]?.branchId;
+      await replaceUserPrimaryBranchAccess(user.id, user.role.code, nextBranchId);
+    }
+    const savedUser = await prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      include: { role: true, branchAccesses: { include: { branch: true } } }
+    });
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -5693,7 +5962,7 @@ router.patch("/users/:id", async (req, res, next) => {
       payload
     });
 
-    return res.json({ user: serializeManagedUser(user) });
+    return res.json({ user: serializeManagedUser(savedUser) });
   } catch (error) {
     return next(error);
   }

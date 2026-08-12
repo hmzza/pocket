@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma.js";
 import { hashPassword, signToken, verifyPassword } from "../lib/auth.js";
 import { buildUniqueUsername } from "../lib/username.js";
 import { AUTH_COOKIE_NAME, authenticate } from "../middleware/auth.js";
+import { getAccessibleBranchesForUser } from "../lib/branch-context.js";
 
 const router = Router();
 
@@ -119,7 +120,9 @@ function setAuthCookie(res: Response, user: AuthenticatedUser) {
   res.cookie(AUTH_COOKIE_NAME, token, authCookieOptions());
 }
 
-function buildAuthResponse(user: AuthenticatedUser) {
+async function buildAuthResponse(user: AuthenticatedUser) {
+  const branchAccess = await getAccessibleBranchesForUser({ id: user.id, role: user.role.code });
+
   return {
     user: {
       id: user.id,
@@ -129,7 +132,10 @@ function buildAuthResponse(user: AuthenticatedUser) {
       phone: user.phone,
       role: user.role.code,
       canAccessAdmin: user.canAccessAdmin,
-      canAccessPos: user.canAccessPos
+      canAccessPos: user.canAccessPos,
+      branches: branchAccess.branches,
+      primaryBranchId: branchAccess.primaryBranchId,
+      canSwitchBranches: branchAccess.canSwitchBranches
     }
   };
 }
@@ -148,7 +154,7 @@ router.post("/login", async (req, res, next) => {
     }
 
     setAuthCookie(res, user);
-    return res.json(buildAuthResponse(user));
+    return res.json(await buildAuthResponse(user));
   } catch (error) {
     return next(error);
   }
@@ -168,7 +174,7 @@ router.post("/admin-login", async (req, res, next) => {
     }
 
     setAuthCookie(res, user);
-    return res.json(buildAuthResponse(user));
+    return res.json(await buildAuthResponse(user));
   } catch (error) {
     return next(error);
   }
@@ -193,7 +199,7 @@ router.post("/pos-login", async (req, res, next) => {
     }
 
     setAuthCookie(res, user);
-    return res.json(buildAuthResponse(user));
+    return res.json(await buildAuthResponse(user));
   } catch (error) {
     return next(error);
   }
@@ -212,6 +218,7 @@ router.get("/me", authenticate, async (req, res) => {
       addresses: true
     }
   });
+  const branchAccess = await getAccessibleBranchesForUser({ id: user!.id, role: user!.role.code });
 
   return res.json({
     user: {
@@ -223,6 +230,9 @@ router.get("/me", authenticate, async (req, res) => {
       role: user!.role.code,
       canAccessAdmin: user!.canAccessAdmin,
       canAccessPos: user!.canAccessPos,
+      branches: branchAccess.branches,
+      primaryBranchId: branchAccess.primaryBranchId,
+      canSwitchBranches: branchAccess.canSwitchBranches,
       addresses: user!.addresses
     }
   });

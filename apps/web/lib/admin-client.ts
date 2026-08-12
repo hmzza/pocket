@@ -22,19 +22,35 @@ import type {
   AdminUserData,
   AdminVendor,
   AdminVendorData,
+  Branch,
   Category,
   DashboardData
 } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile, preparePocketImageUpload, readFileAsDataUrl } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
+import { getSelectedBranchId } from "@/lib/branch-selection";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
+
+function selectedBranchIdOr(explicitBranchId?: string) {
+  return getSelectedBranchId() || explicitBranchId || "";
+}
+
+function withSelectedBranch(payload: Record<string, unknown>) {
+  const selectedBranchId = getSelectedBranchId();
+  return selectedBranchId ? { ...payload, branchId: selectedBranchId } : payload;
+}
 
 async function adminFetch<T>(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
 
   if (!headers.has("Content-Type") && init?.body) {
     headers.set("Content-Type", "application/json");
+  }
+
+  const selectedBranchId = getSelectedBranchId();
+  if (selectedBranchId && !headers.has("x-branch-id")) {
+    headers.set("x-branch-id", selectedBranchId);
   }
 
   const response = await fetch(`${API_URL}${path}`, {
@@ -398,8 +414,36 @@ export async function fetchAdminSession() {
       email: string;
       canAccessAdmin: boolean;
       canAccessPos: boolean;
+      branches: Branch[];
+      primaryBranchId: string | null;
+      canSwitchBranches: boolean;
     };
   }>("/api/auth/me");
+}
+
+export async function fetchAdminBranches() {
+  return adminFetch<{
+    branches: Branch[];
+    selectedBranchId: string;
+    primaryBranchId: string | null;
+    canSwitchBranches: boolean;
+  }>("/api/admin/branches");
+}
+
+export async function createAdminBranch(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ branch: Branch }>("/api/admin/branches", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.branch;
+}
+
+export async function updateAdminBranch(branchId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ branch: Branch }>(`/api/admin/branches/${branchId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.branch;
 }
 
 function normalizeDetails(value: unknown, path = ""): string[] {
@@ -602,7 +646,8 @@ export async function updateAdminSetting(key: string, value: unknown) {
 
 export async function fetchAdminInventory(branchId?: string): Promise<AdminInventoryData> {
   const searchParams = new URLSearchParams();
-  if (branchId) searchParams.set("branchId", branchId);
+  const activeBranchId = selectedBranchIdOr(branchId);
+  if (activeBranchId) searchParams.set("branchId", activeBranchId);
   const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
   const data = await adminFetch<any>(`/api/admin/inventory${suffix}`);
 
@@ -673,7 +718,7 @@ export async function fetchAdminInventory(branchId?: string): Promise<AdminInven
 export async function createAdminInventoryItem(payload: Record<string, unknown>) {
   const data = await adminFetch<{ ingredient: any }>("/api/admin/inventory/items", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.ingredient;
 }
@@ -703,7 +748,7 @@ export async function deleteAdminInventoryItem(ingredientId: string) {
 export async function createAdminInventoryTransaction(payload: Record<string, unknown>) {
   const data = await adminFetch<{ inventory: any }>("/api/admin/inventory/transactions", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.inventory;
 }
@@ -790,7 +835,8 @@ export async function deleteAdminPackagingRule(ruleId: string) {
 
 export async function fetchAdminMoneyTransfers(branchId?: string): Promise<AdminMoneyTransferData> {
   const searchParams = new URLSearchParams();
-  if (branchId) searchParams.set("branchId", branchId);
+  const activeBranchId = selectedBranchIdOr(branchId);
+  if (activeBranchId) searchParams.set("branchId", activeBranchId);
   const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
   return adminFetch<AdminMoneyTransferData>(`/api/admin/inventory/transfers${suffix}`);
 }
@@ -798,7 +844,7 @@ export async function fetchAdminMoneyTransfers(branchId?: string): Promise<Admin
 export async function createAdminMoneyTransfer(payload: Record<string, unknown>) {
   const data = await adminFetch<{ transfer: any }>("/api/admin/inventory/transfers", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.transfer;
 }
@@ -810,7 +856,7 @@ export async function deleteAdminMoneyTransfer(transferId: string) {
 }
 
 export async function fetchAdminDailyClosing(branchId: string, date?: string): Promise<AdminDailyClosingData> {
-  const searchParams = new URLSearchParams({ branchId });
+  const searchParams = new URLSearchParams({ branchId: selectedBranchIdOr(branchId) });
   if (date) searchParams.set("date", date);
   return adminFetch<AdminDailyClosingData>(`/api/admin/inventory/closing?${searchParams.toString()}`);
 }
@@ -818,7 +864,7 @@ export async function fetchAdminDailyClosing(branchId: string, date?: string): P
 export async function saveAdminDailyClosing(payload: Record<string, unknown>) {
   const data = await adminFetch<{ closing: any }>("/api/admin/inventory/closing", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.closing;
 }
@@ -826,7 +872,7 @@ export async function saveAdminDailyClosing(payload: Record<string, unknown>) {
 export async function saveAdminOpeningBalance(payload: Record<string, unknown>) {
   const data = await adminFetch<{ openingBalance: any }>("/api/admin/inventory/opening-balance", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.openingBalance;
 }
@@ -868,7 +914,8 @@ export async function fetchAdminLoans(params?: {
 }): Promise<AdminLoanData> {
   const searchParams = new URLSearchParams();
   if (params?.preset) searchParams.set("preset", params.preset);
-  if (params?.branchId) searchParams.set("branchId", params.branchId);
+  const activeBranchId = selectedBranchIdOr(params?.branchId);
+  if (activeBranchId) searchParams.set("branchId", activeBranchId);
   if (params?.status) searchParams.set("status", params.status);
   if (params?.search) searchParams.set("search", params.search);
   if (params?.monthKey) searchParams.set("monthKey", params.monthKey);
@@ -881,7 +928,7 @@ export async function fetchAdminLoans(params?: {
 export async function createAdminLoan(payload: Record<string, unknown>) {
   const data = await adminFetch<{ loan: any }>("/api/admin/loans", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.loan;
 }
@@ -889,7 +936,7 @@ export async function createAdminLoan(payload: Record<string, unknown>) {
 export async function updateAdminLoan(loanId: string, payload: Record<string, unknown>) {
   const data = await adminFetch<{ loan: any }>(`/api/admin/loans/${loanId}`, {
     method: "PATCH",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.loan;
 }
@@ -903,7 +950,7 @@ export async function deleteAdminLoan(loanId: string) {
 export async function createAdminLoanRepayment(loanId: string, payload: Record<string, unknown>) {
   const data = await adminFetch<{ repayment: any }>(`/api/admin/loans/${loanId}/repayments`, {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.repayment;
 }
@@ -965,7 +1012,7 @@ export async function deleteAdminInvestmentCommitment(commitmentId: string) {
 export async function createAdminInvestmentPayment(payload: Record<string, unknown>) {
   const data = await adminFetch<{ payment: any }>("/api/admin/investments/payments", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.payment;
 }
@@ -973,7 +1020,7 @@ export async function createAdminInvestmentPayment(payload: Record<string, unkno
 export async function updateAdminInvestmentPayment(paymentId: string, payload: Record<string, unknown>) {
   const data = await adminFetch<{ payment: any }>(`/api/admin/investments/payments/${paymentId}`, {
     method: "PATCH",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.payment;
 }
@@ -995,7 +1042,8 @@ export async function fetchAdminExpenses(params?: {
 }): Promise<AdminExpenseData> {
   const searchParams = new URLSearchParams();
   if (params?.preset) searchParams.set("preset", params.preset);
-  if (params?.branchId) searchParams.set("branchId", params.branchId);
+  const activeBranchId = selectedBranchIdOr(params?.branchId);
+  if (activeBranchId) searchParams.set("branchId", activeBranchId);
   if (params?.category) searchParams.set("category", params.category);
   if (params?.search) searchParams.set("search", params.search);
   if (params?.monthKey) searchParams.set("monthKey", params.monthKey);
@@ -1056,7 +1104,7 @@ export async function fetchAdminExpenses(params?: {
 export async function createAdminExpense(payload: Record<string, unknown>) {
   const data = await adminFetch<{ expense: any }>("/api/admin/expenses", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.expense;
 }
@@ -1064,7 +1112,7 @@ export async function createAdminExpense(payload: Record<string, unknown>) {
 export async function updateAdminExpense(expenseId: string, payload: Record<string, unknown>) {
   const data = await adminFetch<{ expense: any }>(`/api/admin/expenses/${expenseId}`, {
     method: "PATCH",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.expense;
 }
@@ -1129,7 +1177,7 @@ export async function generateAdminFixedExpenses(monthKey?: string) {
 export async function createAdminFixedExpense(payload: Record<string, unknown>) {
   const data = await adminFetch<{ fixedExpense: any }>("/api/admin/fixed-expenses", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.fixedExpense;
 }
@@ -1137,7 +1185,7 @@ export async function createAdminFixedExpense(payload: Record<string, unknown>) 
 export async function updateAdminFixedExpense(fixedExpenseId: string, payload: Record<string, unknown>) {
   const data = await adminFetch<{ fixedExpense: any }>(`/api/admin/fixed-expenses/${fixedExpenseId}`, {
     method: "PATCH",
-    body: JSON.stringify(payload)
+    body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.fixedExpense;
 }
@@ -1175,6 +1223,7 @@ export async function downloadAdminExpenseExport(params?: {
   if (params?.end) searchParams.set("end", params.end);
 
   const response = await fetch(`${API_URL}/api/admin/expenses/export?${searchParams.toString()}`, {
+    headers: getSelectedBranchId() ? { "x-branch-id": getSelectedBranchId() } : undefined,
     credentials: "include"
   });
 
