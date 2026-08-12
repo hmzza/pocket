@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, HandCoins, History, LayoutDashboard, LogOut, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users } from "lucide-react";
+import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -143,10 +144,13 @@ export function AdminShell({ title, description, children }: { title: string; de
         </div>
       </aside>
       <div className="min-w-0 space-y-6">
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Admin</p>
-          <h1 className="text-3xl font-black text-pocket-navy">{title}</h1>
-          <p className="text-sm text-pocket-navy/70">{description}</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Admin</p>
+            <h1 className="text-3xl font-black text-pocket-navy">{title}</h1>
+            <p className="text-sm text-pocket-navy/70">{description}</p>
+          </div>
+          {session ? <BranchSwitcher user={session.user} /> : null}
         </div>
         {children}
       </div>

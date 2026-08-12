@@ -97,7 +97,9 @@ export type Branch = {
   city: string;
   addressLine1: string;
   phone: string;
+  email?: string;
   deliveryFee: number;
+  isActive?: boolean;
 };
 
 export type TrackedOrder = {
@@ -673,6 +675,9 @@ export type AdminUser = {
   isActive: boolean;
   canAccessAdmin: boolean;
   canAccessPos: boolean;
+  branchId?: string;
+  branchName?: string;
+  branches?: Array<{ id: string; name: string; slug: string; isPrimary: boolean }>;
   lastLoginAt?: string | null;
   createdAt: string;
   updatedAt: string;

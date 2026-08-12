@@ -103,7 +103,7 @@ async function main() {
     }
   });
 
-  await prisma.user.upsert({
+  const posUser = await prisma.user.upsert({
     where: { email: process.env.INITIAL_POS_EMAIL ?? "counter@pocketshawarma.com" },
     update: {
       name: "Pocket Counter",
@@ -151,6 +151,21 @@ async function main() {
           closeTime: "23:45"
         }))
       }
+    }
+  });
+
+  await prisma.userBranchAccess.upsert({
+    where: {
+      userId_branchId: {
+        userId: posUser.id,
+        branchId: branch.id
+      }
+    },
+    update: { isPrimary: true },
+    create: {
+      userId: posUser.id,
+      branchId: branch.id,
+      isPrimary: true
     }
   });
 

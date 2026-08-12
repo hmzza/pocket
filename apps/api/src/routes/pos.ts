@@ -10,6 +10,7 @@ import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { signReceiptToken } from "../lib/receipt-token.js";
 import { applyInventoryChanges, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
 import { syncMealPairingOptions } from "../lib/meal-options.js";
+import { resolveBranchContext } from "../lib/branch-context.js";
 
 const router = Router();
 
@@ -77,7 +78,7 @@ const cartItemSchema = z.discriminatedUnion("type", [
 
 const checkoutSchema = z
   .object({
-    branchId: z.string().cuid(),
+    branchId: z.string().cuid().optional(),
     serviceType: z.enum(["INSHOP", "TAKEAWAY", "FOODPANDA"]),
     paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT"]),
     customerName: z.string().max(80).optional(),
@@ -107,6 +108,7 @@ const checkoutSchema = z
   });
 
 type CheckoutPayload = z.infer<typeof checkoutSchema>;
+type ResolvedCheckoutPayload = CheckoutPayload & { branchId: string };
 
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
@@ -223,7 +225,7 @@ function getBundleComponentProductIds(products: Array<{ bundleComponents?: Array
   ];
 }
 
-async function buildPosOrderPayload(payload: CheckoutPayload) {
+async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
   await syncMealPairingOptions(prisma);
   const productIds = getProductIds(payload.items);
 
@@ -455,11 +457,9 @@ router.get("/catalog", async (req, res, next) => {
       })
       .parse(req.query);
 
-    const branches = await prisma.branch.findMany({
-      where: { isActive: true },
-      orderBy: { name: "asc" }
-    });
-    const branchId = query.branchId ?? branches[0]?.id;
+    const branchContext = await resolveBranchContext(req);
+    const branches = branchContext.branches;
+    const branchId = branchContext.branchId;
     await syncMealPairingOptions(prisma);
 
     const where: Prisma.ProductWhereInput = {
@@ -593,7 +593,9 @@ router.get("/customers/lookup", async (req, res, next) => {
 
 router.post("/checkout", async (req, res, next) => {
   try {
-    const payload = checkoutSchema.parse(req.body);
+    const parsedPayload = checkoutSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const payload: ResolvedCheckoutPayload = { ...parsedPayload, branchId: branchContext.branchId };
     const paymentMethod =
       payload.serviceType === "FOODPANDA"
         ? PaymentMethod.FOODPANDA_PAYOUT
@@ -680,7 +682,9 @@ router.post("/checkout", async (req, res, next) => {
 
 router.patch("/orders/:orderId", async (req, res, next) => {
   try {
-    const payload = checkoutSchema.parse(req.body);
+    const parsedPayload = checkoutSchema.parse(req.body);
+    const branchContext = await resolveBranchContext(req);
+    const payload: ResolvedCheckoutPayload = { ...parsedPayload, branchId: branchContext.branchId };
     const paymentMethod =
       payload.serviceType === "FOODPANDA"
         ? PaymentMethod.FOODPANDA_PAYOUT

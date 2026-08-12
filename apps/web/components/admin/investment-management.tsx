@@ -350,10 +350,6 @@ export function InvestmentManagement() {
                 <option value="">Select commitment</option>
                 {paymentCommitments.map((commitment) => <option key={commitment.id} value={commitment.id}>{commitment.partnerName} - unpaid {formatCurrency(commitment.unpaidAmount)}</option>)}
               </select>
-              <select value={paymentForm.branchId} onChange={(event) => setPaymentForm((current) => ({ ...current, branchId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
-                <option value="">Select branch</option>
-                {(data?.branches ?? []).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-              </select>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input type="number" min="0" step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Payment amount" />
                 <select value={paymentForm.receivedSource} onChange={(event) => setPaymentForm((current) => ({ ...current, receivedSource: event.target.value as MoneySource }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">

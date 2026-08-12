@@ -1,6 +1,7 @@
 "use client";
 
-import type { AdminOrder, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
+import type { AdminOrder, Branch, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
+import { getSelectedBranchId } from "@/lib/branch-selection";
 import { resolvePocketImagePath } from "@/lib/image-paths";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
@@ -11,6 +12,11 @@ async function posFetch<T>(path: string, init?: RequestInit) {
 
   if (!headers.has("Content-Type") && init?.body) {
     headers.set("Content-Type", "application/json");
+  }
+
+  const selectedBranchId = getSelectedBranchId();
+  if (selectedBranchId && !headers.has("x-branch-id")) {
+    headers.set("x-branch-id", selectedBranchId);
   }
 
   const response = await fetch(`${API_URL}${path}`, {
@@ -49,6 +55,9 @@ export async function fetchPosSession() {
       email: string;
       canAccessAdmin: boolean;
       canAccessPos: boolean;
+      branches: Branch[];
+      primaryBranchId: string | null;
+      canSwitchBranches: boolean;
     };
   }>("/api/auth/me");
 }

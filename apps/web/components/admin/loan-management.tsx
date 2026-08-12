@@ -274,12 +274,6 @@ export function LoanManagement() {
           <p className="text-lg font-black text-pocket-navy">{editingLoan ? "Edit Loan" : "Add Loan"}</p>
           <div className="mt-4 space-y-3">
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-pocket-navy">Branch</label>
-              <select value={form.branchId} onChange={(event) => setForm((current) => ({ ...current, branchId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
-                {(data?.branches ?? []).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
               <label className="text-sm font-semibold text-pocket-navy">From whom</label>
               <Input value={form.lenderName} onChange={(event) => setForm((current) => ({ ...current, lenderName: event.target.value }))} placeholder="Lender name" />
             </div>
