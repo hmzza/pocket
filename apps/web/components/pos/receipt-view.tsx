@@ -146,7 +146,7 @@ function ReceiptSlip({
           <span className="font-semibold">{money(order.grossTotal)}</span>
         </div>
         <div className="flex justify-between gap-3">
-          <span className="font-medium print:font-semibold">Discount:</span>
+          <span className="font-medium print:font-semibold">{order.promotionName ? `${order.promotionName}:` : "Discount:"}</span>
           <span className="font-semibold">{money(order.discountAmount)}</span>
         </div>
         <div className="flex justify-between gap-3 border-t border-dashed border-black/20 pt-1">

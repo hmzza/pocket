@@ -777,10 +777,26 @@ export type PosCatalogProduct = {
   id: string;
   name: string;
   categoryId: string;
+  categorySlug?: string;
   categoryName: string;
   price: number;
   addOnGroups: AddOnGroup[];
   bundleComponents: BundleComponent[];
+};
+
+export type PosPromotion = {
+  key: string;
+  name: string;
+  isActive: boolean;
+  threshold: number;
+  eligibleCategorySlug: string;
+  rewardProductSlug: string;
+  rewardProductId: string | null;
+  rewardProductName: string;
+  rewardUnitPrice: number | null;
+  appliesTo: string[];
+  available: boolean;
+  unavailableReason?: string;
 };
 
 export type PosBranch = {
@@ -809,6 +825,8 @@ export type PosReceiptOrder = {
   subtotal: number;
   grossTotal: number;
   discountAmount: number;
+  promotionName?: string | null;
+  promotionDiscountAmount?: number | null;
   serviceFee: number;
   taxRate: number;
   totalTax: number;
@@ -830,6 +848,7 @@ export type PosReceiptOrder = {
     productName: string;
     customDescription?: string | null;
     quantity: number;
+    promotionFreeQuantity?: number;
     unitPrice: number;
     taxRate: number;
     taxAmount: number;
@@ -855,6 +874,8 @@ export type PosEditableOrder = {
   paymentMethod: string;
   discountType: "NONE" | "PERCENTAGE" | "FIXED";
   discountValue: number;
+  promotionName?: string | null;
+  promotionDiscountAmount?: number | null;
   foodpandaOrderNumber: string;
   items: Array<{
     id: string;
@@ -862,6 +883,7 @@ export type PosEditableOrder = {
     productName: string;
     categoryName: string;
     quantity: number;
+    promotionFreeQuantity?: number;
     unitPrice: number;
     customDescription?: string | null;
     note?: string | null;

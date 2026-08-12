@@ -10,8 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PosOrderQueue } from "@/components/pos/order-queue";
 import { PosToolbar } from "@/components/pos/pos-toolbar";
-import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
-import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
+import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
+import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 
 type TicketLine = {
@@ -26,6 +26,7 @@ type TicketLine = {
   selections: Array<{ groupId: string; optionIds: string[] }>;
   bundleComponents: Array<{ productId: string; productName: string; quantity: number }>;
   addOns: Array<{ id: string; name: string; priceDelta: number }>;
+  promotionFreeQuantity?: number;
 };
 
 type ProductSelection = { groupId: string; optionIds: string[] };
@@ -253,6 +254,49 @@ function mergeTicketLine(lines: TicketLine[], nextLine: TicketLine) {
   return lines.map((line, index) => index === existingIndex ? { ...line, quantity: line.quantity + nextLine.quantity } : line);
 }
 
+function synchronizeIndependenceOffer(lines: TicketLine[], promotion: PosPromotion | null, serviceType: ServiceTypeSelection, products: PosCatalogProduct[]) {
+  const eligible = promotion?.isActive && promotion.available && promotion.rewardProductId && promotion.appliesTo.includes(serviceType) ? promotion : null;
+  const eligibleQuantity = eligible
+    ? lines.reduce((total, line) => total + (line.type === "product" && products.find((product) => product.id === line.productId)?.categorySlug === "shawarma" ? line.quantity : 0), 0)
+    : 0;
+  const desiredFreeQuantity = eligible ? Math.floor(eligibleQuantity / eligible.threshold) : 0;
+  let remainingFreeQuantity = desiredFreeQuantity;
+  let changed = false;
+  const nextLines = lines.flatMap((line) => {
+    if (line.type !== "product" || line.productId !== promotion?.rewardProductId || line.selections.length || line.addOns.length) return [line];
+    const previousFreeQuantity = line.promotionFreeQuantity ?? 0;
+    const paidQuantity = Math.max(0, line.quantity - previousFreeQuantity);
+    const freeQuantity = Math.min(desiredFreeQuantity, remainingFreeQuantity);
+    remainingFreeQuantity -= freeQuantity;
+    const nextQuantity = paidQuantity + freeQuantity;
+    if (nextQuantity !== line.quantity || freeQuantity !== previousFreeQuantity) changed = true;
+    if (!nextQuantity) return [];
+    return [{ ...line, quantity: nextQuantity, promotionFreeQuantity: freeQuantity || undefined }];
+  });
+
+  if (remainingFreeQuantity > 0 && eligible?.rewardProductId) {
+    const rewardProduct = products.find((product) => product.id === eligible.rewardProductId);
+    if (rewardProduct) {
+      changed = true;
+      nextLines.push({
+        id: `promotion-${eligible.rewardProductId}`,
+        type: "product",
+        productId: rewardProduct.id,
+        name: rewardProduct.name,
+        categoryName: rewardProduct.categoryName,
+        quantity: remainingFreeQuantity,
+        unitPrice: rewardProduct.price,
+        selections: [],
+        bundleComponents: rewardProduct.bundleComponents,
+        addOns: [],
+        promotionFreeQuantity: remainingFreeQuantity
+      });
+    }
+  }
+
+  return changed ? nextLines : lines;
+}
+
 function formatBundleSummary(components: Array<{ productName: string; quantity: number }>, multiplier = 1) {
   return components.map((component) => `${component.quantity * multiplier}x ${component.productName}`).join(", ");
 }
@@ -294,6 +338,7 @@ function mapEditableOrderToTicket(order: PosEditableOrder): TicketLine[] {
     name: item.productName,
     categoryName: item.categoryName,
     quantity: item.quantity,
+    promotionFreeQuantity: item.promotionFreeQuantity,
     unitPrice: item.unitPrice,
     customDescription: item.customDescription ?? undefined,
     selections: item.selections?.length ? item.selections : buildSelectionsFromEditableItem(item),
@@ -318,6 +363,7 @@ export function PosTerminal() {
   const [error, setError] = useState("");
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [products, setProducts] = useState<PosCatalogProduct[]>([]);
+  const [promotion, setPromotion] = useState<PosPromotion | null>(null);
   const [sessionUser, setSessionUser] = useState<Awaited<ReturnType<typeof fetchPosSession>>["user"] | null>(null);
   const [branchId, setBranchId] = useState("");
   const [categoryId, setCategoryId] = useState("ALL");
@@ -361,6 +407,7 @@ export function PosTerminal() {
 
     setCategories(data.categories.map((category) => ({ id: category.id, name: category.name })));
     setProducts(data.products);
+    setPromotion(data.promotion ?? null);
     if (!branchId || nextBranchId) {
       setBranchId(data.branchId ?? data.branches[0]?.id ?? "");
     }
@@ -422,7 +469,10 @@ export function PosTerminal() {
   const paymentOptions = useMemo(() => getPaymentOptions(serviceType), [serviceType]);
 
   const subtotal = useMemo(() => ticket.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [ticket]);
-  const discountAmount = useMemo(() => {
+  const promotionFreeQuantity = useMemo(() => ticket.reduce((sum, item) => sum + (item.promotionFreeQuantity ?? 0), 0), [ticket]);
+  const promotionApplied = Boolean(promotion?.isActive && promotion?.available && promotionFreeQuantity > 0 && promotion.appliesTo.includes(serviceType));
+  const promotionDiscountAmount = promotionApplied ? promotionFreeQuantity * (promotion?.rewardUnitPrice ?? 0) : 0;
+  const manualDiscountAmount = useMemo(() => {
     if (discountType === "PERCENTAGE") {
       return Math.min(subtotal, (subtotal * parseMoney(discountValue)) / 100);
     }
@@ -431,10 +481,23 @@ export function PosTerminal() {
     }
     return 0;
   }, [discountType, discountValue, subtotal]);
+  const discountAmount = promotionApplied ? Math.min(subtotal, promotionDiscountAmount) : manualDiscountAmount;
   const total = useMemo(() => Math.max(0, subtotal - discountAmount), [discountAmount, subtotal]);
   const payableTotal = total;
   const editingCompletedOrder = Boolean(editingOrderId);
   const ticketLocked = orderCompleted && !editingCompletedOrder;
+
+  useEffect(() => {
+    setTicket((current) => synchronizeIndependenceOffer(current, promotion, serviceType, products));
+  }, [ticket, promotion, serviceType, products]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const interval = window.setInterval(() => {
+      void fetchPosPromotion().then(setPromotion).catch(() => null);
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [ready]);
 
   useEffect(() => {
     if (serviceType === "FOODPANDA") {
@@ -670,8 +733,8 @@ export function PosTerminal() {
         paymentMethod,
         customerName: customerName.trim() || undefined,
         customerPhone: submittedCustomerPhone || undefined,
-        discountType,
-        discountValue: parseMoney(discountValue),
+        discountType: promotionApplied ? "FIXED" : discountType,
+        discountValue: promotionApplied ? promotionDiscountAmount : parseMoney(discountValue),
         placedAt: backdateEnabled ? buildIsoFromDateInput(orderDate) : undefined,
         items: ticket.map((item) =>
           item.type === "manual"
@@ -1056,13 +1119,20 @@ export function PosTerminal() {
                   disabled={ticketLocked}
                 />
               ) : null}
-              <div className="grid gap-1.5 md:grid-cols-2">
-                <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "PERCENTAGE" | "FIXED")} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
-                  <option value="PERCENTAGE">Percentage</option>
-                  <option value="FIXED">Fixed amount</option>
-                </select>
-                <Input className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"} inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="0" disabled={ticketLocked} />
-              </div>
+              {promotionApplied ? (
+                <div className={cn("rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800", splitView && "px-2 py-1 text-[11px]")}>
+                  <p className="font-bold">{promotion?.name} applied</p>
+                  <p className="mt-0.5">Loaded Fries free: {promotionFreeQuantity} · Discount: {formatCurrency(promotionDiscountAmount)}</p>
+                </div>
+              ) : (
+                <div className="grid gap-1.5 md:grid-cols-2">
+                  <select value={discountType} onChange={(event) => setDiscountType(event.target.value as "PERCENTAGE" | "FIXED")} className={splitView ? "h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px]" : "h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs"} disabled={ticketLocked}>
+                    <option value="PERCENTAGE">Percentage</option>
+                    <option value="FIXED">Fixed amount</option>
+                  </select>
+                  <Input className={splitView ? "h-7 text-[11px]" : "h-8 text-xs"} inputMode="decimal" value={discountValue} onChange={(event) => setDiscountValue(event.target.value)} placeholder="0" disabled={ticketLocked} />
+                </div>
+              )}
               <div className="space-y-1.5">
                 <button
                   type="button"
