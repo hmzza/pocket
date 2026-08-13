@@ -15,7 +15,7 @@ import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js"
 import { syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
-import { readIndependencePromotion, saveIndependencePromotion } from "../lib/promotions.js";
+import { readIndependencePromotion, readPromotionStats, saveIndependencePromotion } from "../lib/promotions.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -6116,7 +6116,21 @@ router.get("/promotions/independence-day", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
     const promotion = await readIndependencePromotion(prisma, branchContext.branchId);
-    return res.json({ promotion });
+    const query = z.object({
+      preset: z.enum(["all", "today", "7d", "30d", "month", "year", "custom"]).default("all"),
+      start: z.string().datetime().optional(),
+      end: z.string().datetime().optional()
+    }).superRefine((value, context) => {
+      if (value.preset === "custom" && (!value.start || !value.end)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "Custom range requires start and end dates.", path: ["start"] });
+      }
+    }).parse(req.query);
+    const periodRange = query.preset === "all"
+      ? { preset: "all", label: "All time" }
+      : buildDashboardRange({ ...query, preset: query.preset as Exclude<typeof query.preset, "all">, segment: "all" });
+    const allTime = await readPromotionStats(prisma, branchContext.branchId, { preset: "all", label: "All time" });
+    const period = query.preset === "all" ? allTime : await readPromotionStats(prisma, branchContext.branchId, periodRange);
+    return res.json({ promotion, stats: { allTime, period } });
   } catch (error) {
     return next(error);
   }

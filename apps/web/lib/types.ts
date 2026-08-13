@@ -799,6 +799,26 @@ export type PosPromotion = {
   unavailableReason?: string;
 };
 
+export type PromotionStats = {
+  range: { preset: string; label: string; start?: string; end?: string };
+  promotionOrders: number;
+  totalOrders: number;
+  participationRate: number;
+  netRevenue: number;
+  grossSales: number;
+  promotionDiscount: number;
+  averageOrderValue: number;
+  freeRewardUnits: number;
+  averageDiscountPerOrder: number;
+  discountRate: number;
+  trend: Array<{ date: string; label: string; orders: number; netRevenue: number; discount: number }>;
+};
+
+export type AdminPromotionData = {
+  promotion: PosPromotion;
+  stats: { allTime: PromotionStats; period: PromotionStats };
+};
+
 export type PosBranch = {
   id: string;
   slug: string;
