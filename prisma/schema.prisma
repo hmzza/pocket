@@ -416,6 +416,8 @@ model Order {
   discountAmount       Decimal       @db.Decimal(10, 2)
   manualDiscountType   DiscountType?
   manualDiscountValue  Decimal?      @db.Decimal(10, 2)
+  promotionName        String?
+  promotionDiscountAmount Decimal?   @db.Decimal(10, 2)
   cashReceivedAmount   Decimal?      @db.Decimal(10, 2)
   changeDueAmount      Decimal?      @db.Decimal(10, 2)
   totalAmount          Decimal       @db.Decimal(10, 2)
@@ -439,6 +441,7 @@ model OrderItem {
   customDescription String?
   quantity          Int
   unitPrice         Decimal                    @db.Decimal(10, 2)
+  promotionFreeQuantity Int                     @default(0)
   note              String?
   createdAt         DateTime                   @default(now())
   order             Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)

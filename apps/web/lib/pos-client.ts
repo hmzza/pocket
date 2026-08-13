@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminOrder, Branch, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosReceiptOrder } from "@/lib/types";
+import type { AdminOrder, Branch, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { getSelectedBranchId } from "@/lib/branch-selection";
 import { resolvePocketImagePath } from "@/lib/image-paths";
 
@@ -74,10 +74,11 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
   if (params?.categoryId) query.set("categoryId", params.categoryId);
   if (params?.search) query.set("search", params.search);
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  const data = await posFetch<{ branches: any[]; categories: any[]; products: any[]; branchId?: string }>(`/api/pos/catalog${suffix}`);
+  const data = await posFetch<{ branches: any[]; categories: any[]; products: any[]; branchId?: string; promotion: PosPromotion }>(`/api/pos/catalog${suffix}`);
 
   return {
     branchId: data.branchId,
+    promotion: data.promotion,
     branches: data.branches.map(
       (branch): PosBranch => ({
         id: branch.id,
@@ -97,6 +98,7 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
         id: product.id,
         name: product.name,
         categoryId: product.categoryId,
+        categorySlug: product.category.slug,
         categoryName: product.category.name,
         price: Number(product.branchPricing?.[0]?.price ?? product.basePrice),
         bundleComponents: (product.bundleComponents ?? []).map((component: any) => ({
@@ -220,6 +222,11 @@ export async function updatePosOrderPaymentStatus(orderId: string, paymentStatus
     method: "PATCH",
     body: JSON.stringify({ paymentStatus })
   });
+}
+
+export async function fetchPosPromotion() {
+  const data = await posFetch<{ promotion: PosPromotion }>("/api/pos/promotion");
+  return data.promotion;
 }
 
 export async function deletePosOrder(orderId: string) {

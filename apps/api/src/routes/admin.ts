@@ -15,6 +15,7 @@ import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js"
 import { syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
+import { readIndependencePromotion, saveIndependencePromotion } from "../lib/promotions.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -6106,6 +6107,33 @@ router.post("/uploads/images", async (req, res, next) => {
     const payload = imageUploadSchema.parse(req.body);
     const image = await saveUploadedImage(payload.filename, payload.dataUrl);
     return res.status(201).json(image);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/promotions/independence-day", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const promotion = await readIndependencePromotion(prisma, branchContext.branchId);
+    return res.json({ promotion });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/promotions/independence-day", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ isActive: z.boolean() }).parse(req.body);
+    const currentPromotion = await readIndependencePromotion(prisma, branchContext.branchId);
+    if (payload.isActive && !currentPromotion.available) {
+      return res.status(400).json({ message: currentPromotion.unavailableReason ?? "Promotion products are unavailable for this branch." });
+    }
+    await saveIndependencePromotion(prisma, payload.isActive);
+    const promotion = await readIndependencePromotion(prisma, branchContext.branchId);
+    await writeAuditLog({ actorId: req.user!.id, action: "promotion.independence_day_update", entityType: "setting", entityId: promotion.key, payload });
+    return res.json({ promotion });
   } catch (error) {
     return next(error);
   }

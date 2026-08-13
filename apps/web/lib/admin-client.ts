@@ -24,7 +24,8 @@ import type {
   AdminVendorData,
   Branch,
   Category,
-  DashboardData
+  DashboardData,
+  PosPromotion
 } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile, preparePocketImageUpload, readFileAsDataUrl } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
@@ -421,6 +422,19 @@ export async function fetchAdminSession() {
       canSwitchBranches: boolean;
     };
   }>("/api/auth/me");
+}
+
+export async function fetchAdminIndependencePromotion() {
+  const data = await adminFetch<{ promotion: PosPromotion }>("/api/admin/promotions/independence-day");
+  return data.promotion;
+}
+
+export async function updateAdminIndependencePromotion(isActive: boolean) {
+  const data = await adminFetch<{ promotion: PosPromotion }>("/api/admin/promotions/independence-day", {
+    method: "PATCH",
+    body: JSON.stringify({ isActive })
+  });
+  return data.promotion;
 }
 
 export async function fetchAdminBranches() {

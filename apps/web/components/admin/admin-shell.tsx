@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, HandCoins, History, LayoutDashboard, LogOut, Menu, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
+import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
@@ -21,6 +21,7 @@ const links: Array<{
   { href: "/admin/foodpanda", label: "Foodpanda", icon: Bike, permissionKey: "FOODPANDA" },
   { href: "/admin/health", label: "Business Health", icon: Activity, permissionKey: "BUSINESS_HEALTH" },
   { href: "/admin/products", label: "Products", icon: Boxes, permissionKey: "PRODUCTS" },
+  { href: "/admin/promotions", label: "Promotions", icon: Gift, permissionKey: "PROMOTIONS" },
   { href: "/admin/website", label: "Website Control", icon: SlidersHorizontal, permissionKey: "WEBSITE" },
   { href: "/admin/users", label: "Users", icon: Users, permissionKey: "USERS" },
   { href: "/admin/inventory", label: "Inventory", icon: Package2, permissionKey: "INVENTORY" },

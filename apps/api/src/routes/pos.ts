@@ -12,6 +12,7 @@ import { applyInventoryChanges, computeInventoryChanges, readInventoryData } fro
 import { syncMealPairingOptions } from "../lib/meal-options.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
+import { readIndependencePromotion } from "../lib/promotions.js";
 
 const router = Router();
 
@@ -167,6 +168,8 @@ function formatEditablePosOrder(order: any) {
     paymentMethod: order.paymentMethod,
     discountType: order.manualDiscountType ?? "NONE",
     discountValue: Number(order.manualDiscountValue ?? 0),
+    promotionName: order.promotionName ?? null,
+    promotionDiscountAmount: order.promotionDiscountAmount == null ? null : Number(order.promotionDiscountAmount),
     foodpandaOrderNumber: order.foodpandaOrderNumber ?? "",
     items: order.items.map((item: any) => ({
       id: item.id,
@@ -174,6 +177,7 @@ function formatEditablePosOrder(order: any) {
       productName: item.productName,
       categoryName: item.product?.category?.name ?? "Manual",
       quantity: Number(item.quantity),
+      promotionFreeQuantity: Number(item.promotionFreeQuantity ?? 0),
       unitPrice: Number(item.unitPrice),
       customDescription: item.customDescription ?? null,
       note: item.note ?? null,
@@ -228,7 +232,12 @@ function getBundleComponentProductIds(products: Array<{ bundleComponents?: Array
 
 async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
   await syncMealPairingOptions(prisma);
-  const productIds = getProductIds(payload.items);
+  const requestedProductIds = getProductIds(payload.items);
+  const promotion = await readIndependencePromotion(prisma, payload.branchId);
+  const productIds = [...new Set([
+    ...requestedProductIds,
+    ...(promotion.isActive && promotion.available && promotion.rewardProductId ? [promotion.rewardProductId] : [])
+  ])];
 
   const [branch, products] = await Promise.all([
     prisma.branch.findFirst({
@@ -271,7 +280,8 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
         unitPrice: Number(item.unitPrice.toFixed(2)),
         note: item.note?.trim() || null,
         addOns: [] as Array<{ optionId: string; optionName: string; priceDelta: number }>,
-        bundleComponents: [] as Array<{ productId: string; productName: string; quantity: number }>
+        bundleComponents: [] as Array<{ productId: string; productName: string; quantity: number }>,
+        promotionFreeQuantity: 0
       };
     }
 
@@ -341,20 +351,66 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       unitPrice: Number((baseUnitPrice + addOnTotal).toFixed(2)),
       note: item.note?.trim() || null,
       addOns: lineAddOns,
-      bundleComponents
+      bundleComponents,
+      promotionFreeQuantity: 0
     };
   });
+
+  let appliedPromotionName: string | null = null;
+  let promotionDiscountAmount = 0;
+  if (promotion.isActive && promotion.available && promotion.rewardProductId && (payload.serviceType === "INSHOP" || payload.serviceType === "TAKEAWAY")) {
+    const eligibleShawarmaQuantity = normalizedItems.reduce((total, item) => {
+      if (item.type !== "product") return total;
+      const product = productMap.get(item.productId);
+      return product?.category.slug === "shawarma" ? total + item.quantity : total;
+    }, 0);
+    const freeQuantity = Math.floor(eligibleShawarmaQuantity / promotion.threshold);
+    const rewardProduct = productMap.get(promotion.rewardProductId);
+    const rewardPricing = rewardProduct?.branchPricing[0];
+    const rewardUnitPrice = rewardProduct ? Number((rewardPricing?.price ?? rewardProduct.basePrice).toString()) : 0;
+    const rewardHasRequiredSelections = Boolean(rewardProduct?.addOnGroups.some((group) => group.name !== "Extras" && group.minSelect > 0));
+
+    if (freeQuantity > 0 && rewardProduct && !rewardHasRequiredSelections) {
+      const plainRewardIndex = normalizedItems.findIndex((item) => item.type === "product" && item.productId === rewardProduct.id && item.addOns.length === 0);
+      if (plainRewardIndex >= 0) {
+        const rewardLine = normalizedItems[plainRewardIndex]!;
+        rewardLine.quantity += freeQuantity;
+        rewardLine.promotionFreeQuantity += freeQuantity;
+      } else {
+        normalizedItems.push({
+          type: "product",
+          productId: rewardProduct.id,
+          productName: rewardProduct.name,
+          customDescription: null,
+          quantity: freeQuantity,
+          unitPrice: Number(rewardUnitPrice.toFixed(2)),
+          note: null,
+          addOns: [],
+          bundleComponents: rewardProduct.bundleComponents.map((component) => ({
+            productId: component.componentProduct.id,
+            productName: component.componentProduct.name,
+            quantity: component.quantity * freeQuantity
+          })),
+          promotionFreeQuantity: freeQuantity
+        });
+      }
+      appliedPromotionName = promotion.name;
+      promotionDiscountAmount = Number((freeQuantity * rewardUnitPrice).toFixed(2));
+    }
+  }
 
   const subtotal = Number(
     normalizedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0).toFixed(2)
   );
-  const discountAmount =
+  const manualDiscountAmount =
     payload.discountType === "PERCENTAGE"
       ? Number(((subtotal * payload.discountValue) / 100).toFixed(2))
       : payload.discountType === "FIXED"
         ? Number(payload.discountValue.toFixed(2))
         : 0;
-  const safeDiscountAmount = Math.min(subtotal, discountAmount);
+  const safeDiscountAmount = appliedPromotionName
+    ? Math.min(subtotal, promotionDiscountAmount)
+    : Math.min(subtotal, manualDiscountAmount);
   const totalAmount = Number(Math.max(0, subtotal - safeDiscountAmount).toFixed(2));
 
   const consumeChanges = computeInventoryChanges({
@@ -373,6 +429,8 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     normalizedItems,
     subtotal,
     discountAmount: safeDiscountAmount,
+    promotionName: appliedPromotionName,
+    promotionDiscountAmount: appliedPromotionName ? safeDiscountAmount : 0,
     totalAmount,
     paidAmount: totalAmount,
     changeDueAmount: 0,
@@ -387,6 +445,7 @@ function buildOrderItemCreateData(normalizedItems: Awaited<ReturnType<typeof bui
     customDescription: item.customDescription,
     quantity: item.quantity,
     unitPrice: item.unitPrice,
+    promotionFreeQuantity: item.promotionFreeQuantity,
     note: item.note,
     bundleComponents: item.bundleComponents.length
       ? {
@@ -462,6 +521,7 @@ router.get("/catalog", async (req, res, next) => {
     const branches = branchContext.branches;
     const branchId = branchContext.branchId;
     await syncMealPairingOptions(prisma);
+    const promotion = await readIndependencePromotion(prisma, branchId);
 
     const where: Prisma.ProductWhereInput = {
       isActive: true,
@@ -499,7 +559,17 @@ router.get("/catalog", async (req, res, next) => {
         : product
     );
 
-    return res.json({ branches, branchId, categories, products: posProducts });
+    return res.json({ branches, branchId, categories, products: posProducts, promotion });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/promotion", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const promotion = await readIndependencePromotion(prisma, branchContext.branchId);
+    return res.json({ promotion });
   } catch (error) {
     return next(error);
   }
@@ -636,8 +706,10 @@ router.post("/checkout", async (req, res, next) => {
             taxAmount: 0,
             deliveryFee: 0,
             discountAmount: orderPayload.discountAmount,
-            manualDiscountType: payload.discountType === "NONE" ? null : (payload.discountType as DiscountType),
-            manualDiscountValue: payload.discountType === "NONE" ? null : payload.discountValue,
+            manualDiscountType: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
+            manualDiscountValue: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
+            promotionName: orderPayload.promotionName,
+            promotionDiscountAmount: orderPayload.promotionDiscountAmount,
             cashReceivedAmount: orderPayload.paidAmount,
             changeDueAmount: orderPayload.changeDueAmount,
             totalAmount: orderPayload.totalAmount,
@@ -791,8 +863,10 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           taxAmount: 0,
           deliveryFee: 0,
           discountAmount: orderPayload.discountAmount,
-          manualDiscountType: payload.discountType === "NONE" ? null : (payload.discountType as DiscountType),
-          manualDiscountValue: payload.discountType === "NONE" ? null : payload.discountValue,
+          manualDiscountType: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
+          manualDiscountValue: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
+          promotionName: orderPayload.promotionName,
+          promotionDiscountAmount: orderPayload.promotionDiscountAmount,
           cashReceivedAmount: orderPayload.paidAmount,
           changeDueAmount: orderPayload.changeDueAmount,
           totalAmount: orderPayload.totalAmount,
