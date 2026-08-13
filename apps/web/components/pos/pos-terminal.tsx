@@ -749,6 +749,7 @@ export function PosTerminal() {
                 type: "product",
                 productId: item.productId,
                 quantity: item.quantity,
+                promotionFreeQuantity: item.promotionFreeQuantity ?? 0,
                 selections: normalizeSelections(item.selections)
               }
         )

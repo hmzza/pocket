@@ -55,6 +55,7 @@ const cartItemSchema = z.discriminatedUnion("type", [
     type: z.literal("product"),
     productId: z.string().cuid(),
     quantity: z.number().int().min(1).max(50),
+    promotionFreeQuantity: z.number().int().min(0).max(50).optional(),
     note: z.string().max(240).optional(),
     selections: z
       .array(selectionSchema)
@@ -352,7 +353,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       note: item.note?.trim() || null,
       addOns: lineAddOns,
       bundleComponents,
-      promotionFreeQuantity: 0
+      promotionFreeQuantity: Math.min(item.promotionFreeQuantity ?? 0, item.quantity)
     };
   });
 
@@ -370,13 +371,21 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     const rewardUnitPrice = rewardProduct ? Number((rewardPricing?.price ?? rewardProduct.basePrice).toString()) : 0;
     const rewardHasRequiredSelections = Boolean(rewardProduct?.addOnGroups.some((group) => group.name !== "Extras" && group.minSelect > 0));
 
-    if (freeQuantity > 0 && rewardProduct && !rewardHasRequiredSelections) {
-      const plainRewardIndex = normalizedItems.findIndex((item) => item.type === "product" && item.productId === rewardProduct.id && item.addOns.length === 0);
-      if (plainRewardIndex >= 0) {
+    if (rewardProduct && !rewardHasRequiredSelections) {
+      const plainRewardIndexes = normalizedItems
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => item.type === "product" && item.productId === rewardProduct.id && item.addOns.length === 0)
+        .map(({ index }) => index);
+      const plainRewardIndex = plainRewardIndexes[0];
+      const currentFreeQuantity = plainRewardIndexes.reduce((sum, index) => sum + normalizedItems[index]!.promotionFreeQuantity, 0);
+      const currentPaidQuantity = plainRewardIndexes.reduce((sum, index) => sum + Math.max(0, normalizedItems[index]!.quantity - normalizedItems[index]!.promotionFreeQuantity), 0);
+
+      if (plainRewardIndex !== undefined && freeQuantity > 0) {
         const rewardLine = normalizedItems[plainRewardIndex]!;
-        rewardLine.quantity += freeQuantity;
-        rewardLine.promotionFreeQuantity += freeQuantity;
-      } else {
+        rewardLine.quantity = currentPaidQuantity + freeQuantity;
+        rewardLine.promotionFreeQuantity = freeQuantity;
+        for (const index of plainRewardIndexes.slice(1).reverse()) normalizedItems.splice(index, 1);
+      } else if (freeQuantity > 0) {
         normalizedItems.push({
           type: "product",
           productId: rewardProduct.id,
@@ -393,9 +402,26 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
           })),
           promotionFreeQuantity: freeQuantity
         });
+      } else if (plainRewardIndex !== undefined && currentFreeQuantity > 0) {
+        const rewardLine = normalizedItems[plainRewardIndex]!;
+        rewardLine.quantity = currentPaidQuantity;
+        rewardLine.promotionFreeQuantity = 0;
+        for (const index of plainRewardIndexes.slice(1).reverse()) normalizedItems.splice(index, 1);
       }
-      appliedPromotionName = promotion.name;
-      promotionDiscountAmount = Number((freeQuantity * rewardUnitPrice).toFixed(2));
+      if (freeQuantity > 0) {
+        appliedPromotionName = promotion.name;
+        promotionDiscountAmount = Number((freeQuantity * rewardUnitPrice).toFixed(2));
+      }
+    }
+  } else {
+    for (const item of normalizedItems) {
+      if (item.type === "product" && item.promotionFreeQuantity > 0) {
+        item.quantity = Math.max(0, item.quantity - item.promotionFreeQuantity);
+        item.promotionFreeQuantity = 0;
+      }
+    }
+    for (let index = normalizedItems.length - 1; index >= 0; index--) {
+      if (normalizedItems[index]!.quantity <= 0) normalizedItems.splice(index, 1);
     }
   }
 
