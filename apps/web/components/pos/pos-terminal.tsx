@@ -255,7 +255,7 @@ function mergeTicketLine(lines: TicketLine[], nextLine: TicketLine) {
 }
 
 function synchronizeIndependenceOffer(lines: TicketLine[], promotion: PosPromotion | null, serviceType: ServiceTypeSelection, products: PosCatalogProduct[]) {
-  const eligible = promotion?.isActive && promotion.available && promotion.rewardProductId && promotion.appliesTo.includes(serviceType) ? promotion : null;
+  const eligible = promotion?.isActive && promotion.available && promotion.rewardProductId && serviceType !== "FOODPANDA" ? promotion : null;
   const eligibleQuantity = eligible
     ? lines.reduce((total, line) => total + (line.type === "product" && products.find((product) => product.id === line.productId)?.categorySlug === "shawarma" ? line.quantity : 0), 0)
     : 0;
@@ -470,7 +470,7 @@ export function PosTerminal() {
 
   const subtotal = useMemo(() => ticket.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [ticket]);
   const promotionFreeQuantity = useMemo(() => ticket.reduce((sum, item) => sum + (item.promotionFreeQuantity ?? 0), 0), [ticket]);
-  const promotionApplied = Boolean(promotion?.isActive && promotion?.available && promotionFreeQuantity > 0 && promotion.appliesTo.includes(serviceType));
+  const promotionApplied = Boolean(promotion?.isActive && promotion?.available && promotionFreeQuantity > 0 && serviceType !== "FOODPANDA");
   const promotionDiscountAmount = promotionApplied ? promotionFreeQuantity * (promotion?.rewardUnitPrice ?? 0) : 0;
   const manualDiscountAmount = useMemo(() => {
     if (discountType === "PERCENTAGE") {
