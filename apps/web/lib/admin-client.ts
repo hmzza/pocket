@@ -25,6 +25,7 @@ import type {
   Branch,
   Category,
   DashboardData,
+  AdminPromotionData,
   PosPromotion
 } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile, preparePocketImageUpload, readFileAsDataUrl } from "@/lib/image-upload";
@@ -424,9 +425,13 @@ export async function fetchAdminSession() {
   }>("/api/auth/me");
 }
 
-export async function fetchAdminIndependencePromotion() {
-  const data = await adminFetch<{ promotion: PosPromotion }>("/api/admin/promotions/independence-day");
-  return data.promotion;
+export async function fetchAdminIndependencePromotion(params?: { preset?: string; start?: string; end?: string }) {
+  const query = new URLSearchParams();
+  if (params?.preset) query.set("preset", params.preset);
+  if (params?.start) query.set("start", params.start);
+  if (params?.end) query.set("end", params.end);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return adminFetch<AdminPromotionData>(`/api/admin/promotions/independence-day${suffix}`);
 }
 
 export async function updateAdminIndependencePromotion(isActive: boolean) {
