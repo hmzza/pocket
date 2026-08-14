@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, RefreshCcw, Receipt } from "lucide-react";
 import { FixedExpenseManagement } from "@/components/admin/fixed-expense-management";
 import { SalesChart } from "@/components/admin/sales-chart";
@@ -84,17 +84,19 @@ type ExpenseFormState = {
   notes: string;
 };
 
-const EMPTY_EXPENSE_FORM: ExpenseFormState = {
-  branchId: "",
-  title: "",
-  category: "Inventory",
-  amount: "",
-  paymentSource: "",
-  expenseDate: getCurrentBusinessDateKey(),
-  vendor: "",
-  billReference: "",
-  notes: ""
-};
+function createEmptyExpenseForm(): ExpenseFormState {
+  return {
+    branchId: "",
+    title: "",
+    category: "Inventory",
+    amount: "",
+    paymentSource: "",
+    expenseDate: getCurrentBusinessDateKey(),
+    vendor: "",
+    billReference: "",
+    notes: ""
+  };
+}
 
 function mapExpenseToForm(expense: AdminExpense): ExpenseFormState {
   return {
@@ -277,7 +279,9 @@ export function ExpenseManagement() {
   const [error, setError] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<AdminExpense | null>(null);
-  const [form, setForm] = useState<ExpenseFormState>(EMPTY_EXPENSE_FORM);
+  const [form, setForm] = useState<ExpenseFormState>(createEmptyExpenseForm);
+  const [formDateEdited, setFormDateEdited] = useState(false);
+  const lastBusinessDateRef = useRef(getCurrentBusinessDateKey());
   const [titleChoice, setTitleChoice] = useState("");
   const [vendorChoice, setVendorChoice] = useState("");
   const [saving, setSaving] = useState(false);
@@ -357,6 +361,30 @@ export function ExpenseManagement() {
     void loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd);
   }, [preset, branchId, categoryFilter, selectedMonth, customStart, customEnd]);
 
+  useEffect(() => {
+    const checkBusinessDay = () => {
+      const nextBusinessDate = getCurrentBusinessDateKey();
+      if (nextBusinessDate === lastBusinessDateRef.current) return;
+
+      lastBusinessDateRef.current = nextBusinessDate;
+      if (editorOpen && !editingExpense && !formDateEdited) {
+        setForm((current) => ({ ...current, expenseDate: nextBusinessDate }));
+      }
+      if (preset === "today") {
+        void loadExpenses("today", branchId, categoryFilter, selectedMonth, customStart, customEnd);
+      }
+    };
+
+    const interval = window.setInterval(checkBusinessDay, 30_000);
+    window.addEventListener("focus", checkBusinessDay);
+    document.addEventListener("visibilitychange", checkBusinessDay);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", checkBusinessDay);
+      document.removeEventListener("visibilitychange", checkBusinessDay);
+    };
+  }, [editorOpen, editingExpense, formDateEdited, preset, branchId, categoryFilter, selectedMonth, customStart, customEnd]);
+
   const filteredExpenses = useMemo(() => {
     if (!data) return [];
     return data.expenses.filter((expense) => {
@@ -382,8 +410,9 @@ export function ExpenseManagement() {
 
   function openCreate() {
     setEditingExpense(null);
+    setFormDateEdited(false);
     setForm({
-      ...EMPTY_EXPENSE_FORM,
+      ...createEmptyExpenseForm(),
       branchId: branchId || data?.branches[0]?.id || "",
       category: categoryOptions[0] ?? "Inventory"
     });
@@ -394,6 +423,7 @@ export function ExpenseManagement() {
 
   function openEdit(expense: AdminExpense) {
     setEditingExpense(expense);
+    setFormDateEdited(true);
     setForm(mapExpenseToForm(expense));
     setTitleChoice(titleOptions.includes(expense.title) ? expense.title : "__custom__");
     setVendorChoice(expense.vendor && vendorOptions.includes(expense.vendor) ? expense.vendor : expense.vendor ? "__custom__" : "");
@@ -530,7 +560,12 @@ export function ExpenseManagement() {
         onAddCategory={(nextCategory) => void addExpenseCategory(nextCategory)}
         onTitleChoiceChange={setTitleChoice}
         saving={saving}
-        onChange={setForm}
+        onChange={(next) => {
+          if (next.expenseDate !== form.expenseDate) {
+            setFormDateEdited(true);
+          }
+          setForm(next);
+        }}
         onVendorChoiceChange={setVendorChoice}
         vendorChoice={vendorChoice}
         onClose={() => setEditorOpen(false)}

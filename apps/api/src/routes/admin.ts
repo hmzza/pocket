@@ -5765,7 +5765,9 @@ router.post("/expenses", async (req, res, next) => {
         category: payload.category.trim(),
         amount: payload.amount,
         paymentSource: payload.paymentSource,
-        expenseDate: new Date(payload.expenseDate),
+        // Store expenses at the canonical 6AM business-day boundary. This
+        // keeps reporting stable even when clients send a calendar timestamp.
+        expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start,
         vendor: payload.vendor?.trim() || undefined,
         billReference: payload.billReference?.trim() || undefined,
         notes: payload.notes?.trim() || undefined
@@ -5809,7 +5811,9 @@ router.patch("/expenses/:id", async (req, res, next) => {
         ...(payload.category ? { category: payload.category.trim() } : {}),
         ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
         ...(payload.paymentSource ? { paymentSource: payload.paymentSource } : {}),
-        ...(payload.expenseDate ? { expenseDate: new Date(payload.expenseDate) } : {}),
+        ...(payload.expenseDate
+          ? { expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start }
+          : {}),
         ...(payload.vendor !== undefined ? { vendor: payload.vendor?.trim() || null } : {}),
         ...(payload.billReference !== undefined ? { billReference: payload.billReference?.trim() || null } : {}),
         ...(payload.notes !== undefined ? { notes: payload.notes?.trim() || null } : {}),
