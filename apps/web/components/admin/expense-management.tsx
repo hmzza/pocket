@@ -387,12 +387,14 @@ export function ExpenseManagement() {
 
   const filteredExpenses = useMemo(() => {
     if (!data) return [];
-    return data.expenses.filter((expense) => {
+    return data.expenses
+      .filter((expense) => {
       const matchesSearch =
         !search ||
         `${expense.title} ${expense.category} ${expense.vendor ?? ""} ${expense.billReference ?? ""}`.toLowerCase().includes(search.toLowerCase());
       return matchesSearch;
-    });
+      })
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
   }, [data, search]);
 
   const categoryOptions = useMemo(() => {
@@ -763,7 +765,20 @@ export function ExpenseManagement() {
                           </p>
                         </div>
                         <div className="grid gap-2 text-sm text-pocket-navy/70 sm:grid-cols-2">
-                          <p>Date: {new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric", year: "numeric" }).format(new Date(expense.expenseDate))}</p>
+                          <p>
+                            Business day: {new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Karachi" }).format(new Date(expense.expenseDate))}
+                          </p>
+                          <p>
+                            Logged at: {new Intl.DateTimeFormat("en-PK", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                              hour12: true,
+                              timeZone: "Asia/Karachi"
+                            }).format(new Date(expense.createdAt))} PKT
+                          </p>
                           <p>Paid from: {MONEY_SOURCES.find((source) => source.value === expense.paymentSource)?.label ?? expense.paymentSource}</p>
                           {expense.vendor ? <p>Vendor: {expense.vendor}</p> : null}
                           {expense.billReference ? <p>Bill: {expense.billReference}</p> : null}
