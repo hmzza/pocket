@@ -120,6 +120,7 @@ model User {
   expenses              Expense[]              @relation("ExpenseActor")
   fixedExpenses         FixedExpense[]         @relation("FixedExpenseActor")
   moneyTransfers        MoneyTransfer[]        @relation("MoneyTransferActor")
+  moneyAdditions        MoneyAddition[]        @relation("MoneyAdditionActor")
   dailyClosings         DailyClosing[]         @relation("DailyClosingActor")
   openingBalances       OpeningBalance[]       @relation("OpeningBalanceActor")
   foodpandaSettlements  FoodpandaSettlement[]  @relation("FoodpandaSettlementReceiver")
@@ -196,6 +197,7 @@ model Branch {
   expenses       Expense[]
   fixedExpenses  FixedExpense[]
   moneyTransfers MoneyTransfer[]
+  moneyAdditions MoneyAddition[]
   dailyClosings  DailyClosing[]
   openingBalances OpeningBalance[]
   loans          Loan[]
@@ -781,6 +783,22 @@ model LoanRepayment {
   @@index([loanId])
   @@index([branchId, paymentDate])
   @@index([paidFrom])
+}
+
+model MoneyAddition {
+  id           String   @id @default(cuid())
+  branchId     String
+  amount       Decimal  @db.Decimal(10, 2)
+  toSource     String
+  reason       String
+  additionDate DateTime
+  createdById  String?
+  createdAt    DateTime @default(now())
+  branch       Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy    User?   @relation("MoneyAdditionActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([branchId, additionDate])
+  @@index([toSource])
 }
 
 model InvestmentPartner {

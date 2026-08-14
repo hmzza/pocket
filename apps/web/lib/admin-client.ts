@@ -425,11 +425,10 @@ export async function fetchAdminSession() {
   }>("/api/auth/me");
 }
 
-export async function fetchAdminIndependencePromotion(params?: { preset?: string; start?: string; end?: string }) {
+export async function fetchAdminIndependencePromotion(params?: { preset?: string; date?: string }) {
   const query = new URLSearchParams();
   if (params?.preset) query.set("preset", params.preset);
-  if (params?.start) query.set("start", params.start);
-  if (params?.end) query.set("end", params.end);
+  if (params?.date) query.set("date", params.date);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return adminFetch<AdminPromotionData>(`/api/admin/promotions/independence-day${suffix}`);
 }
@@ -980,6 +979,22 @@ export async function deleteAdminLoanRepayment(loanId: string, repaymentId: stri
   await adminFetch(`/api/admin/loans/${loanId}/repayments/${repaymentId}`, {
     method: "DELETE"
   });
+}
+
+export async function fetchAdminOtherMoneyIn(preset: "today" | "7d" | "30d" | "month" | "year" = "month") {
+  return adminFetch<{ amount: number; range: { start: string; end: string; label: string } }>(`/api/admin/finance/other-money-in?preset=${preset}`);
+}
+
+export async function createAdminMoneyAddition(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ addition: any }>("/api/admin/inventory/closing/additions", {
+    method: "POST",
+    body: JSON.stringify(withSelectedBranch(payload))
+  });
+  return data.addition;
+}
+
+export async function deleteAdminMoneyAddition(additionId: string) {
+  await adminFetch(`/api/admin/inventory/closing/additions/${additionId}`, { method: "DELETE" });
 }
 
 export async function fetchAdminPermissions() {

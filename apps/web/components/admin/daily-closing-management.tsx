@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createAdminMoneyTransfer,
+  createAdminMoneyAddition,
   deleteAdminMoneyTransfer,
+  deleteAdminMoneyAddition,
   fetchAdminDailyClosing,
   fetchAdminInventory,
   saveAdminDailyClosing,
@@ -74,6 +76,8 @@ export function DailyClosingManagement() {
   const [opening, setOpening] = useState<Record<MoneySource, string>>(emptyMoneyText);
   const [note, setNote] = useState("");
   const [transferForm, setTransferForm] = useState({ fromSource: "CASH" as MoneySource, toSource: "EASYPAISA" as MoneySource, amount: "", note: "" });
+  const [movementType, setMovementType] = useState<"TRANSFER" | "ADDITION">("TRANSFER");
+  const [additionForm, setAdditionForm] = useState({ toSource: "CASH" as MoneySource, amount: "", reason: "" });
   const [showTransferHistory, setShowTransferHistory] = useState(false);
   const [showOpeningCorrection, setShowOpeningCorrection] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -138,19 +142,21 @@ export function DailyClosingManagement() {
   }, [actual, data]);
 
   const totals = useMemo(() => {
-    if (!data) return { sales: 0, expenses: 0, loanIn: 0, investmentIn: 0, loanOut: 0, inflow: 0, outflow: 0, difference: 0 };
+    if (!data) return { sales: 0, expenses: 0, loanIn: 0, investmentIn: 0, additionIn: 0, loanOut: 0, inflow: 0, outflow: 0, difference: 0 };
     const sales = data.sales.CASH + data.sales.EASYPAISA + data.sales.JAZZCASH;
     const loanIn = data.loanIn.CASH + data.loanIn.EASYPAISA + data.loanIn.JAZZCASH;
     const investmentIn = data.investmentIn.CASH + data.investmentIn.EASYPAISA + data.investmentIn.JAZZCASH;
+    const additionIn = data.additionIn.CASH + data.additionIn.EASYPAISA + data.additionIn.JAZZCASH;
     const expenses = data.expenses.CASH + data.expenses.EASYPAISA + data.expenses.JAZZCASH;
     const loanOut = data.loanOut.CASH + data.loanOut.EASYPAISA + data.loanOut.JAZZCASH;
-    const inflow = sales + loanIn + investmentIn;
+    const inflow = sales + loanIn + investmentIn + additionIn;
     const outflow = expenses + loanOut;
     return {
       sales,
       expenses,
       loanIn,
       investmentIn,
+      additionIn,
       loanOut,
       inflow,
       outflow,
@@ -243,6 +249,31 @@ export function DailyClosingManagement() {
     }
   }
 
+  async function saveAddition() {
+    if (!branchId) return;
+    if (!additionForm.amount || !additionForm.reason.trim()) {
+      setError("Enter the added amount and reason.");
+      return;
+    }
+    try {
+      setSaving(true);
+      setError("");
+      await createAdminMoneyAddition({
+        branchId,
+        amount: numberValue(additionForm.amount),
+        toSource: additionForm.toSource,
+        reason: additionForm.reason.trim(),
+        businessDate: date
+      });
+      setAdditionForm((current) => ({ ...current, amount: "", reason: "" }));
+      await loadSnapshot();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not record money added.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteTransfer(transferId: string) {
     const confirmed = window.confirm("Delete this money transfer?");
     if (!confirmed) return;
@@ -253,6 +284,20 @@ export function DailyClosingManagement() {
       await loadSnapshot();
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Could not delete transfer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteAddition(additionId: string) {
+    if (!window.confirm("Delete this money addition?")) return;
+    try {
+      setSaving(true);
+      setError("");
+      await deleteAdminMoneyAddition(additionId);
+      await loadSnapshot();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete money addition.");
     } finally {
       setSaving(false);
     }
@@ -310,7 +355,7 @@ export function DailyClosingManagement() {
           </Card>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <MovementSummaryCard label="Inflow" value={totals.inflow} tone="positive" lines={[`Sales ${formatCurrency(totals.sales)}`, `Capital received ${formatCurrency(totals.investmentIn)}`, `Loans received ${formatCurrency(totals.loanIn)}`]} />
+            <MovementSummaryCard label="Inflow" value={totals.inflow} tone="positive" lines={[`Sales ${formatCurrency(totals.sales)}`, `Capital received ${formatCurrency(totals.investmentIn)}`, `Loans received ${formatCurrency(totals.loanIn)}`, `Other money added ${formatCurrency(totals.additionIn)}`]} />
             <MovementSummaryCard label="Outflow" value={totals.outflow} tone="negative" lines={[`Expenses ${formatCurrency(totals.expenses)}`, `Loan repayments ${formatCurrency(totals.loanOut)}`]} />
             <MovementSummaryCard label={totals.difference < -1 ? "Deficit" : totals.difference > 1 ? "Surplus" : "Balanced"} value={Math.abs(totals.difference)} tone={totals.difference < -1 ? "negative" : totals.difference > 1 ? "positive" : "neutral"} lines={[`Inflow ${formatCurrency(totals.inflow)}`, `Outflow ${formatCurrency(totals.outflow)}`]} />
           </div>
@@ -318,21 +363,27 @@ export function DailyClosingManagement() {
           <Card className="p-5 print:hidden">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="text-lg font-black text-pocket-navy">Transfers</p>
-                <p className="text-sm text-pocket-navy/60">Move money between Cash, Easypaisa, and JazzCash for this business day.</p>
+                <p className="text-lg font-black text-pocket-navy">Money movement</p>
+                <p className="text-sm text-pocket-navy/60">Record transfers between accounts or unusual money added on this business day.</p>
               </div>
               <button type="button" className="inline-flex items-center gap-2 text-sm font-bold text-pocket-orange" onClick={() => setShowTransferHistory((value) => !value)} aria-expanded={showTransferHistory}>
-                {data.transfersToday.length} {data.transfersToday.length === 1 ? "transfer" : "transfers"} history
+                {data.transfersToday.length + data.additionsToday.length} movement{data.transfersToday.length + data.additionsToday.length === 1 ? "" : "s"} history
                 <ChevronDown className={`h-4 w-4 transition-transform ${showTransferHistory ? "rotate-180" : ""}`} />
               </button>
             </div>
-            <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_160px_1fr_auto] lg:items-end">
+            <div className="mt-4 inline-flex rounded-lg bg-pocket-cream p-1"><button type="button" onClick={() => setMovementType("TRANSFER")} className={`rounded-md px-3 py-2 text-sm font-bold ${movementType === "TRANSFER" ? "bg-white text-pocket-navy shadow-sm" : "text-pocket-navy/55"}`}>Transfer</button><button type="button" onClick={() => setMovementType("ADDITION")} className={`rounded-md px-3 py-2 text-sm font-bold ${movementType === "ADDITION" ? "bg-white text-pocket-navy shadow-sm" : "text-pocket-navy/55"}`}>Money added</button></div>
+            {movementType === "TRANSFER" ? <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_160px_1fr_auto] lg:items-end">
               <label className="text-sm font-semibold text-pocket-navy">From<select className="mt-1 h-11 w-full rounded-lg border border-pocket-navy/15 bg-white px-3 text-sm" value={transferForm.fromSource} onChange={(event) => setTransferForm((current) => ({ ...current, fromSource: event.target.value as MoneySource }))}>{moneySources.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}</select></label>
               <label className="text-sm font-semibold text-pocket-navy">To<select className="mt-1 h-11 w-full rounded-lg border border-pocket-navy/15 bg-white px-3 text-sm" value={transferForm.toSource} onChange={(event) => setTransferForm((current) => ({ ...current, toSource: event.target.value as MoneySource }))}>{moneySources.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}</select></label>
               <label className="text-sm font-semibold text-pocket-navy">Amount<Input className="mt-1" type="number" min="0" step="0.01" value={transferForm.amount} onChange={(event) => setTransferForm((current) => ({ ...current, amount: event.target.value }))} placeholder="0" /></label>
               <label className="text-sm font-semibold text-pocket-navy">Note<Input className="mt-1" value={transferForm.note} onChange={(event) => setTransferForm((current) => ({ ...current, note: event.target.value }))} placeholder="Optional" /></label>
               <Button onClick={() => void saveTransfer()} disabled={saving}>{saving ? "Saving..." : "Record"}</Button>
-            </div>
+            </div> : <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_160px_1fr_auto] lg:items-end">
+              <label className="text-sm font-semibold text-pocket-navy">Added to<select className="mt-1 h-11 w-full rounded-lg border border-pocket-navy/15 bg-white px-3 text-sm" value={additionForm.toSource} onChange={(event) => setAdditionForm((current) => ({ ...current, toSource: event.target.value as MoneySource }))}>{moneySources.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}</select></label>
+              <label className="text-sm font-semibold text-pocket-navy">Amount<Input className="mt-1" type="number" min="0" step="0.01" value={additionForm.amount} onChange={(event) => setAdditionForm((current) => ({ ...current, amount: event.target.value }))} placeholder="0" /></label>
+              <label className="text-sm font-semibold text-pocket-navy">Reason<Input className="mt-1" value={additionForm.reason} onChange={(event) => setAdditionForm((current) => ({ ...current, reason: event.target.value }))} placeholder="Why was money added?" /></label>
+              <Button onClick={() => void saveAddition()} disabled={saving}>{saving ? "Saving..." : "Record"}</Button>
+            </div>}
             {showTransferHistory ? <div className="mt-4 space-y-2">
               {data.transfersToday.map((transfer) => (
                 <div key={transfer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-pocket-navy/10 px-4 py-3 text-sm">
@@ -343,14 +394,20 @@ export function DailyClosingManagement() {
                   <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void deleteTransfer(transfer.id)}><Trash2 className="h-4 w-4" />Delete</Button>
                 </div>
               ))}
-              {!data.transfersToday.length ? <p className="text-sm text-pocket-navy/60">No transfers recorded for this business day.</p> : null}
+              {data.additionsToday.map((addition) => (
+                <div key={addition.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-3 text-sm">
+                  <div><p className="font-bold text-pocket-navy"><span className="mr-2 rounded-full bg-emerald-100 px-2 py-1 text-[10px] uppercase tracking-wide text-emerald-800">Money added</span>{formatCurrency(addition.amount)} to {moneyLabel(addition.toSource)}</p><p className="text-pocket-navy/55">{addition.reason} · {formatDateTime(addition.additionDate)}</p></div>
+                  <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void deleteAddition(addition.id)}><Trash2 className="h-4 w-4" />Delete</Button>
+                </div>
+              ))}
+              {!data.transfersToday.length && !data.additionsToday.length ? <p className="text-sm text-pocket-navy/60">No money movement recorded for this business day.</p> : null}
             </div> : null}
           </Card>
 
           <Card className="p-5">
             <div>
               <p className="text-lg font-black text-pocket-navy">Balance calculation</p>
-              <p className="text-sm text-pocket-navy/60">Opening + inflows + transfers in - outflows - transfers out = expected balance.</p>
+              <p className="text-sm text-pocket-navy/60">Opening + sales + capital + other money added + transfers in - outflows - transfers out = expected balance.</p>
             </div>
             <div className="mt-5 grid gap-4 xl:grid-cols-3">
               {moneySources.map(({ key, label }) => {
@@ -364,6 +421,7 @@ export function DailyClosingManagement() {
                       <MovementRow label="Sales" value={data.sales[key]} sign="plus" />
                       <MovementRow label="Loan received" value={data.loanIn[key]} sign="plus" />
                       <MovementRow label="Investment received" value={data.investmentIn[key]} sign="plus" />
+                      <MovementRow label="Other money added" value={data.additionIn[key]} sign="plus" />
                       <MovementRow label="Transfers in" value={data.transferIn[key]} sign="plus" />
                       <MovementRow label="Expenses" value={data.expenses[key]} sign="minus" />
                       <MovementRow label="Loan repayments" value={data.loanOut[key]} sign="minus" />
