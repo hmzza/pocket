@@ -3003,6 +3003,14 @@ const transferSchema = z
     }
   });
 
+const moneyAdditionSchema = z.object({
+  branchId: z.string().cuid(),
+  amount: z.number().positive(),
+  toSource: z.enum(MONEY_SOURCES),
+  reason: z.string().trim().min(1).max(240),
+  businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+});
+
 const closingQuerySchema = z.object({
   branchId: z.string().cuid(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
@@ -3099,7 +3107,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     prisma.openingBalance.findFirst({ where: { branchId, balanceDate: { lte: start } }, orderBy: { balanceDate: "desc" } })
   ]);
 
-  const [orders, foodpandaOrders, expenses, transfers, loanCashflow, investmentCashflow, currentClosing, recentClosings] = await Promise.all([
+  const [orders, foodpandaOrders, expenses, transfers, additions, loanCashflow, investmentCashflow, currentClosing, recentClosings] = await Promise.all([
     prisma.order.findMany({
       where: {
         branchId,
@@ -3142,6 +3150,11 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
       include: { createdBy: true },
       orderBy: { transferDate: "desc" }
     }),
+    prisma.moneyAddition.findMany({
+      where: { branchId, additionDate: { gte: start, lte: end } },
+      include: { createdBy: true },
+      orderBy: { additionDate: "desc" }
+    }),
     readLoanCashflow(branchId, start, end),
     readInvestmentCashflow(branchId, start, end),
     prisma.dailyClosing.findUnique({
@@ -3178,6 +3191,10 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     transferOut[transfer.fromSource as keyof typeof transferOut] += parseDecimal(transfer.amount);
     transferIn[transfer.toSource as keyof typeof transferIn] += parseDecimal(transfer.amount);
   }
+  const additionIn = emptyMoneyTotals();
+  for (const addition of additions) {
+    additionIn[addition.toSource as keyof typeof additionIn] += parseDecimal(addition.amount);
+  }
   const loanIn = emptyMoneyTotals();
   const loanOut = emptyMoneyTotals();
   for (const loan of loanCashflow.loans) {
@@ -3191,9 +3208,9 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     investmentIn[payment.receivedSource as keyof typeof investmentIn] += parseDecimal(payment.amount);
   }
   const expected = {
-    CASH: roundMoney(opening.CASH + sales.CASH - expenseTotals.CASH - transferOut.CASH + transferIn.CASH + loanIn.CASH + investmentIn.CASH - loanOut.CASH),
-    EASYPAISA: roundMoney(opening.EASYPAISA + sales.EASYPAISA - expenseTotals.EASYPAISA - transferOut.EASYPAISA + transferIn.EASYPAISA + loanIn.EASYPAISA + investmentIn.EASYPAISA - loanOut.EASYPAISA),
-    JAZZCASH: roundMoney(opening.JAZZCASH + sales.JAZZCASH - expenseTotals.JAZZCASH - transferOut.JAZZCASH + transferIn.JAZZCASH + loanIn.JAZZCASH + investmentIn.JAZZCASH - loanOut.JAZZCASH)
+    CASH: roundMoney(opening.CASH + sales.CASH - expenseTotals.CASH - transferOut.CASH + transferIn.CASH + additionIn.CASH + loanIn.CASH + investmentIn.CASH - loanOut.CASH),
+    EASYPAISA: roundMoney(opening.EASYPAISA + sales.EASYPAISA - expenseTotals.EASYPAISA - transferOut.EASYPAISA + transferIn.EASYPAISA + additionIn.EASYPAISA + loanIn.EASYPAISA + investmentIn.EASYPAISA - loanOut.EASYPAISA),
+    JAZZCASH: roundMoney(opening.JAZZCASH + sales.JAZZCASH - expenseTotals.JAZZCASH - transferOut.JAZZCASH + transferIn.JAZZCASH + additionIn.JAZZCASH + loanIn.JAZZCASH + investmentIn.JAZZCASH - loanOut.JAZZCASH)
   };
 
   return {
@@ -3208,9 +3225,20 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     expenses: expenseTotals,
     transferIn,
     transferOut,
+    additionIn,
     loanIn,
     investmentIn,
     loanOut,
+    additionsToday: additions.map((addition) => ({
+      id: addition.id,
+      branchId: addition.branchId,
+      amount: parseDecimal(addition.amount),
+      toSource: addition.toSource,
+      reason: addition.reason,
+      additionDate: addition.additionDate.toISOString(),
+      createdByName: addition.createdBy?.name ?? null,
+      createdAt: addition.createdAt.toISOString()
+    })),
     expected,
     currentClosing: currentClosing ? {
       id: currentClosing.id,
@@ -3485,6 +3513,41 @@ router.delete("/inventory/transfers/:id", async (req, res, next) => {
   }
 });
 
+router.post("/inventory/closing/additions", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const parsed = moneyAdditionSchema.parse(req.body);
+    const addition = await prisma.moneyAddition.create({
+      data: {
+        branchId: branchContext.branchId,
+        amount: parsed.amount,
+        toSource: parsed.toSource,
+        reason: parsed.reason,
+        additionDate: normalizeClosingDate(new Date(`${parsed.businessDate}T12:00:00+05:00`)),
+        createdById: req.user!.id
+      },
+      include: { createdBy: true }
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: "finance.money_addition_create", entityType: "money_addition", entityId: addition.id, payload: parsed });
+    return res.status(201).json({ addition });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/inventory/closing/additions/:id", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const addition = await prisma.moneyAddition.findFirst({ where: { id: req.params.id, branchId: branchContext.branchId } });
+    if (!addition) return res.status(404).json({ message: "Money addition not found." });
+    await prisma.moneyAddition.delete({ where: { id: addition.id } });
+    await writeAuditLog({ actorId: req.user!.id, action: "finance.money_addition_delete", entityType: "money_addition", entityId: addition.id, payload: { mode: "deleted" } });
+    return res.json({ deleted: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/inventory/closing", async (req, res, next) => {
   try {
     const query = closingQuerySchema.parse(req.query);
@@ -3535,6 +3598,21 @@ router.post("/inventory/opening-balance", async (req, res, next) => {
     });
     await writeAuditLog({ actorId: req.user!.id, action: "finance.opening_balance_save", entityType: "opening_balance", entityId: openingBalance.id, payload });
     return res.status(201).json({ openingBalance });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/finance/other-money-in", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const query = dashboardQuerySchema.parse(req.query);
+    const range = buildDashboardRange(query);
+    const additions = await prisma.moneyAddition.findMany({
+      where: { branchId: branchContext.branchId, additionDate: { gte: range.start, lte: range.end } },
+      select: { amount: true }
+    });
+    return res.json({ amount: roundMoney(additions.reduce((sum, addition) => sum + parseDecimal(addition.amount), 0)), range });
   } catch (error) {
     return next(error);
   }
@@ -5687,7 +5765,9 @@ router.post("/expenses", async (req, res, next) => {
         category: payload.category.trim(),
         amount: payload.amount,
         paymentSource: payload.paymentSource,
-        expenseDate: new Date(payload.expenseDate),
+        // Store expenses at the canonical 6AM business-day boundary. This
+        // keeps reporting stable even when clients send a calendar timestamp.
+        expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start,
         vendor: payload.vendor?.trim() || undefined,
         billReference: payload.billReference?.trim() || undefined,
         notes: payload.notes?.trim() || undefined
@@ -5731,7 +5811,9 @@ router.patch("/expenses/:id", async (req, res, next) => {
         ...(payload.category ? { category: payload.category.trim() } : {}),
         ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
         ...(payload.paymentSource ? { paymentSource: payload.paymentSource } : {}),
-        ...(payload.expenseDate ? { expenseDate: new Date(payload.expenseDate) } : {}),
+        ...(payload.expenseDate
+          ? { expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start }
+          : {}),
         ...(payload.vendor !== undefined ? { vendor: payload.vendor?.trim() || null } : {}),
         ...(payload.billReference !== undefined ? { billReference: payload.billReference?.trim() || null } : {}),
         ...(payload.notes !== undefined ? { notes: payload.notes?.trim() || null } : {}),
@@ -6117,17 +6199,18 @@ router.get("/promotions/independence-day", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const promotion = await readIndependencePromotion(prisma, branchContext.branchId);
     const query = z.object({
-      preset: z.enum(["all", "today", "7d", "30d", "month", "year", "custom"]).default("all"),
-      start: z.string().datetime().optional(),
-      end: z.string().datetime().optional()
+      preset: z.enum(["all", "today", "custom"]).default("all"),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
     }).superRefine((value, context) => {
-      if (value.preset === "custom" && (!value.start || !value.end)) {
-        context.addIssue({ code: z.ZodIssueCode.custom, message: "Custom range requires start and end dates.", path: ["start"] });
+      if (value.preset === "custom" && !value.date) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "Custom statistics require one business day.", path: ["date"] });
       }
     }).parse(req.query);
     const periodRange = query.preset === "all"
       ? { preset: "all", label: "All time" }
-      : buildDashboardRange({ ...query, preset: query.preset as Exclude<typeof query.preset, "all">, segment: "all" });
+      : query.preset === "custom"
+        ? { ...businessDayRange(query.date!), preset: "custom", label: `${formatPakistanDate(businessDayRange(query.date!).start, { dateStyle: "medium" })} business day` }
+        : buildDashboardRange({ preset: "today", segment: "all" });
     const allTime = await readPromotionStats(prisma, branchContext.branchId, { preset: "all", label: "All time" });
     const period = query.preset === "all" ? allTime : await readPromotionStats(prisma, branchContext.branchId, periodRange);
     return res.json({ promotion, stats: { allTime, period } });

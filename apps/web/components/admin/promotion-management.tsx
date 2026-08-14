@@ -5,16 +5,12 @@ import { ChevronDown, Gift } from "lucide-react";
 import { fetchAdminIndependencePromotion, updateAdminIndependencePromotion } from "@/lib/admin-client";
 import { Card } from "@/components/ui/card";
 import type { AdminPromotionData, PosPromotion, PromotionStats } from "@/lib/types";
-import { formatCurrency, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
+import { formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 
 const ranges = [
   { value: "all", label: "All time" },
   { value: "today", label: "Today" },
-  { value: "7d", label: "7 business days" },
-  { value: "30d", label: "30 business days" },
-  { value: "month", label: "This month" },
-  { value: "year", label: "This year" },
-  { value: "custom", label: "Custom" }
+  { value: "custom", label: "Specific business day" }
 ] as const;
 
 export function PromotionManagement() {
@@ -24,8 +20,7 @@ export function PromotionManagement() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState("");
   const [range, setRange] = useState<(typeof ranges)[number]["value"]>("all");
-  const [customStart, setCustomStart] = useState(getCurrentBusinessDateKey());
-  const [customEnd, setCustomEnd] = useState(getCurrentBusinessDateKey());
+  const [customDate, setCustomDate] = useState(getCurrentBusinessDateKey());
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -43,7 +38,7 @@ export function PromotionManagement() {
       setStatsLoading(true);
       setStatsError("");
       const params = nextRange === "custom"
-        ? { preset: nextRange, start: toPakistanDateIso(customStart), end: toPakistanDateIso(customEnd, true) }
+        ? { preset: nextRange, date: customDate }
         : { preset: nextRange };
       const next = await fetchAdminIndependencePromotion(params);
       setData((current) => current ? { ...current, stats: next.stats } : next);
@@ -112,22 +107,20 @@ export function PromotionManagement() {
           <ChevronDown className={`h-5 w-5 text-pocket-navy transition-transform ${statsOpen ? "rotate-180" : ""}`} />
         </button>
 
-        {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customStart={customStart} customEnd={customEnd} statsLoading={statsLoading} statsError={statsError} onRangeChange={changeRange} onStartChange={setCustomStart} onEndChange={setCustomEnd} onApplyCustom={() => void loadStats("custom")} /> : null}
+        {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={changeRange} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
       </Card>
     </div>
   );
 }
 
-function PromotionStatsPanel({ stats, range, customStart, customEnd, statsLoading, statsError, onRangeChange, onStartChange, onEndChange, onApplyCustom }: {
+function PromotionStatsPanel({ stats, range, customDate, statsLoading, statsError, onRangeChange, onDateChange, onApplyCustom }: {
   stats: PromotionStats;
   range: (typeof ranges)[number]["value"];
-  customStart: string;
-  customEnd: string;
+  customDate: string;
   statsLoading: boolean;
   statsError: string;
   onRangeChange: (value: (typeof ranges)[number]["value"]) => void;
-  onStartChange: (value: string) => void;
-  onEndChange: (value: string) => void;
+  onDateChange: (value: string) => void;
   onApplyCustom: () => void;
 }) {
   const peak = Math.max(...stats.trend.map((entry) => entry.netRevenue), 1);
@@ -135,7 +128,7 @@ function PromotionStatsPanel({ stats, range, customStart, customEnd, statsLoadin
     <div className="flex flex-wrap items-center gap-2">
       {ranges.map((option) => <button key={option.value} type="button" onClick={() => onRangeChange(option.value)} className={`rounded-full px-3 py-1.5 text-xs font-bold ${range === option.value ? "bg-pocket-orange text-white" : "bg-pocket-cream text-pocket-navy/70"}`}>{option.label}</button>)}
     </div>
-    {range === "custom" ? <div className="mt-3 flex flex-wrap items-end gap-3"><label className="text-xs font-bold text-pocket-navy/60">From<input type="date" value={customStart} onChange={(event) => onStartChange(event.target.value)} className="mt-1 block rounded-md border border-pocket-navy/15 px-2 py-1.5 text-sm text-pocket-navy" /></label><label className="text-xs font-bold text-pocket-navy/60">To<input type="date" value={customEnd} onChange={(event) => onEndChange(event.target.value)} className="mt-1 block rounded-md border border-pocket-navy/15 px-2 py-1.5 text-sm text-pocket-navy" /></label><button type="button" onClick={onApplyCustom} className="rounded-md bg-pocket-navy px-3 py-2 text-xs font-bold text-white">Apply</button></div> : null}
+    {range === "custom" ? <div className="mt-3 flex flex-wrap items-end gap-3"><label className="text-xs font-bold text-pocket-navy/60">Business day<input type="date" value={customDate} onChange={(event) => onDateChange(event.target.value)} className="mt-1 block rounded-md border border-pocket-navy/15 px-2 py-1.5 text-sm text-pocket-navy" /></label><button type="button" onClick={onApplyCustom} className="rounded-md bg-pocket-navy px-3 py-2 text-xs font-bold text-white">Apply</button></div> : null}
     {statsError ? <p className="mt-4 text-sm font-semibold text-red-700">{statsError}</p> : null}
     {statsLoading ? <p className="mt-5 text-sm text-pocket-navy/60">Loading promotion performance...</p> : <>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

@@ -6,7 +6,7 @@ import { ArrowRight, Wallet } from "lucide-react";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchAdminCashPosition, fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
+import { fetchAdminCashPosition, fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminOtherMoneyIn, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
 import { estimateFoodpandaPayout, FOODPANDA_COMMISSION_RATE, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
 import { Input } from "@/components/ui/input";
 import type { AdminCashPositionData, AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
@@ -152,6 +152,7 @@ export function FinanceManagement() {
   const [weekExpenses, setWeekExpenses] = useState<AdminExpenseData | null>(null);
   const [todayExpenses, setTodayExpenses] = useState<AdminExpenseData | null>(null);
   const [monthLoans, setMonthLoans] = useState<AdminLoanData | null>(null);
+  const [monthOtherMoneyIn, setMonthOtherMoneyIn] = useState<{ amount: number } | null>(null);
   const [monthlyTarget, setMonthlyTarget] = useState<number>(MONTHLY_BREAKEVEN_TARGET);
   const [monthlyTargetInput, setMonthlyTargetInput] = useState(String(MONTHLY_BREAKEVEN_TARGET));
   const [savingTarget, setSavingTarget] = useState(false);
@@ -174,6 +175,7 @@ export function FinanceManagement() {
           weekExpenseData,
           todayExpenseData,
           monthLoanData,
+          monthOtherMoneyInData,
           cashPositionData,
           settings
         ] = await Promise.all([
@@ -185,6 +187,7 @@ export function FinanceManagement() {
           fetchAdminExpenses({ preset: "7d" }),
           fetchAdminExpenses({ preset: "today" }),
           fetchAdminLoans({ preset: "month" }),
+          fetchAdminOtherMoneyIn("month"),
           fetchAdminCashPosition(),
           fetchAdminSettings()
         ]);
@@ -198,6 +201,7 @@ export function FinanceManagement() {
           setWeekExpenses(weekExpenseData);
           setTodayExpenses(todayExpenseData);
           setMonthLoans(monthLoanData);
+          setMonthOtherMoneyIn(monthOtherMoneyInData);
           setCashPosition(cashPositionData);
 
           const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
@@ -295,14 +299,15 @@ export function FinanceManagement() {
       foodpandaGross,
       foodpandaPayout,
       loanSummary,
+      otherMoneyAdded: monthOtherMoneyIn?.amount ?? 0,
       paymentMix,
       branchPerformance,
       topCategories,
       breakevenTarget
     };
-  }, [monthDashboard, monthExpenses, monthFoodpandaDashboard, monthLoans, monthlyTarget, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
+  }, [monthDashboard, monthExpenses, monthFoodpandaDashboard, monthLoans, monthOtherMoneyIn, monthlyTarget, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
 
-  if (loading || !monthDashboard || !monthExpenses || !weekDashboard || !weekExpenses || !todayDashboard || !todayExpenses || !monthFoodpandaDashboard || !monthLoans || !cashPosition) {
+  if (loading || !monthDashboard || !monthExpenses || !weekDashboard || !weekExpenses || !todayDashboard || !todayExpenses || !monthFoodpandaDashboard || !monthLoans || !monthOtherMoneyIn || !cashPosition) {
     return <Card className="p-6 text-sm text-pocket-navy/60">Loading finance view...</Card>;
   }
 
@@ -354,6 +359,7 @@ export function FinanceManagement() {
         <MetricCard title="Loan taken" value={formatCompactCurrency(summary.loanSummary.totalLoanTaken)} description="Loan money received this month, separate from revenue." tone="warning" />
         <MetricCard title="Loan repaid" value={formatCompactCurrency(summary.loanSummary.totalLoanRepaid)} description="Loan repayments made this month." />
         <MetricCard title="Loan balance" value={formatCompactCurrency(summary.loanSummary.outstandingLoanBalance)} description="Outstanding tracked loan balance." tone={summary.loanSummary.outstandingLoanBalance > 0 ? "negative" : "positive"} />
+        <MetricCard title="Other money added" value={formatCompactCurrency(summary.otherMoneyAdded)} description="Rare cash adjustments, separate from revenue and profit." tone="warning" />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">

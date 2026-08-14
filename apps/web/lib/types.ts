@@ -556,9 +556,20 @@ export type AdminDailyClosingData = {
   expenses: Record<MoneySource, number>;
   transferIn: Record<MoneySource, number>;
   transferOut: Record<MoneySource, number>;
+  additionIn: Record<MoneySource, number>;
   loanIn: Record<MoneySource, number>;
   investmentIn: Record<MoneySource, number>;
   loanOut: Record<MoneySource, number>;
+  additionsToday: Array<{
+    id: string;
+    branchId: string;
+    amount: number;
+    toSource: MoneySource;
+    reason: string;
+    additionDate: string;
+    createdByName?: string | null;
+    createdAt: string;
+  }>;
   expected: Record<MoneySource, number>;
   currentClosing: {
     id: string;
