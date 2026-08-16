@@ -981,6 +981,13 @@ export async function deleteAdminLoanRepayment(loanId: string, repaymentId: stri
   });
 }
 
+export async function resetAdminDailyClosing(closingId: string) {
+  const data = await adminFetch<{ closing: any }>(`/api/admin/inventory/closing/${closingId}/reset`, {
+    method: "POST"
+  });
+  return data.closing;
+}
+
 export async function fetchAdminOtherMoneyIn(preset: "today" | "7d" | "30d" | "month" | "year" = "month") {
   return adminFetch<{ amount: number; range: { start: string; end: string; label: string } }>(`/api/admin/finance/other-money-in?preset=${preset}`);
 }
