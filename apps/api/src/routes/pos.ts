@@ -724,7 +724,7 @@ router.post("/checkout", async (req, res, next) => {
             serviceType: payload.serviceType as ServiceType,
             status: "CONFIRMED",
             paymentMethod,
-            paymentStatus: PaymentStatus.PAID,
+            paymentStatus: PaymentStatus.UNSET,
             cashierId: req.user!.id,
             placedAt: payload.placedAt ? new Date(payload.placedAt) : undefined,
             subtotal: orderPayload.subtotal,
@@ -880,7 +880,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           serviceType: payload.serviceType as ServiceType,
           status: OrderStatus.CONFIRMED,
           paymentMethod,
-          paymentStatus: PaymentStatus.PAID,
+          paymentStatus: PaymentStatus.UNSET,
           cashierId: req.user!.id,
           // Preserve the original punch time when a paid POS order is edited.
           placedAt: existingOrder.placedAt,
