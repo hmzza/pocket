@@ -140,7 +140,6 @@ function CompactOrderCard({
 }) {
   const isTerminal = order.status === "DELIVERED" || order.status === "CANCELLED";
   const isWatchLater = order.status === "WATCH_LATER";
-  const isFoodpanda = order.serviceType === "FOODPANDA";
   const isUnpaid = order.paymentStatus === "PENDING";
 
   return (
@@ -149,7 +148,7 @@ function CompactOrderCard({
         embedded
           ? "flex h-full flex-col rounded-xl border p-2 shadow-none transition-all duration-150 ease-out transform-gpu"
           : "flex h-full flex-col rounded-xl border p-2.5 shadow-none transition-all duration-150 ease-out transform-gpu",
-        isUnpaid ? "border-red-200 bg-red-50/80" : "border-slate-200 bg-white",
+        isUnpaid ? "border-red-200 bg-red-50/80" : "border-emerald-200 bg-emerald-50/80",
         muted ? "pointer-events-none opacity-30" : "",
         exiting ? "pointer-events-none scale-[0.98] translate-y-1 opacity-0" : "",
         busy ? "ring-1 ring-orange-200" : ""
@@ -162,18 +161,9 @@ function CompactOrderCard({
           <p className={embedded ? "mt-0.5 text-[9px] text-slate-500" : "mt-0.5 text-[10px] text-slate-500"}>
             {order.channel.replaceAll("_", " ")} · {formatDateTime(order.placedAt)}
           </p>
-          {isFoodpanda ? (
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <span className={embedded ? "rounded-full bg-orange-100 px-1.5 py-0.5 text-[11px] font-black uppercase tracking-[0.18em] text-orange-700" : "rounded-full bg-orange-100 px-2 py-0.5 text-[12px] font-black uppercase tracking-[0.18em] text-orange-700"}>
-                Foodpanda
-              </span>
-              <span className={embedded ? "rounded-full bg-slate-100 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-700" : "rounded-full bg-slate-100 px-2 py-0.5 text-[12px] font-bold uppercase tracking-[0.16em] text-slate-700"}>
-                {formatPaymentMethod(order.paymentMethod)}
-              </span>
-            </div>
-          ) : (
-            <p className={embedded ? "mt-0.5 text-[9px] font-semibold text-slate-500" : "mt-0.5 text-[10px] font-semibold text-slate-500"}>{formatServiceType(order.serviceType)}</p>
-          )}
+          <p className={embedded ? "mt-0.5 text-[9px] font-semibold text-slate-500" : "mt-0.5 text-[10px] font-semibold text-slate-500"}>
+            {formatServiceType(order.serviceType)} · {formatPaymentMethod(order.paymentMethod)}
+          </p>
         </div>
         <div className="text-right">
           <p className={embedded ? "text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-400" : "text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400"}>Total</p>
@@ -214,12 +204,12 @@ function CompactOrderCard({
         </span>
       </div>
 
-      {isUnpaid ? (
-        <div className={embedded ? "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.2em] text-amber-800" : "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-[12px] font-black uppercase tracking-[0.2em] text-amber-800"}>
-          <BadgeDollarSign className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />
-          Unpaid
-        </div>
-      ) : null}
+      <div className={isUnpaid
+        ? (embedded ? "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.2em] text-red-800" : "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-[12px] font-black uppercase tracking-[0.2em] text-red-800")
+        : (embedded ? "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-black uppercase tracking-[0.2em] text-emerald-800" : "mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[12px] font-black uppercase tracking-[0.2em] text-emerald-800")}>
+        {isUnpaid ? <BadgeDollarSign className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} /> : <CheckCircle2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+        {isUnpaid ? "Unpaid" : "Paid"}
+      </div>
 
       {order.deliveryInstructions ? (
         <div className={embedded ? "mt-1 rounded-lg bg-orange-50 px-1.5 py-1 text-[9px] leading-tight text-slate-700" : "mt-1 rounded-lg bg-orange-50 px-2 py-1.5 text-[10px] leading-tight text-slate-700"}>
@@ -292,10 +282,10 @@ function CompactOrderCard({
               onClick={() => onChangeStatus(order, "WATCH_LATER")}
             />
             <OrderActionButton
-              title={isUnpaid ? "Remove unpaid" : "Mark unpaid"}
-              label={isUnpaid ? "Remove unpaid" : "Mark unpaid"}
-              className="border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
-              icon={<BadgeDollarSign className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+              title={isUnpaid ? "Mark paid" : "Mark unpaid"}
+              label={isUnpaid ? "Mark paid" : "Mark unpaid"}
+              className={isUnpaid ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700" : "border-red-600 bg-red-600 text-white hover:bg-red-700"}
+              icon={isUnpaid ? <CheckCircle2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} /> : <BadgeDollarSign className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
               disabled={busy}
               onClick={() => onTogglePaymentStatus(order)}
             />
