@@ -761,13 +761,10 @@ export function ExpenseManagement() {
                         <div>
                           <p className="font-black text-pocket-navy">{expense.title}</p>
                           <p className="text-sm text-pocket-navy/60">
-                            {expense.category} · {expense.branchName}
+                            {expense.category}
                           </p>
                         </div>
                         <div className="grid gap-2 text-sm text-pocket-navy/70 sm:grid-cols-2">
-                          <p>
-                            Business day: {new Intl.DateTimeFormat("en-PK", { month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Karachi" }).format(new Date(expense.expenseDate))}
-                          </p>
                           <p>
                             Logged at: {new Intl.DateTimeFormat("en-PK", {
                               month: "short",

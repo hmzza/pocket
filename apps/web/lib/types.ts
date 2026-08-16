@@ -584,6 +584,7 @@ export type AdminDailyClosingData = {
     jazzcashCounted: number;
     jazzcashDifference: number;
     note?: string | null;
+    isLocked: boolean;
     closedByName?: string | null;
     createdAt: string;
   } | null;
@@ -611,6 +612,7 @@ export type AdminDailyClosingData = {
     jazzcashCounted: number;
     jazzcashDifference: number;
     note?: string | null;
+    isLocked: boolean;
     closedByName?: string | null;
     createdAt: string;
   }>;

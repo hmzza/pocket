@@ -13,6 +13,7 @@ import {
   deleteAdminMoneyAddition,
   fetchAdminDailyClosing,
   fetchAdminInventory,
+  resetAdminDailyClosing,
   saveAdminDailyClosing,
   saveAdminOpeningBalance
 } from "@/lib/admin-client";
@@ -188,6 +189,20 @@ export function DailyClosingManagement() {
       await loadSnapshot();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not close the day.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetClosing() {
+    if (!data?.currentClosing || !branchId) return;
+    try {
+      setSaving(true);
+      setError("");
+      await resetAdminDailyClosing(data.currentClosing.id);
+      await loadSnapshot();
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : "Could not reset the daily closing.");
     } finally {
       setSaving(false);
     }
@@ -406,7 +421,14 @@ export function DailyClosingManagement() {
 
           <Card className="p-5">
             <div>
-              <p className="text-lg font-black text-pocket-navy">Balance calculation</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-lg font-black text-pocket-navy">Balance calculation</p>
+                {data.currentClosing ? (
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${data.currentClosing.isLocked ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                    {data.currentClosing.isLocked ? "Locked" : "Unlocked"}
+                  </span>
+                ) : null}
+              </div>
               <p className="text-sm text-pocket-navy/60">Opening + sales + capital + other money added + transfers in - outflows - transfers out = expected balance.</p>
             </div>
             <div className="mt-5 grid gap-4 xl:grid-cols-3">
@@ -445,7 +467,10 @@ export function DailyClosingManagement() {
               <label className="block text-sm font-semibold text-pocket-navy">Closing note<Textarea className="mt-1" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Optional note for this closing." /></label>
               <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className={`text-sm font-bold ${differenceTone(Math.max(Math.abs(differences.CASH), Math.abs(differences.EASYPAISA), Math.abs(differences.JAZZCASH)))}`}>Overall difference: {moneySources.some(({ key }) => actual[key] === "") ? "Pending actual counts" : formatCurrency(differences.CASH + differences.EASYPAISA + differences.JAZZCASH)}</p>
-                <Button onClick={() => void closeDay()} disabled={saving || data.openingSource === "NONE"}>{saving ? "Saving..." : "Save closing"}</Button>
+                <div className="flex flex-wrap justify-end gap-3">
+                  {data.currentClosing?.isLocked ? <Button variant="outline" onClick={() => void resetClosing()} disabled={saving}>Reset closing</Button> : null}
+                  <Button onClick={() => void closeDay()} disabled={saving || data.openingSource === "NONE"}>{saving ? "Saving..." : "Save closing"}</Button>
+                </div>
               </div>
             </div>
           </Card>

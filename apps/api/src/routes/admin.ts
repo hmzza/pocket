@@ -3103,7 +3103,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   const start = startOfDay(date);
   const end = endOfDay(date);
   const [previousClosing, openingBalance] = await Promise.all([
-    prisma.dailyClosing.findFirst({ where: { branchId, closingDate: { lt: start } }, orderBy: { closingDate: "desc" } }),
+    prisma.dailyClosing.findFirst({ where: { branchId, closingDate: { lt: start }, isLocked: true }, orderBy: { closingDate: "desc" } }),
     prisma.openingBalance.findFirst({ where: { branchId, balanceDate: { lte: start } }, orderBy: { balanceDate: "desc" } })
   ]);
 
@@ -3253,6 +3253,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
       jazzcashCounted: parseDecimal(currentClosing.jazzcashCounted),
       jazzcashDifference: roundMoney(parseDecimal(currentClosing.jazzcashCounted) - parseDecimal(currentClosing.jazzcashExpected)),
       note: currentClosing.note,
+      isLocked: currentClosing.isLocked,
       closedByName: currentClosing.closedBy?.name ?? null,
       createdAt: currentClosing.createdAt.toISOString()
     } : null,
@@ -3280,6 +3281,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
       jazzcashCounted: parseDecimal(closing.jazzcashCounted),
       jazzcashDifference: roundMoney(parseDecimal(closing.jazzcashCounted) - parseDecimal(closing.jazzcashExpected)),
       note: closing.note,
+      isLocked: closing.isLocked,
       closedByName: closing.closedBy?.name ?? null,
       createdAt: closing.createdAt.toISOString()
     }))
@@ -3640,6 +3642,7 @@ router.post("/inventory/closing", async (req, res, next) => {
         jazzcashExpected: snapshot.expected.JAZZCASH,
         jazzcashCounted: payload.jazzcashCounted,
         note: payload.note?.trim() || null,
+        isLocked: true,
         closedById: req.user!.id
       },
       create: {
@@ -3652,6 +3655,7 @@ router.post("/inventory/closing", async (req, res, next) => {
         jazzcashExpected: snapshot.expected.JAZZCASH,
         jazzcashCounted: payload.jazzcashCounted,
         note: payload.note?.trim() || undefined,
+        isLocked: true,
         closedById: req.user!.id
       }
     });
@@ -3663,6 +3667,34 @@ router.post("/inventory/closing", async (req, res, next) => {
       payload
     });
     return res.status(201).json({ closing });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/inventory/closing/:id/reset", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const closing = await prisma.dailyClosing.findUnique({ where: { id: req.params.id } });
+    if (!closing) {
+      return res.status(404).json({ message: "Daily closing not found." });
+    }
+    if (closing.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This daily closing belongs to another branch." });
+    }
+
+    const reopened = await prisma.dailyClosing.update({
+      where: { id: closing.id },
+      data: { isLocked: false }
+    });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.daily_closing_reset",
+      entityType: "daily_closing",
+      entityId: reopened.id,
+      payload: { closingDate: reopened.closingDate.toISOString(), isLocked: false }
+    });
+    return res.json({ closing: reopened });
   } catch (error) {
     return next(error);
   }

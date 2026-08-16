@@ -1,0 +1,1 @@
+ALTER TABLE "DailyClosing" ADD COLUMN "isLocked" BOOLEAN NOT NULL DEFAULT true;

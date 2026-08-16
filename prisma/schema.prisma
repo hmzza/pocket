@@ -698,6 +698,7 @@ model DailyClosing {
   jazzcashExpected  Decimal  @db.Decimal(10, 2)
   jazzcashCounted   Decimal  @db.Decimal(10, 2)
   note              String?
+  isLocked          Boolean  @default(true)
   closedById        String?
   createdAt         DateTime @default(now())
   branch            Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
