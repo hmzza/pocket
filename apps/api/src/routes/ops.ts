@@ -90,48 +90,67 @@ router.get("/orders", async (req, res, next) => {
   try {
     const query = querySchema.parse(req.query);
     const branchContext = await resolveBranchContext(req);
+    const todayRange = todayPakistanRange();
     const where =
       query.scope === "active"
-        ? { status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.WATCH_LATER] } }
+        ? { status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.WATCH_LATER] }, placedAt: todayRange }
         : query.scope === "watch_later"
           ? { status: OrderStatus.WATCH_LATER }
         : query.scope === "delivered"
           ? { status: OrderStatus.DELIVERED }
-          : query.scope === "unpaid"
-            ? { paymentStatus: PaymentStatus.PENDING, status: { not: OrderStatus.CANCELLED } }
-            : { status: { not: OrderStatus.CANCELLED } };
+        : query.scope === "unpaid"
+          ? { paymentStatus: PaymentStatus.PENDING, status: { not: OrderStatus.CANCELLED } }
+          : query.today
+            ? { status: { not: OrderStatus.CANCELLED }, placedAt: todayRange }
+            : {
+                OR: [
+                  { status: { notIn: [OrderStatus.DELIVERED, OrderStatus.CANCELLED, OrderStatus.WATCH_LATER] }, placedAt: todayRange },
+                  { status: OrderStatus.WATCH_LATER }
+                ]
+              };
 
     const orders = await prisma.order.findMany({
       where: {
         ...where,
         branchId: branchContext.branchId,
-        ...(query.today ? { placedAt: todayPakistanRange() } : {}),
+        ...(query.today && !("placedAt" in where) ? { placedAt: todayRange } : {}),
         ...(query.search
           ? {
-              OR: [
-                { orderNumber: { contains: query.search, mode: "insensitive" } },
-                { customerName: { contains: query.search, mode: "insensitive" } },
-                { foodpandaOrderNumber: { contains: query.search, mode: "insensitive" } },
-                { customer: { is: { name: { contains: query.search, mode: "insensitive" } } } }
-              ]
+              AND: [{
+                OR: [
+                  { orderNumber: { contains: query.search, mode: "insensitive" } },
+                  { customerName: { contains: query.search, mode: "insensitive" } },
+                  { foodpandaOrderNumber: { contains: query.search, mode: "insensitive" } },
+                  { customer: { is: { name: { contains: query.search, mode: "insensitive" } } } }
+                ]
+              }]
             }
           : {})
       },
       include: {
         customer: {
           select: {
-            id: true,
             name: true,
-            email: true,
             phone: true
           }
         },
-        branch: true,
+        branch: { select: { name: true } },
         cashier: { select: { username: true, name: true } },
-        address: true,
+        address: { select: { addressLine1: true, city: true, instructions: true } },
         items: {
-          include: {
-            addOns: true
+          select: {
+            id: true,
+            productName: true,
+            customDescription: true,
+            quantity: true,
+            unitPrice: true,
+            note: true,
+            addOns: {
+              select: {
+                optionName: true,
+                priceDelta: true
+              }
+            }
           }
         }
       },

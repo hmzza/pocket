@@ -759,6 +759,9 @@ export function PosTerminal() {
         ? await updatePosOrder(editingOrderId, payload)
         : await createPosOrder(payload);
 
+      window.dispatchEvent(new CustomEvent(editingOrderId ? "pos-order-updated" : "pos-order-created"));
+      window.localStorage.setItem("pocket-pos-queue-refresh", String(Date.now()));
+
       window.sessionStorage.setItem(getPosReceiptCacheKey(response.order.id), JSON.stringify(response.order));
       setLastReceiptOrderId(response.order.id);
       setLastReceiptOrder(response.order);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { BadgeDollarSign, CheckCircle2, Clock3, ListChecks, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
@@ -203,7 +203,7 @@ function CompactOrderCard({
                   : "bg-slate-100 text-slate-700"
           ].join(" ")}
         >
-          {order.status === "CONFIRMED" && isPaid ? "Paid" : order.status === "CONFIRMED" && isUnpaid ? "Unpaid" : formatStatus(order.status)}
+          {order.status === "CONFIRMED" && (isPaid || isUnpaid) ? <><BadgeDollarSign className="mr-1 inline-block h-3 w-3" />{isPaid ? "Paid" : "Unpaid"}</> : formatStatus(order.status)}
         </span> : null}
       </div>
 
@@ -276,7 +276,7 @@ function CompactOrderCard({
               title={isUnpaid ? "Mark paid" : "Mark unpaid"}
               label={isUnpaid ? "Mark paid" : "Mark unpaid"}
               className="border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
-              icon={isUnpaid ? <CheckCircle2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} /> : <BadgeDollarSign className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+              icon={<BadgeDollarSign className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
               disabled={busy}
               onClick={() => onTogglePaymentStatus(order)}
             />
@@ -388,12 +388,20 @@ function PosOrderQueueView({
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, AdminOrder["status"]>>({});
   const [pendingPaymentStatuses, setPendingPaymentStatuses] = useState<Record<string, AdminOrder["paymentStatus"]>>({});
   const [refreshTimer, setRefreshTimer] = useState<number | null>(null);
+  const loadSequenceRef = useRef(0);
+  const initialLoadRef = useRef(false);
+
+  function broadcastQueueRefresh() {
+    window.localStorage.setItem("pocket-pos-queue-refresh", String(Date.now()));
+  }
 
   async function loadOrders(nextScope = scope) {
+    const requestSequence = ++loadSequenceRef.current;
     try {
       setError("");
       setNotice("");
       const data = await fetchPosOrders({ scope: todayOnly ? "all" : nextScope, search: search.trim() || undefined, today: todayOnly });
+      if (requestSequence !== loadSequenceRef.current) return;
       setOrders(data.orders);
       setPendingStatuses((current) => {
         const next = { ...current };
@@ -420,10 +428,13 @@ function PosOrderQueueView({
         return next;
       });
     } catch (loadError) {
+      if (requestSequence !== loadSequenceRef.current) return;
       setError(loadError instanceof Error ? loadError.message : "Failed to load orders.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestSequence === loadSequenceRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }
 
@@ -477,6 +488,10 @@ function PosOrderQueueView({
 
   useEffect(() => {
     if (!ready) return;
+    if (!initialLoadRef.current) {
+      initialLoadRef.current = true;
+      return;
+    }
     const timer = window.setTimeout(() => {
       void loadOrders(scope);
     }, 250);
@@ -491,9 +506,26 @@ function PosOrderQueueView({
       if (!updatingOrderId && !refreshTimer) {
         void loadOrders(scope);
       }
-    }, 8000);
+    }, 3000);
 
-    return () => window.clearInterval(timer);
+    const refreshQueue = () => {
+      void loadOrders(scope);
+    };
+    const refreshFromStorage = (event: StorageEvent) => {
+      if (event.key === "pocket-pos-queue-refresh") refreshQueue();
+    };
+    window.addEventListener("pos-order-created", refreshQueue);
+    window.addEventListener("pos-order-updated", refreshQueue);
+    window.addEventListener("focus", refreshQueue);
+    window.addEventListener("storage", refreshFromStorage);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pos-order-created", refreshQueue);
+      window.removeEventListener("pos-order-updated", refreshQueue);
+      window.removeEventListener("focus", refreshQueue);
+      window.removeEventListener("storage", refreshFromStorage);
+    };
   }, [ready, scope, search, updatingOrderId, refreshTimer]);
 
   const derived = useMemo(() => {
@@ -550,6 +582,7 @@ function PosOrderQueueView({
 
     try {
       await updatePosOrderStatus(order.id, status);
+      broadcastQueueRefresh();
       scheduleRefresh(scope);
     } catch (updateError) {
       setPendingStatuses((current) => {
@@ -583,6 +616,7 @@ function PosOrderQueueView({
 
     try {
       await updatePosOrderPaymentStatus(order.id, resolvedNextStatus);
+      broadcastQueueRefresh();
       scheduleRefresh(scope);
     } catch (updateError) {
       setPendingPaymentStatuses((current) => {
@@ -619,6 +653,7 @@ function PosOrderQueueView({
 
     try {
       await bulkUpdatePosOrderStatus(activeOrderIds, "DELIVERED");
+      broadcastQueueRefresh();
       scheduleRefresh(scope);
     } catch (updateError) {
       setPendingStatuses((current) => {
@@ -654,6 +689,7 @@ function PosOrderQueueView({
 
     try {
       await deletePosOrder(order.id);
+      broadcastQueueRefresh();
       setOrders((current) => current.filter((entry) => entry.id !== order.id));
       setPendingStatuses((current) => {
         const next = { ...current };
