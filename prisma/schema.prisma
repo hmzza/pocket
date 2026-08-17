@@ -434,6 +434,10 @@ model Order {
   address              Address?      @relation(fields: [addressId], references: [id])
   coupon               Coupon?       @relation(fields: [couponId], references: [id])
   items                OrderItem[]
+
+  @@index([branchId, placedAt])
+  @@index([branchId, status, placedAt])
+  @@index([branchId, paymentStatus])
 }
 
 model OrderItem {
