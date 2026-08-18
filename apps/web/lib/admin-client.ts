@@ -705,6 +705,12 @@ export async function fetchAdminInventory(branchId?: string): Promise<AdminInven
       quantityOnHand: Number(item.quantityOnHand),
       stockValue: Number(item.stockValue),
       lowStockAlert: Boolean(item.lowStockAlert),
+      purchaseUnits: (item.purchaseUnits ?? []).map((unit: any) => ({
+        id: unit.id,
+        name: unit.name,
+        quantityInBaseUnits: Number(unit.quantityInBaseUnits),
+        isActive: unit.isActive !== false
+      })),
       linkedProducts: (item.linkedProducts ?? []).map((usage: any) => ({
         productId: usage.productId,
         productName: usage.productName,
@@ -727,6 +733,9 @@ export async function fetchAdminInventory(branchId?: string): Promise<AdminInven
       vendorName: entry.vendorName ?? undefined,
       purchaseDate: entry.purchaseDate ?? undefined,
       purchaseCost: entry.purchaseCost == null ? undefined : Number(entry.purchaseCost),
+      purchaseQuantity: entry.purchaseQuantity == null ? undefined : Number(entry.purchaseQuantity),
+      purchaseUnitId: entry.purchaseUnitId ?? undefined,
+      purchaseUnitLabel: entry.purchaseUnitLabel ?? undefined,
       wastageReason: entry.wastageReason ?? undefined,
       editedAt: entry.editedAt ?? undefined,
       actorName: entry.actorName ?? undefined,
@@ -981,6 +990,14 @@ export async function deleteAdminLoanRepayment(loanId: string, repaymentId: stri
   });
 }
 
+export async function saveAdminInventoryPurchaseUnits(ingredientId: string, units: Array<{ id?: string; name: string; quantityInBaseUnits: number; isActive?: boolean }>) {
+  const data = await adminFetch<{ units: any[] }>(`/api/admin/inventory/items/${ingredientId}/purchase-units`, {
+    method: "PUT",
+    body: JSON.stringify({ units })
+  });
+  return data.units;
+}
+
 export async function resetAdminDailyClosing(closingId: string) {
   const data = await adminFetch<{ closing: any }>(`/api/admin/inventory/closing/${closingId}/reset`, {
     method: "POST"
@@ -1143,6 +1160,18 @@ export async function fetchAdminExpenses(params?: {
       vendor: expense.vendor ?? undefined,
       billReference: expense.billReference ?? undefined,
       notes: expense.notes ?? undefined,
+      stockTransactionId: expense.stockTransactionId ?? undefined,
+      stockPurchase: expense.stockPurchase
+        ? {
+            ingredientId: expense.stockPurchase.ingredientId,
+            ingredientName: expense.stockPurchase.ingredientName,
+            purchaseUnitId: expense.stockPurchase.purchaseUnitId ?? undefined,
+            purchaseQuantity: Number(expense.stockPurchase.purchaseQuantity),
+            purchaseUnitLabel: expense.stockPurchase.purchaseUnitLabel,
+            baseQuantity: Number(expense.stockPurchase.baseQuantity),
+            purchaseDate: expense.stockPurchase.purchaseDate ?? undefined
+          }
+        : null,
       createdByName: expense.createdByName ?? undefined,
       createdAt: expense.createdAt
     }))
@@ -1152,6 +1181,22 @@ export async function fetchAdminExpenses(params?: {
 export async function createAdminExpense(payload: Record<string, unknown>) {
   const data = await adminFetch<{ expense: any }>("/api/admin/expenses", {
     method: "POST",
+    body: JSON.stringify(withSelectedBranch(payload))
+  });
+  return data.expense;
+}
+
+export async function createAdminStockPurchase(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ expense: any; stock: any }>("/api/admin/expenses/stock-purchases", {
+    method: "POST",
+    body: JSON.stringify(withSelectedBranch(payload))
+  });
+  return data;
+}
+
+export async function updateAdminStockPurchase(expenseId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ expense: any }>(`/api/admin/expenses/stock-purchases/${expenseId}`, {
+    method: "PATCH",
     body: JSON.stringify(withSelectedBranch(payload))
   });
   return data.expense;

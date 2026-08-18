@@ -10,15 +10,18 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createAdminExpense,
+  createAdminStockPurchase,
   deleteAdminExpense,
   downloadAdminExpenseExport,
   fetchAdminExpenses,
+  fetchAdminInventory,
   fetchAdminSettings,
   fetchAdminVendors,
   updateAdminExpense,
+  updateAdminStockPurchase,
   updateAdminSetting
 } from "@/lib/admin-client";
-import type { AdminExpense, AdminExpenseData, AdminRangePreset, AdminVendor } from "@/lib/types";
+import type { AdminExpense, AdminExpenseData, AdminInventoryData, AdminInventoryItem, AdminRangePreset, AdminVendor } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue, toPakistanDateIso } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
@@ -84,6 +87,20 @@ type ExpenseFormState = {
   notes: string;
 };
 
+type StockPurchaseFormState = {
+  ingredientId: string;
+  purchaseUnitId: string;
+  purchaseQuantity: string;
+  amount: string;
+  paymentSource: (typeof MONEY_SOURCES)[number]["value"] | "";
+  purchaseDate: string;
+  vendor: string;
+  billReference: string;
+  note: string;
+};
+
+type ExpenseEntryMode = "OTHER" | "STOCK";
+
 function createEmptyExpenseForm(): ExpenseFormState {
   return {
     branchId: "",
@@ -95,6 +112,20 @@ function createEmptyExpenseForm(): ExpenseFormState {
     vendor: "",
     billReference: "",
     notes: ""
+  };
+}
+
+function createEmptyStockPurchaseForm(): StockPurchaseFormState {
+  return {
+    ingredientId: "",
+    purchaseUnitId: "",
+    purchaseQuantity: "",
+    amount: "",
+    paymentSource: "",
+    purchaseDate: getCurrentBusinessDateKey(),
+    vendor: "",
+    billReference: "",
+    note: ""
   };
 }
 
@@ -112,6 +143,18 @@ function mapExpenseToForm(expense: AdminExpense): ExpenseFormState {
   };
 }
 
+function EntryModeTabs({ mode, onChange }: { mode: ExpenseEntryMode; onChange: (mode: ExpenseEntryMode) => void }) {
+  return (
+    <div className="mt-5 grid grid-cols-2 gap-2 rounded-lg bg-pocket-cream p-1">
+      {([{ value: "OTHER", label: "Other expense" }, { value: "STOCK", label: "Stock purchase" }] as const).map((option) => (
+        <button key={option.value} type="button" onClick={() => onChange(option.value)} className={`rounded-md px-3 py-2 text-sm font-bold transition ${mode === option.value ? "bg-white text-pocket-navy shadow-sm" : "text-pocket-navy/55 hover:text-pocket-navy"}`}>
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ExpenseEditor({
   open,
   value,
@@ -126,6 +169,8 @@ function ExpenseEditor({
   onChange,
   onVendorChoiceChange,
   vendorChoice,
+  mode,
+  onModeChange,
   onClose,
   onSubmit
 }: {
@@ -142,6 +187,8 @@ function ExpenseEditor({
   onChange: (next: ExpenseFormState) => void;
   onVendorChoiceChange: (next: string) => void;
   vendorChoice: string;
+  mode: ExpenseEntryMode;
+  onModeChange: (mode: ExpenseEntryMode) => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
@@ -159,6 +206,8 @@ function ExpenseEditor({
             Close
           </Button>
         </div>
+
+        <EntryModeTabs mode={mode} onChange={onModeChange} />
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
@@ -262,9 +311,115 @@ function ExpenseEditor({
   );
 }
 
+function StockPurchaseEditor({
+  open,
+  value,
+  items,
+  vendorOptions,
+  editingExpense,
+  saving,
+  onChange,
+  onModeChange,
+  onClose,
+  onSubmit
+}: {
+  open: boolean;
+  value: StockPurchaseFormState;
+  items: AdminInventoryItem[];
+  vendorOptions: string[];
+  editingExpense: AdminExpense | null;
+  saving: boolean;
+  onChange: (next: StockPurchaseFormState) => void;
+  onModeChange: (mode: ExpenseEntryMode) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const [itemSearch, setItemSearch] = useState("");
+  const [customVendor, setCustomVendor] = useState(Boolean(value.vendor && !vendorOptions.includes(value.vendor)));
+  if (!open) return null;
+  const selectedItem = items.find((item) => item.ingredientId === value.ingredientId) ?? null;
+  const filteredItems = items.filter((item) => `${item.name} ${item.sku} ${item.type}`.toLowerCase().includes(itemSearch.toLowerCase())).slice(0, 80);
+  const selectedUnit = selectedItem?.purchaseUnits.find((unit) => unit.id === value.purchaseUnitId);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-pocket-charcoal/40 px-4 py-8">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-lg border border-pocket-navy/10 bg-white p-6 shadow-panel">
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Expense</p>
+            <h2 className="mt-2 text-3xl font-black text-pocket-navy">{editingExpense ? "Edit stock purchase" : "Add stock purchase"}</h2>
+          </div>
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+        <EntryModeTabs mode="STOCK" onChange={onModeChange} />
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-semibold text-pocket-navy">Inventory item</label>
+            <Input value={itemSearch} onChange={(event) => setItemSearch(event.target.value)} placeholder="Search inventory item" />
+            <select value={value.ingredientId} disabled={Boolean(editingExpense)} onChange={(event) => onChange({ ...value, ingredientId: event.target.value, purchaseUnitId: "" })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+              <option value="">Select item</option>
+              {filteredItems.map((item) => <option key={item.ingredientId} value={item.ingredientId}>{item.name} ({item.unit})</option>)}
+            </select>
+            {selectedItem?.type === "PACKAGING" ? <p className="text-xs text-pocket-navy/55">Packaging has stock and cost but no calories.</p> : null}
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Purchase unit</label>
+            <select value={value.purchaseUnitId} onChange={(event) => onChange({ ...value, purchaseUnitId: event.target.value })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+              <option value="">Base unit ({selectedItem?.unit ?? "unit"})</option>
+              {(selectedItem?.purchaseUnits ?? []).map((unit) => <option key={unit.id} value={unit.id}>{unit.name} = {unit.quantityInBaseUnits} {selectedItem?.unit}</option>)}
+            </select>
+            {selectedUnit ? <p className="text-xs text-pocket-navy/55">Adds {selectedUnit.quantityInBaseUnits} {selectedItem?.unit} per purchase unit.</p> : null}
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Quantity purchased</label>
+            <Input type="number" min="0" step="0.001" value={value.purchaseQuantity} onChange={(event) => onChange({ ...value, purchaseQuantity: event.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Total purchase cost</label>
+            <Input type="number" min="0" step="0.01" value={value.amount} onChange={(event) => onChange({ ...value, amount: event.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Paid from</label>
+            <select value={value.paymentSource} onChange={(event) => onChange({ ...value, paymentSource: event.target.value as StockPurchaseFormState["paymentSource"] })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+              <option value="" disabled>Select payment source</option>
+              {MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Purchase date</label>
+            <Input type="date" value={value.purchaseDate} onChange={(event) => onChange({ ...value, purchaseDate: event.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Vendor</label>
+            <select value={customVendor ? "__custom__" : value.vendor} onChange={(event) => { const isCustom = event.target.value === "__custom__"; setCustomVendor(isCustom); onChange({ ...value, vendor: isCustom ? "" : event.target.value }); }} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+              <option value="">Select vendor</option>
+              {vendorOptions.map((vendor) => <option key={vendor} value={vendor}>{vendor}</option>)}
+              <option value="__custom__">Other / custom</option>
+            </select>
+            {customVendor ? <Input value={value.vendor} onChange={(event) => onChange({ ...value, vendor: event.target.value })} placeholder="Other vendor name" /> : null}
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Bill reference</label>
+            <Input value={value.billReference} onChange={(event) => onChange({ ...value, billReference: event.target.value })} placeholder="Optional" />
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-semibold text-pocket-navy">Note</label>
+            <Textarea value={value.note} onChange={(event) => onChange({ ...value, note: event.target.value })} placeholder="Optional purchase detail" />
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : editingExpense ? "Save Changes" : "Add Stock Purchase"}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ExpenseManagement() {
   const [data, setData] = useState<AdminExpenseData | null>(null);
   const [vendors, setVendors] = useState<AdminVendor[]>([]);
+  const [inventory, setInventory] = useState<AdminInventoryData | null>(null);
   const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
   const [expenseTitles, setExpenseTitles] = useState<string[]>([]);
   const [preset, setPreset] = useState<AdminRangePreset>("today");
@@ -279,7 +434,9 @@ export function ExpenseManagement() {
   const [error, setError] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<AdminExpense | null>(null);
+  const [entryMode, setEntryMode] = useState<ExpenseEntryMode>("OTHER");
   const [form, setForm] = useState<ExpenseFormState>(createEmptyExpenseForm);
+  const [stockForm, setStockForm] = useState<StockPurchaseFormState>(createEmptyStockPurchaseForm);
   const [formDateEdited, setFormDateEdited] = useState(false);
   const lastBusinessDateRef = useRef(getCurrentBusinessDateKey());
   const [titleChoice, setTitleChoice] = useState("");
@@ -335,7 +492,7 @@ export function ExpenseManagement() {
 
     async function loadMetadata() {
       try {
-        const [settings, vendorData] = await Promise.all([fetchAdminSettings(), fetchAdminVendors()]);
+        const [settings, vendorData, inventoryData] = await Promise.all([fetchAdminSettings(), fetchAdminVendors(), fetchAdminInventory()]);
         if (cancelled) return;
 
         const savedCategorySetting = settings.find((setting) => setting.key === EXPENSE_CATEGORY_SETTING_KEY);
@@ -345,6 +502,15 @@ export function ExpenseManagement() {
         const savedTitles = Array.isArray(savedTitleSetting?.value) ? savedTitleSetting.value.map((entry) => String(entry).trim()).filter(Boolean) : [];
         setExpenseTitles(savedTitles);
         setVendors(vendorData.vendors);
+        setInventory(inventoryData);
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          if (params.get("entry") === "stock") {
+            setEntryMode("STOCK");
+            setStockForm((current) => ({ ...current, ingredientId: params.get("ingredientId") ?? current.ingredientId }));
+            setEditorOpen(true);
+          }
+        }
       } catch {
         // Metadata is helpful but not required for the page to render.
       }
@@ -410,6 +576,11 @@ export function ExpenseManagement() {
     );
   }, [form.vendor, vendorChoice, vendors]);
 
+  const stockItems = useMemo(
+    () => (inventory?.items ?? []).filter((item) => item.isActive && item.type !== "PREPARED"),
+    [inventory]
+  );
+
   function openCreate() {
     setEditingExpense(null);
     setFormDateEdited(false);
@@ -420,15 +591,36 @@ export function ExpenseManagement() {
     });
     setTitleChoice("");
     setVendorChoice("");
+    setEntryMode("OTHER");
+    setStockForm(createEmptyStockPurchaseForm());
     setEditorOpen(true);
   }
 
   function openEdit(expense: AdminExpense) {
+    if (expense.stockPurchase) {
+      setEditingExpense(expense);
+      setEntryMode("STOCK");
+      setStockForm({
+        ...createEmptyStockPurchaseForm(),
+        ingredientId: expense.stockPurchase.ingredientId,
+        purchaseUnitId: expense.stockPurchase.purchaseUnitId ?? "",
+        purchaseQuantity: String(expense.stockPurchase.purchaseQuantity || expense.stockPurchase.baseQuantity),
+        amount: String(expense.amount),
+        paymentSource: expense.paymentSource,
+        purchaseDate: toBusinessDateInputValue(expense.stockPurchase.purchaseDate ?? expense.expenseDate),
+        vendor: expense.vendor ?? "",
+        billReference: expense.billReference ?? "",
+        note: expense.notes ?? ""
+      });
+      setEditorOpen(true);
+      return;
+    }
     setEditingExpense(expense);
     setFormDateEdited(true);
     setForm(mapExpenseToForm(expense));
     setTitleChoice(titleOptions.includes(expense.title) ? expense.title : "__custom__");
     setVendorChoice(expense.vendor && vendorOptions.includes(expense.vendor) ? expense.vendor : expense.vendor ? "__custom__" : "");
+    setEntryMode("OTHER");
     setEditorOpen(true);
   }
 
@@ -445,6 +637,43 @@ export function ExpenseManagement() {
       setForm((current) => ({ ...current, category: trimmed }));
     } catch (categoryError) {
       setError(categoryError instanceof Error ? categoryError.message : "Failed to save category.");
+    }
+  }
+
+  async function submitStockPurchase() {
+    const item = stockItems.find((entry) => entry.ingredientId === stockForm.ingredientId);
+    if (!item || !stockForm.purchaseQuantity || !stockForm.amount || !stockForm.paymentSource || !stockForm.purchaseDate) {
+      setError("Inventory item, purchase quantity, cost, paid from, and purchase date are required.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      const payload = {
+        branchId: branchId || data?.branches[0]?.id || "",
+        ingredientId: stockForm.ingredientId,
+        purchaseUnitId: stockForm.purchaseUnitId || null,
+        purchaseQuantity: Number(stockForm.purchaseQuantity),
+        amount: Number(stockForm.amount),
+        paymentSource: stockForm.paymentSource,
+        purchaseDate: new Date(`${stockForm.purchaseDate}T12:00:00+05:00`).toISOString(),
+        vendor: stockForm.vendor.trim() || undefined,
+        billReference: stockForm.billReference.trim() || undefined,
+        note: stockForm.note.trim() || undefined
+      };
+      if (editingExpense) await updateAdminStockPurchase(editingExpense.id, payload);
+      else await createAdminStockPurchase(payload);
+      setEditorOpen(false);
+      setEditingExpense(null);
+      setEntryMode("OTHER");
+      await Promise.all([
+        loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd),
+        fetchAdminInventory().then(setInventory)
+      ]);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Failed to save stock purchase.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -551,28 +780,46 @@ export function ExpenseManagement() {
 
   return (
     <div className="space-y-6">
-      <ExpenseEditor
-        open={editorOpen}
-        value={form}
-        editingExpense={editingExpense}
-        titleOptions={titleOptions}
-        titleChoice={titleChoice}
-        vendorOptions={vendorOptions}
-        categoryOptions={categoryOptions}
-        onAddCategory={(nextCategory) => void addExpenseCategory(nextCategory)}
-        onTitleChoiceChange={setTitleChoice}
-        saving={saving}
-        onChange={(next) => {
-          if (next.expenseDate !== form.expenseDate) {
-            setFormDateEdited(true);
-          }
-          setForm(next);
-        }}
-        onVendorChoiceChange={setVendorChoice}
-        vendorChoice={vendorChoice}
-        onClose={() => setEditorOpen(false)}
-        onSubmit={() => void submitExpense()}
-      />
+      {entryMode === "STOCK" ? (
+        <StockPurchaseEditor
+          key={editingExpense?.id ?? "new-stock"}
+          open={editorOpen}
+          value={stockForm}
+          items={stockItems}
+          vendorOptions={vendorOptions}
+          editingExpense={editingExpense}
+          saving={saving}
+          onChange={setStockForm}
+          onModeChange={(mode) => setEntryMode(mode)}
+          onClose={() => setEditorOpen(false)}
+          onSubmit={() => void submitStockPurchase()}
+        />
+      ) : (
+        <ExpenseEditor
+          open={editorOpen}
+          value={form}
+          editingExpense={editingExpense}
+          titleOptions={titleOptions}
+          titleChoice={titleChoice}
+          vendorOptions={vendorOptions}
+          categoryOptions={categoryOptions}
+          onAddCategory={(nextCategory) => void addExpenseCategory(nextCategory)}
+          onTitleChoiceChange={setTitleChoice}
+          saving={saving}
+          mode={entryMode}
+          onModeChange={(mode) => { setEntryMode(mode); if (mode === "STOCK") setStockForm(createEmptyStockPurchaseForm()); }}
+          onChange={(next) => {
+            if (next.expenseDate !== form.expenseDate) {
+              setFormDateEdited(true);
+            }
+            setForm(next);
+          }}
+          onVendorChoiceChange={setVendorChoice}
+          vendorChoice={vendorChoice}
+          onClose={() => setEditorOpen(false)}
+          onSubmit={() => void submitExpense()}
+        />
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card className="p-5">
@@ -761,7 +1008,7 @@ export function ExpenseManagement() {
                         <div>
                           <p className="font-black text-pocket-navy">{expense.title}</p>
                           <p className="text-sm text-pocket-navy/60">
-                            {expense.category}
+                            {expense.stockPurchase ? "Stock purchase" : expense.category}
                           </p>
                         </div>
                         <div className="grid gap-2 text-sm text-pocket-navy/70 sm:grid-cols-2">
@@ -777,6 +1024,7 @@ export function ExpenseManagement() {
                             }).format(new Date(expense.createdAt))} PKT
                           </p>
                           <p>Paid from: {MONEY_SOURCES.find((source) => source.value === expense.paymentSource)?.label ?? expense.paymentSource}</p>
+                          {expense.stockPurchase ? <p>Added: {expense.stockPurchase.purchaseQuantity} {expense.stockPurchase.purchaseUnitLabel} ({expense.stockPurchase.baseQuantity} base units)</p> : null}
                           {expense.vendor ? <p>Vendor: {expense.vendor}</p> : null}
                           {expense.billReference ? <p>Bill: {expense.billReference}</p> : null}
                           {expense.createdByName ? <p>Logged by: {expense.createdByName}</p> : null}

@@ -1,7 +1,7 @@
 "use client";
 
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
-import { BarChart3, ChefHat, ChevronDown, ClipboardList, History, Pencil, Plus, RefreshCcw, Search, Trash2, Warehouse } from "lucide-react";
+import { BarChart3, ChefHat, ClipboardList, History, Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import {
   fetchAdminInventoryForecast,
   fetchAdminPackagingRules,
   fetchAdminInventoryRecipes,
-  fetchAdminVendors,
+  saveAdminInventoryPurchaseUnits,
   saveAdminPackagingRule,
   updateAdminInventoryItem,
   updateAdminInventoryItemStatus,
@@ -25,13 +25,13 @@ import {
   updateAdminProductPackagingRules,
   updateAdminProductRecipe
 } from "@/lib/admin-client";
-import type { AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminPackagingRuleData, AdminRecipeData, AdminVendor } from "@/lib/types";
-import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue } from "@/lib/utils";
+import type { AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminPackagingRuleData, AdminRecipeData } from "@/lib/types";
+import { formatCompactCurrency, formatCurrency, toBusinessDateInputValue } from "@/lib/utils";
 
-type InventoryTab = "stock" | "add-stock" | "vendors" | "prep" | "recipes" | "rules" | "wastage" | "forecast" | "logs";
+type InventoryTab = "stock" | "vendors" | "prep" | "recipes" | "rules" | "wastage" | "forecast" | "logs";
 type StockStatusFilter = "all" | "active" | "inactive";
 
-const INVENTORY_UNITS = ["kg", "litre", "bottles", "pieces", "slices", "loafs"];
+const INVENTORY_UNITS = ["g", "kg", "ml", "litre", "bottles", "pieces", "slices", "loafs"];
 const ITEM_TYPES = ["RAW", "PREPARED", "PACKAGING", "RETAIL"] as const;
 const ITEM_TYPE_LABELS: Record<(typeof ITEM_TYPES)[number], string> = {
   RAW: "Ingredient",
@@ -49,9 +49,8 @@ const SERVICE_TYPE_LABELS: Record<(typeof SERVICE_TYPES)[number], string> = {
   DELIVERY: "Delivery"
 };
 const WASTAGE_REASONS = ["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"] as const;
-const TABS: Array<{ id: InventoryTab; label: string; icon: typeof Warehouse }> = [
+const TABS: Array<{ id: InventoryTab; label: string; icon: typeof ClipboardList }> = [
   { id: "stock", label: "Stock", icon: ClipboardList },
-  { id: "add-stock", label: "Add Stock", icon: Warehouse },
   { id: "vendors", label: "Vendors", icon: ClipboardList },
   { id: "prep", label: "Prep Items", icon: ChefHat },
   { id: "recipes", label: "Recipes & Costing", icon: ChefHat },
@@ -69,15 +68,7 @@ type ItemFormState = {
   costPerUnit: string;
   caloriesPerUnit: string;
   openingStock: string;
-};
-
-type StockFormState = {
-  ingredientId: string;
-  quantity: string;
-  vendorName: string;
-  purchaseDate: string;
-  purchaseCost: string;
-  note: string;
+  purchaseUnits: Array<{ id?: string; name: string; quantityInBaseUnits: string; isActive: boolean }>;
 };
 
 type WastageFormState = {
@@ -122,16 +113,8 @@ const EMPTY_ITEM_FORM: ItemFormState = {
   reorderLevel: "",
   costPerUnit: "0",
   caloriesPerUnit: "0",
-  openingStock: "0"
-};
-
-const EMPTY_STOCK_FORM: StockFormState = {
-  ingredientId: "",
-  quantity: "",
-  vendorName: "",
-  purchaseDate: getCurrentBusinessDateKey(),
-  purchaseCost: "",
-  note: ""
+  openingStock: "0",
+  purchaseUnits: []
 };
 
 const EMPTY_WASTAGE_FORM: WastageFormState = {
@@ -166,7 +149,13 @@ function itemToForm(item: AdminInventoryItem): ItemFormState {
     reorderLevel: String(item.reorderLevel),
     costPerUnit: String(item.costPerUnit),
     caloriesPerUnit: String(item.caloriesPerUnit),
-    openingStock: String(item.quantityOnHand)
+    openingStock: String(item.quantityOnHand),
+    purchaseUnits: item.purchaseUnits.map((unit) => ({
+      id: unit.id,
+      name: unit.name,
+      quantityInBaseUnits: String(unit.quantityInBaseUnits),
+      isActive: unit.isActive
+    }))
   };
 }
 
@@ -250,6 +239,20 @@ function ItemEditor({
             </div>
           ) : null}
         </div>
+        <details className="mt-5 rounded-lg border border-pocket-navy/10 px-4 py-3">
+          <summary className="cursor-pointer text-sm font-bold text-pocket-navy">Purchase units (optional)</summary>
+          <p className="mt-2 text-xs text-pocket-navy/60">Define how suppliers sell this item. Each quantity is converted into the base unit above.</p>
+          <div className="mt-4 space-y-3">
+            {value.purchaseUnits.map((unit, index) => (
+              <div key={unit.id ?? index} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <Input value={unit.name} placeholder="e.g. carton" onChange={(event) => onChange({ ...value, purchaseUnits: value.purchaseUnits.map((current, currentIndex) => currentIndex === index ? { ...current, name: event.target.value } : current) })} />
+                <Input type="number" min="0.000001" step="0.001" value={unit.quantityInBaseUnits} placeholder={`Quantity in ${value.unit}`} onChange={(event) => onChange({ ...value, purchaseUnits: value.purchaseUnits.map((current, currentIndex) => currentIndex === index ? { ...current, quantityInBaseUnits: event.target.value } : current) })} />
+                <Button type="button" variant="ghost" className="text-red-600" onClick={() => onChange({ ...value, purchaseUnits: value.purchaseUnits.filter((_, currentIndex) => currentIndex !== index) })}>Remove</Button>
+              </div>
+            ))}
+            <Button type="button" variant="outline" onClick={() => onChange({ ...value, purchaseUnits: [...value.purchaseUnits, { name: "", quantityInBaseUnits: "", isActive: true }] })}><Plus className="h-4 w-4" />Add purchase unit</Button>
+          </div>
+        </details>
         <div className="mt-6 flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
@@ -276,7 +279,7 @@ function StockTable({
   items,
   loading,
   onEdit,
-  onAddStock,
+  onPurchase,
   onWastage,
   onToggleStatus,
   onDelete
@@ -284,7 +287,7 @@ function StockTable({
   items: AdminInventoryItem[];
   loading: boolean;
   onEdit: (item: AdminInventoryItem) => void;
-  onAddStock: (item: AdminInventoryItem) => void;
+  onPurchase: (item: AdminInventoryItem) => void;
   onWastage: (item: AdminInventoryItem) => void;
   onToggleStatus: (item: AdminInventoryItem) => void;
   onDelete: (item: AdminInventoryItem) => void;
@@ -311,7 +314,7 @@ function StockTable({
           <span>{formatCurrency(item.costPerUnit)}</span>
           <span>{formatCurrency(item.stockValue)}</span>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => onAddStock(item)} disabled={!item.isActive}>Add</Button>
+            <Button size="sm" variant="outline" onClick={() => onPurchase(item)} disabled={!item.isActive}>Buy</Button>
             <Button size="sm" variant="outline" onClick={() => onWastage(item)} disabled={!item.isActive}>Waste</Button>
             <Button size="sm" variant="ghost" onClick={() => onEdit(item)}><Pencil className="h-4 w-4" /></Button>
             <Button size="sm" variant="outline" onClick={() => onToggleStatus(item)}>{item.isActive ? "Disable" : "Enable"}</Button>
@@ -319,103 +322,6 @@ function StockTable({
           </div>
         </div>
       ))}
-    </Card>
-  );
-}
-
-function VendorSelect({
-  vendors,
-  value,
-  onChange
-}: {
-  vendors: AdminVendor[];
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [manual, setManual] = useState(false);
-  const filteredVendors = useMemo(() => {
-    const search = query.toLowerCase();
-    return vendors
-      .filter((vendor) => `${vendor.vendorName} ${vendor.provides ?? ""} ${vendor.ingredientCategory} ${vendor.contactNumber ?? ""}`.toLowerCase().includes(search))
-      .slice(0, 20);
-  }, [query, vendors]);
-
-  useEffect(() => {
-    if (!open) setQuery("");
-  }, [open]);
-
-  if (manual) {
-    return (
-      <Field label="Vendor">
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-          <Input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Other vendor name" />
-          <Button type="button" variant="outline" onClick={() => setManual(false)}>List</Button>
-        </div>
-      </Field>
-    );
-  }
-
-  return (
-    <Field label="Vendor">
-      <div className="relative">
-        <button type="button" onClick={() => setOpen((current) => !current)} className="flex h-11 w-full items-center justify-between rounded-md border border-pocket-navy/15 bg-white px-3 text-left text-sm">
-          <span className={value ? "font-medium text-pocket-navy" : "text-pocket-navy/45"}>{value || "Select vendor"}</span>
-          <ChevronDown className="h-4 w-4 text-pocket-navy/50" />
-        </button>
-        {open ? (
-          <div className="absolute z-30 mt-2 w-full rounded-md border border-pocket-navy/10 bg-white p-2 shadow-panel">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pocket-navy/40" />
-              <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search vendors" className="pl-9" />
-            </div>
-            <div className="mt-2 max-h-64 overflow-auto">
-              {filteredVendors.map((vendor) => (
-                <button
-                  type="button"
-                  key={vendor.id}
-                  onClick={() => {
-                    onChange(vendor.vendorName);
-                    setOpen(false);
-                  }}
-                  className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-pocket-cream"
-                >
-                  <span className="font-semibold text-pocket-navy">{vendor.vendorName}</span>
-                  <span className="block text-xs text-pocket-navy/55">{vendor.provides || vendor.ingredientCategory || "Vendor"}</span>
-                </button>
-              ))}
-              {!filteredVendors.length ? <p className="px-3 py-2 text-sm text-pocket-navy/55">No vendor found.</p> : null}
-            </div>
-            <Button type="button" variant="outline" className="mt-2 w-full justify-start" onClick={() => { setManual(true); setOpen(false); onChange(""); }}>Other / Manual vendor</Button>
-          </div>
-        ) : null}
-        </div>
-    </Field>
-  );
-}
-
-function AddStockForm({ items, vendors, form, setForm, saving, onSubmit }: { items: AdminInventoryItem[]; vendors: AdminVendor[]; form: StockFormState; setForm: Dispatch<SetStateAction<StockFormState>>; saving: boolean; onSubmit: () => void }) {
-  const [itemType, setItemType] = useState<(typeof ITEM_TYPES)[number] | "ALL">("ALL");
-  const filteredItems = itemType === "ALL" ? items : items.filter((item) => item.type === itemType);
-  return (
-    <Card className="p-5">
-      <p className="text-lg font-black text-pocket-navy">Add Stock</p>
-      <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <Field label="Stock type">
-          <select value={itemType} onChange={(event) => setItemType(event.target.value as typeof itemType)} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
-            <option value="ALL">All stock</option>
-            {ITEM_TYPES.map((type) => <option key={type} value={type}>{ITEM_TYPE_LABELS[type]}</option>)}
-          </select>
-        </Field>
-        <SelectItem items={filteredItems} value={form.ingredientId} onChange={(ingredientId) => setForm((current) => ({ ...current, ingredientId }))} />
-        <Field label="Quantity"><Input type="number" min="0" step="0.001" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} /></Field>
-        <VendorSelect vendors={vendors} value={form.vendorName} onChange={(vendorName) => setForm((current) => ({ ...current, vendorName }))} />
-        <Field label="Purchase date"><Input type="date" value={form.purchaseDate} onChange={(event) => setForm((current) => ({ ...current, purchaseDate: event.target.value }))} /></Field>
-        <Field label="Purchase cost"><Input type="number" min="0" step="0.01" value={form.purchaseCost} onChange={(event) => setForm((current) => ({ ...current, purchaseCost: event.target.value }))} /></Field>
-        <div className="space-y-2 md:col-span-2"><label className="text-sm font-semibold text-pocket-navy">Note</label><Textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} /></div>
-      </div>
-      <div className="mt-5 flex justify-end"><Button onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : "Add Stock"}</Button></div>
     </Card>
   );
 }
@@ -716,13 +622,12 @@ function LogsSection({ entries, edit, setEdit, saving, onSave }: { entries: Admi
 }
 
 export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | "movement" | "log" | "list" }) {
-  const initialTab: InventoryTab = mode === "movement" ? "add-stock" : mode === "log" ? "logs" : "stock";
+  const initialTab: InventoryTab = mode === "movement" ? "stock" : mode === "log" ? "logs" : "stock";
   const [activeTab, setActiveTab] = useState<InventoryTab>(initialTab);
   const [data, setData] = useState<AdminInventoryData | null>(null);
   const [forecast, setForecast] = useState<AdminInventoryForecast | null>(null);
   const [recipes, setRecipes] = useState<AdminRecipeData | null>(null);
   const [rules, setRules] = useState<AdminPackagingRuleData | null>(null);
-  const [vendors, setVendors] = useState<AdminVendor[]>([]);
   const [search, setSearch] = useState("");
   const [stockStatusFilter, setStockStatusFilter] = useState<StockStatusFilter>("all");
   const [loading, setLoading] = useState(true);
@@ -730,7 +635,6 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [itemEditorOpen, setItemEditorOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AdminInventoryItem | null>(null);
   const [itemForm, setItemForm] = useState<ItemFormState>(EMPTY_ITEM_FORM);
-  const [stockForm, setStockForm] = useState<StockFormState>(EMPTY_STOCK_FORM);
   const [wastageForm, setWastageForm] = useState<WastageFormState>(EMPTY_WASTAGE_FORM);
   const [ruleForm, setRuleForm] = useState<RuleFormState>(EMPTY_RULE_FORM);
   const [logEdit, setLogEdit] = useState<LogEditState | null>(null);
@@ -742,18 +646,15 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       setError("");
       const inventoryData = await fetchAdminInventory();
       setData(inventoryData);
-      const [forecastResult, recipeResult, vendorResult, ruleResult] = await Promise.allSettled([
+      const [forecastResult, recipeResult, ruleResult] = await Promise.allSettled([
         fetchAdminInventoryForecast(),
         fetchAdminInventoryRecipes(),
-        fetchAdminVendors(),
         fetchAdminPackagingRules()
       ]);
       if (forecastResult.status === "fulfilled") setForecast(forecastResult.value);
       if (recipeResult.status === "fulfilled") setRecipes(recipeResult.value);
-      if (vendorResult.status === "fulfilled") setVendors(vendorResult.value.vendors);
       if (ruleResult.status === "fulfilled") setRules(ruleResult.value);
       const first = inventoryData.items.find((item) => item.isActive)?.ingredientId ?? "";
-      setStockForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
       setWastageForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load inventory.");
@@ -810,40 +711,23 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
         caloriesPerUnit: numberValue(itemForm.caloriesPerUnit),
         openingStock: numberValue(itemForm.openingStock)
       };
-      if (editingItem) await updateAdminInventoryItem(editingItem.ingredientId, payload);
-      else await createAdminInventoryItem(payload);
+      const saved = editingItem
+        ? await updateAdminInventoryItem(editingItem.ingredientId, payload)
+        : await createAdminInventoryItem(payload);
+      const ingredientId = editingItem?.ingredientId ?? saved.id;
+      const purchaseUnits = itemForm.purchaseUnits
+        .filter((unit) => unit.name.trim() && numberValue(unit.quantityInBaseUnits) > 0)
+        .map((unit) => ({
+          ...(unit.id ? { id: unit.id } : {}),
+          name: unit.name.trim(),
+          quantityInBaseUnits: numberValue(unit.quantityInBaseUnits),
+          isActive: unit.isActive
+        }));
+      await saveAdminInventoryPurchaseUnits(ingredientId, purchaseUnits);
       setItemEditorOpen(false);
       await loadAll();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to save item.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function submitStock() {
-    const branchId = data?.branches[0]?.id;
-    if (!branchId || !stockForm.ingredientId) return;
-    if (!activeItems.some((item) => item.ingredientId === stockForm.ingredientId)) {
-      setError("Enable this inventory item before adding stock.");
-      return;
-    }
-    setSaving(true);
-    try {
-      await createAdminInventoryTransaction({
-        branchId,
-        ingredientId: stockForm.ingredientId,
-        action: "PURCHASE",
-        quantity: numberValue(stockForm.quantity),
-        vendorName: stockForm.vendorName.trim() || undefined,
-        purchaseDate: stockForm.purchaseDate ? new Date(`${stockForm.purchaseDate}T12:00:00+05:00`).toISOString() : undefined,
-        purchaseCost: stockForm.purchaseCost ? numberValue(stockForm.purchaseCost) : undefined,
-        note: stockForm.note.trim() || undefined
-      });
-      setStockForm({ ...EMPTY_STOCK_FORM, ingredientId: stockForm.ingredientId });
-      await loadAll();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to add stock.");
     } finally {
       setSaving(false);
     }
@@ -1008,8 +892,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
           </select>
         </div>
       </Card>
-      {activeTab === "stock" ? <StockTable items={items} loading={loading} onEdit={openEditItem} onAddStock={(item) => { setStockForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("add-stock"); }} onWastage={(item) => { setWastageForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("wastage"); }} onToggleStatus={(item) => void toggleItemStatus(item)} onDelete={(item) => void deleteItem(item)} /> : null}
-      {activeTab === "add-stock" ? <AddStockForm items={activeItems} vendors={vendors} form={stockForm} setForm={setStockForm} saving={saving} onSubmit={() => void submitStock()} /> : null}
+      {activeTab === "stock" ? <StockTable items={items} loading={loading} onEdit={openEditItem} onPurchase={(item) => window.location.assign(`/admin/expenses?entry=stock&ingredientId=${encodeURIComponent(item.ingredientId)}`)} onWastage={(item) => { setWastageForm((current) => ({ ...current, ingredientId: item.ingredientId })); setActiveTab("wastage"); }} onToggleStatus={(item) => void toggleItemStatus(item)} onDelete={(item) => void deleteItem(item)} /> : null}
       {activeTab === "vendors" ? <VendorManagement /> : null}
       {activeTab === "prep" ? <PrepItemsSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
       {activeTab === "rules" ? <RulesSection data={rules} form={ruleForm} setForm={setRuleForm} saving={saving} onSubmit={() => void saveRule()} onDelete={(ruleId) => void deleteRule(ruleId)} /> : null}
