@@ -2402,6 +2402,17 @@ const inventoryItemUpdateSchema = z.object({
   caloriesPerUnit: z.number().nonnegative().optional()
 });
 
+const purchaseUnitSchema = z.object({
+  id: z.string().cuid().optional(),
+  name: z.string().trim().min(1).max(40),
+  quantityInBaseUnits: z.number().positive(),
+  isActive: z.boolean().default(true)
+});
+
+const purchaseUnitsSchema = z.object({
+  units: z.array(purchaseUnitSchema).max(30)
+});
+
 const inventoryItemStatusSchema = z.object({
   isActive: z.boolean()
 });
@@ -2495,7 +2506,8 @@ router.get("/inventory", async (req, res, next) => {
             include: {
               productUsage: {
                 include: { product: { select: { id: true, name: true } } }
-              }
+              },
+              purchaseUnits: true
             }
           }
         },
@@ -2509,6 +2521,7 @@ router.get("/inventory", async (req, res, next) => {
         where: { branchInventory: { branchId: branchContext.branchId } },
         include: {
           actor: true,
+          purchaseUnit: true,
           branchInventory: {
             include: {
               branch: true,
@@ -2559,6 +2572,15 @@ router.get("/inventory", async (req, res, next) => {
         quantityOnHand: parseDecimal(item.quantityOnHand),
         stockValue: Number((parseDecimal(item.quantityOnHand) * parseDecimal(item.ingredient.costPerUnit)).toFixed(2)),
         lowStockAlert: item.lowStockAlert,
+        purchaseUnits: item.ingredient.purchaseUnits
+          .filter((unit) => unit.isActive)
+          .sort((left, right) => left.name.localeCompare(right.name))
+          .map((unit) => ({
+            id: unit.id,
+            name: unit.name,
+            quantityInBaseUnits: parseDecimal(unit.quantityInBaseUnits),
+            isActive: unit.isActive
+          })),
         updatedAt: item.ingredient.updatedAt.toISOString()
       })),
       recentTransactions: recentTransactions.map((entry) => ({
@@ -2576,6 +2598,9 @@ router.get("/inventory", async (req, res, next) => {
         vendorName: entry.vendorName,
         purchaseDate: entry.purchaseDate?.toISOString() ?? null,
         purchaseCost: parseDecimal(entry.purchaseCost),
+        purchaseQuantity: parseDecimal(entry.purchaseQuantity),
+        purchaseUnitId: entry.purchaseUnitId,
+        purchaseUnitLabel: entry.purchaseUnitLabel ?? entry.purchaseUnit?.name ?? null,
         wastageReason: entry.wastageReason,
         editedAt: entry.editedAt?.toISOString() ?? null,
         actorName: entry.actor?.name ?? null,
@@ -2771,6 +2796,82 @@ router.patch("/inventory/items/:id/status", async (req, res, next) => {
         action: "status"
       }));
     }
+    return next(error);
+  }
+});
+
+router.put("/inventory/items/:id/purchase-units", async (req, res, next) => {
+  try {
+    const payload = purchaseUnitsSchema.parse(req.body);
+    const names = payload.units.map((unit) => unit.name.trim().toLowerCase());
+    if (new Set(names).size !== names.length) {
+      return next(adminActionError({
+        message: "Purchase unit names must be unique.",
+        statusCode: 400,
+        code: "PURCHASE_UNIT_DUPLICATE",
+        details: "Use each purchase unit name only once for an inventory item.",
+        entity: "ingredient_purchase_unit",
+        action: "update"
+      }));
+    }
+
+    const ingredient = await prisma.ingredient.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!ingredient) {
+      return res.status(404).json({ message: "Inventory item not found." });
+    }
+
+    const units = await prisma.$transaction(async (transaction) => {
+      const retainedIds = new Set<string>();
+
+      for (const unit of payload.units) {
+        const data = {
+          name: unit.name.trim(),
+          quantityInBaseUnits: unit.quantityInBaseUnits,
+          isActive: unit.isActive
+        };
+        if (unit.id) {
+          const updated = await transaction.ingredientPurchaseUnit.updateMany({
+            where: { id: unit.id, ingredientId: ingredient.id },
+            data
+          });
+          if (updated.count) retainedIds.add(unit.id);
+        } else {
+          const created = await transaction.ingredientPurchaseUnit.create({ data: { ...data, ingredientId: ingredient.id } });
+          retainedIds.add(created.id);
+        }
+      }
+
+      await transaction.ingredientPurchaseUnit.updateMany({
+        where: {
+          ingredientId: ingredient.id,
+          id: { notIn: Array.from(retainedIds) }
+        },
+        data: { isActive: false }
+      });
+
+      return transaction.ingredientPurchaseUnit.findMany({
+        where: { ingredientId: ingredient.id, isActive: true },
+        orderBy: { name: "asc" }
+      });
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.purchase_units_update",
+      entityType: "ingredient",
+      entityId: ingredient.id,
+      payload
+    });
+
+    return res.json({
+      units: units.map((unit) => ({
+        id: unit.id,
+        name: unit.name,
+        quantityInBaseUnits: parseDecimal(unit.quantityInBaseUnits),
+        isActive: unit.isActive
+      }))
+    });
+  } catch (error) {
     return next(error);
   }
 });
@@ -5390,6 +5491,30 @@ const expenseSchema = z.object({
   notes: z.string().max(500).optional().or(z.literal(""))
 });
 
+const stockPurchaseSchema = z.object({
+  branchId: z.string().cuid(),
+  ingredientId: z.string().cuid(),
+  purchaseUnitId: z.string().cuid().nullable().optional(),
+  purchaseQuantity: z.number().positive(),
+  amount: z.number().positive(),
+  paymentSource: z.enum(MONEY_SOURCES),
+  purchaseDate: z.string().datetime(),
+  vendor: z.string().max(100).optional().or(z.literal("")),
+  billReference: z.string().max(100).optional().or(z.literal("")),
+  note: z.string().max(500).optional().or(z.literal(""))
+});
+
+const stockPurchaseUpdateSchema = z.object({
+  purchaseUnitId: z.string().cuid().nullable().optional(),
+  purchaseQuantity: z.number().positive().optional(),
+  amount: z.number().positive().optional(),
+  paymentSource: z.enum(MONEY_SOURCES).optional(),
+  purchaseDate: z.string().datetime().optional(),
+  vendor: z.string().max(100).optional().or(z.literal("")),
+  billReference: z.string().max(100).optional().or(z.literal("")),
+  note: z.string().max(500).optional().or(z.literal(""))
+});
+
 const fixedExpenseSchema = z.object({
   branchId: z.string().cuid(),
   name: z.string().trim().min(2).max(120),
@@ -5652,7 +5777,13 @@ router.get("/expenses", async (req, res, next) => {
         where,
         include: {
           branch: true,
-          createdBy: true
+          createdBy: true,
+          stockTransaction: {
+            include: {
+              purchaseUnit: true,
+              branchInventory: { include: { ingredient: true } }
+            }
+          }
         },
         orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }]
       });
@@ -5713,6 +5844,18 @@ router.get("/expenses", async (req, res, next) => {
         vendor: expense.vendor,
         billReference: expense.billReference,
         notes: expense.notes,
+        stockTransactionId: expense.stockTransactionId,
+        stockPurchase: expense.stockTransaction
+          ? {
+              ingredientId: expense.stockTransaction.branchInventory.ingredientId,
+              ingredientName: expense.stockTransaction.branchInventory.ingredient.name,
+              purchaseUnitId: expense.stockTransaction.purchaseUnitId,
+              purchaseQuantity: parseDecimal(expense.stockTransaction.purchaseQuantity),
+              purchaseUnitLabel: expense.stockTransaction.purchaseUnitLabel ?? expense.stockTransaction.purchaseUnit?.name ?? expense.stockTransaction.branchInventory.ingredient.unit,
+              baseQuantity: parseDecimal(expense.stockTransaction.quantity),
+              purchaseDate: expense.stockTransaction.purchaseDate?.toISOString() ?? expense.expenseDate.toISOString()
+            }
+          : null,
         createdByName: expense.createdBy?.name ?? null,
         createdAt: expense.createdAt.toISOString()
       }))
@@ -5731,7 +5874,13 @@ router.get("/expenses/export", async (req, res, next) => {
       where: buildExpenseWhere(query, range, branchContext.branchId),
       include: {
         branch: true,
-        createdBy: true
+        createdBy: true,
+        stockTransaction: {
+          include: {
+            purchaseUnit: true,
+            branchInventory: { include: { ingredient: true } }
+          }
+        }
       },
       orderBy: [{ expenseDate: "asc" }, { createdAt: "asc" }]
     });
@@ -5757,10 +5906,17 @@ router.get("/expenses/export", async (req, res, next) => {
       Branch: expense.branch.name,
       Title: expense.title,
       Category: expense.category,
+      EntryType: expense.stockTransaction ? "Stock purchase" : "Other expense",
       Amount: parseDecimal(expense.amount),
       PaymentSource: expense.paymentSource,
       Vendor: expense.vendor ?? "",
       BillReference: expense.billReference ?? "",
+      StockItem: expense.stockTransaction?.branchInventory.ingredient.name ?? "",
+      PurchaseQuantity: expense.stockTransaction?.purchaseQuantity == null
+        ? ""
+        : parseDecimal(expense.stockTransaction.purchaseQuantity),
+      PurchaseUnit: expense.stockTransaction?.purchaseUnitLabel ?? expense.stockTransaction?.purchaseUnit?.name ?? "",
+      BaseQuantity: expense.stockTransaction ? parseDecimal(expense.stockTransaction.quantity) : "",
       Notes: expense.notes ?? "",
       CreatedBy: expense.createdBy?.name ?? "",
       LoggedAt: expense.createdAt.toISOString()
@@ -5835,6 +5991,16 @@ router.patch("/expenses/:id", async (req, res, next) => {
     if (existing.branchId !== branchContext.branchId) {
       return res.status(403).json({ message: "This expense belongs to another branch." });
     }
+    if (existing.stockTransactionId) {
+      return next(adminActionError({
+        message: "Stock purchases must be edited from the stock purchase form.",
+        statusCode: 400,
+        code: "STOCK_PURCHASE_EDIT_REQUIRED",
+        details: "This expense is linked to inventory and cannot be edited as a general expense.",
+        entity: "expense",
+        action: "update"
+      }));
+    }
     const expense = await prisma.expense.update({
       where: { id: req.params.id },
       data: {
@@ -5871,19 +6037,123 @@ router.patch("/expenses/:id", async (req, res, next) => {
   }
 });
 
+router.patch("/expenses/stock-purchases/:id", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = stockPurchaseUpdateSchema.parse(req.body);
+    const existing = await prisma.expense.findUnique({
+      where: { id: req.params.id },
+      include: {
+        stockTransaction: {
+          include: {
+            purchaseUnit: true,
+            branchInventory: { include: { ingredient: true } }
+          }
+        },
+        branch: true,
+        createdBy: true
+      }
+    });
+    if (!existing) return res.status(404).json({ message: "Stock purchase not found." });
+    if (existing.branchId !== branchContext.branchId) return res.status(403).json({ message: "This stock purchase belongs to another branch." });
+    if (!existing.stockTransaction) return res.status(400).json({ message: "This expense is not a stock purchase." });
+
+    const stockTransaction = existing.stockTransaction;
+    const ingredient = stockTransaction.branchInventory.ingredient;
+    const purchaseUnitId = payload.purchaseUnitId !== undefined ? payload.purchaseUnitId : stockTransaction.purchaseUnitId;
+    const purchaseUnit = purchaseUnitId
+      ? await prisma.ingredientPurchaseUnit.findFirst({
+          where: {
+            id: purchaseUnitId,
+            ingredientId: ingredient.id,
+            OR: [{ isActive: true }, { id: stockTransaction.purchaseUnitId ?? "" }]
+          }
+        })
+      : null;
+    if (purchaseUnitId && !purchaseUnit) return res.status(400).json({ message: "Purchase unit is unavailable." });
+
+    const purchaseQuantity = payload.purchaseQuantity ?? (parseDecimal(stockTransaction.purchaseQuantity) || parseDecimal(stockTransaction.quantity));
+    const amount = payload.amount ?? parseDecimal(existing.amount);
+    const purchaseDate = payload.purchaseDate ? new Date(payload.purchaseDate) : stockTransaction.purchaseDate ?? existing.expenseDate;
+    const baseQuantity = roundQuantity(purchaseQuantity * (purchaseUnit ? parseDecimal(purchaseUnit.quantityInBaseUnits) : 1));
+    const unitLabel = purchaseUnit?.name ?? stockTransaction.purchaseUnitLabel ?? ingredient.unit;
+    const expenseDate = businessDayRange(getBusinessDateKey(purchaseDate)).start;
+
+    const expense = await prisma.$transaction(async (transaction) => {
+      await transaction.inventoryTransaction.update({
+        where: { id: stockTransaction.id },
+        data: {
+          quantity: baseQuantity,
+          balanceAfter: baseQuantity,
+          purchaseQuantity,
+          purchaseUnitId,
+          purchaseUnitLabel: unitLabel,
+          purchaseCost: amount,
+          purchaseDate,
+          vendorName: payload.vendor !== undefined ? payload.vendor.trim() || null : stockTransaction.vendorName,
+          note: payload.note !== undefined ? payload.note.trim() || null : stockTransaction.note
+        }
+      });
+      await transaction.ingredient.update({
+        where: { id: ingredient.id },
+        data: { costPerUnit: Number((amount / baseQuantity).toFixed(2)) }
+      });
+      return transaction.expense.update({
+        where: { id: existing.id },
+        data: {
+          amount,
+          paymentSource: payload.paymentSource ?? existing.paymentSource,
+          expenseDate,
+          vendor: payload.vendor !== undefined ? payload.vendor.trim() || null : existing.vendor,
+          billReference: payload.billReference !== undefined ? payload.billReference.trim() || null : existing.billReference,
+          notes: payload.note !== undefined ? payload.note.trim() || null : existing.notes,
+          createdById: req.user!.id
+        },
+        include: { branch: true, createdBy: true }
+      });
+    });
+
+    await recalculateInventoryBalances(stockTransaction.branchInventoryId);
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "expense.stock_purchase_update",
+      entityType: "expense",
+      entityId: expense.id,
+      payload: { ...payload, baseQuantity, purchaseUnitLabel: unitLabel }
+    });
+    return res.json({ expense });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.delete("/expenses/:id", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const expense = await prisma.expense.findUnique({
-      where: { id: req.params.id }
+      where: { id: req.params.id },
+      include: { stockTransaction: true }
     });
 
     if (!expense) {
       return res.status(404).json({ message: "Expense not found." });
     }
 
-    await prisma.expense.delete({
-      where: { id: expense.id }
+    if (expense.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This expense belongs to another branch." });
+    }
+
+    await prisma.$transaction(async (transaction) => {
+      if (expense.stockTransactionId) {
+        await transaction.inventoryTransaction.delete({ where: { id: expense.stockTransactionId } });
+      } else {
+        await transaction.expense.delete({ where: { id: expense.id } });
+      }
     });
+
+    if (expense.stockTransaction) {
+      await recalculateInventoryBalances(expense.stockTransaction.branchInventoryId);
+    }
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -5922,6 +6192,138 @@ router.get("/branches", async (req, res, next) => {
       selectedBranchId: selectedBranch?.id ?? "",
       primaryBranchId: access.primaryBranchId,
       canSwitchBranches: access.canSwitchBranches
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/expenses/stock-purchases", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const parsedPayload = stockPurchaseSchema.parse(req.body);
+    const payload = { ...parsedPayload, branchId: branchContext.branchId };
+    const inventory = await prisma.branchInventory.findUnique({
+      where: {
+        branchId_ingredientId: {
+          branchId: payload.branchId,
+          ingredientId: payload.ingredientId
+        }
+      },
+      include: { ingredient: true }
+    });
+
+    if (!inventory) {
+      return res.status(404).json({ message: "Inventory item not found for the selected branch." });
+    }
+    if (!inventory.ingredient.isActive) {
+      return next(adminActionError({
+        message: "Inventory item is disabled.",
+        statusCode: 400,
+        code: "INVENTORY_ITEM_DISABLED",
+        details: "Enable this item before recording a stock purchase.",
+        entity: "ingredient",
+        action: "stock_purchase"
+      }));
+    }
+    if (inventory.ingredient.type === "PREPARED") {
+      return next(adminActionError({
+        message: "Prep items are made internally, not purchased as stock.",
+        statusCode: 400,
+        code: "PREP_ITEM_NOT_PURCHASABLE",
+        details: "Record the raw purchase and use the prep recipe to produce this item.",
+        entity: "ingredient",
+        action: "stock_purchase"
+      }));
+    }
+
+    const purchaseUnit = payload.purchaseUnitId
+      ? await prisma.ingredientPurchaseUnit.findFirst({
+          where: { id: payload.purchaseUnitId, ingredientId: payload.ingredientId, isActive: true }
+        })
+      : null;
+    if (payload.purchaseUnitId && !purchaseUnit) {
+      return next(adminActionError({
+        message: "Purchase unit is unavailable.",
+        statusCode: 400,
+        code: "PURCHASE_UNIT_UNAVAILABLE",
+        details: "Choose an active purchase unit configured for this inventory item.",
+        entity: "ingredient_purchase_unit",
+        action: "stock_purchase"
+      }));
+    }
+
+    const conversion = purchaseUnit ? parseDecimal(purchaseUnit.quantityInBaseUnits) : 1;
+    const baseQuantity = roundQuantity(payload.purchaseQuantity * conversion);
+    const purchaseDate = new Date(payload.purchaseDate);
+    const expenseDate = businessDayRange(getBusinessDateKey(purchaseDate)).start;
+    const unitLabel = purchaseUnit?.name ?? inventory.ingredient.unit;
+
+    const result = await prisma.$transaction(async (transaction) => {
+      const stock = await recordInventoryChange({
+        transaction,
+        branchId: payload.branchId,
+        ingredientId: payload.ingredientId,
+        quantityDelta: baseQuantity,
+        type: InventoryTransactionType.PURCHASE,
+        actorId: req.user!.id,
+        referenceType: "STOCK_PURCHASE",
+        vendorName: payload.vendor?.trim() || undefined,
+        purchaseDate,
+        purchaseCost: payload.amount,
+        purchaseQuantity: payload.purchaseQuantity,
+        purchaseUnitId: purchaseUnit?.id,
+        purchaseUnitLabel: unitLabel,
+        note: payload.note?.trim() || undefined
+      });
+
+      await transaction.ingredient.update({
+        where: { id: payload.ingredientId },
+        data: { costPerUnit: Number((payload.amount / baseQuantity).toFixed(2)) }
+      });
+
+      const expense = await transaction.expense.create({
+        data: {
+          branchId: payload.branchId,
+          createdById: req.user!.id,
+          title: `Stock purchase: ${inventory.ingredient.name}`,
+          category: "Inventory",
+          amount: payload.amount,
+          paymentSource: payload.paymentSource,
+          expenseDate,
+          vendor: payload.vendor?.trim() || undefined,
+          billReference: payload.billReference?.trim() || undefined,
+          notes: payload.note?.trim() || undefined,
+          stockTransactionId: stock.transactionId
+        },
+        include: { branch: true, createdBy: true }
+      });
+
+      await transaction.inventoryTransaction.update({
+        where: { id: stock.transactionId },
+        data: { referenceId: expense.id }
+      });
+
+      return { expense, stock, baseQuantity, unitLabel };
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "expense.stock_purchase_create",
+      entityType: "expense",
+      entityId: result.expense.id,
+      payload: { ...payload, baseQuantity: result.baseQuantity, purchaseUnitLabel: result.unitLabel }
+    });
+
+    return res.status(201).json({
+      expense: result.expense,
+      stock: {
+        transactionId: result.stock.transactionId,
+        ingredientId: payload.ingredientId,
+        purchaseQuantity: payload.purchaseQuantity,
+        purchaseUnitLabel: result.unitLabel,
+        baseQuantity: result.baseQuantity
+      }
     });
   } catch (error) {
     return next(error);

@@ -195,6 +195,12 @@ export type AdminInventoryItem = {
   quantityOnHand: number;
   stockValue: number;
   lowStockAlert: boolean;
+  purchaseUnits: Array<{
+    id: string;
+    name: string;
+    quantityInBaseUnits: number;
+    isActive: boolean;
+  }>;
   linkedProducts: Array<{
     productId: string;
     productName: string;
@@ -220,6 +226,9 @@ export type AdminInventoryTransaction = {
   vendorName?: string | null;
   purchaseDate?: string | null;
   purchaseCost?: number | null;
+  purchaseQuantity?: number | null;
+  purchaseUnitId?: string | null;
+  purchaseUnitLabel?: string | null;
   wastageReason?: string | null;
   editedAt?: string | null;
   actorName?: string | null;
@@ -336,6 +345,16 @@ export type AdminExpense = {
   vendor?: string | null;
   billReference?: string | null;
   notes?: string | null;
+  stockTransactionId?: string | null;
+  stockPurchase?: {
+    ingredientId: string;
+    ingredientName: string;
+    purchaseUnitId?: string | null;
+    purchaseQuantity: number;
+    purchaseUnitLabel: string;
+    baseQuantity: number;
+    purchaseDate?: string;
+  } | null;
   createdByName?: string | null;
   createdAt: string;
 };

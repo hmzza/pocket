@@ -37,6 +37,9 @@ type RecordInventoryChangeArgs = {
   vendorName?: string;
   purchaseDate?: Date;
   purchaseCost?: number;
+  purchaseQuantity?: number;
+  purchaseUnitId?: string;
+  purchaseUnitLabel?: string;
   wastageReason?: string;
 };
 
@@ -61,6 +64,9 @@ export async function recordInventoryChange({
   vendorName,
   purchaseDate,
   purchaseCost,
+  purchaseQuantity,
+  purchaseUnitId,
+  purchaseUnitLabel,
   wastageReason
 }: RecordInventoryChangeArgs) {
   const inventory = await transaction.branchInventory.findUnique({
@@ -93,7 +99,7 @@ export async function recordInventoryChange({
     }
   });
 
-  await transaction.inventoryTransaction.create({
+  const inventoryTransaction = await transaction.inventoryTransaction.create({
     data: {
       branchInventoryId: updated.id,
       actorId: actorId ?? undefined,
@@ -106,11 +112,14 @@ export async function recordInventoryChange({
       vendorName,
       purchaseDate,
       purchaseCost,
+      purchaseQuantity,
+      purchaseUnitId,
+      purchaseUnitLabel,
       wastageReason
     }
   });
 
-  return updated;
+  return { ...updated, transactionId: inventoryTransaction.id };
 }
 
 export type InventoryChange = {

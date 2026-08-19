@@ -543,8 +543,24 @@ model Ingredient {
   preparedComponents  IngredientComponent[] @relation("PreparedIngredient")
   usedInPreparedItems IngredientComponent[] @relation("ComponentIngredient")
   packagingRuleUsage  PackagingRule[]       @relation("PackagingRuleIngredient")
+  purchaseUnits       IngredientPurchaseUnit[]
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
+}
+
+model IngredientPurchaseUnit {
+  id                   String       @id @default(cuid())
+  ingredientId         String
+  name                 String
+  quantityInBaseUnits  Decimal      @db.Decimal(12, 6)
+  isActive             Boolean      @default(true)
+  ingredient           Ingredient   @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  inventoryTransactions InventoryTransaction[]
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@unique([ingredientId, name])
+  @@index([ingredientId, isActive])
 }
 
 model BranchInventory {
@@ -573,6 +589,9 @@ model InventoryTransaction {
   vendorName        String?
   purchaseDate      DateTime?
   purchaseCost      Decimal?                 @db.Decimal(10, 2)
+  purchaseQuantity  Decimal?                 @db.Decimal(12, 6)
+  purchaseUnitId    String?
+  purchaseUnitLabel String?
   wastageReason     String?
   editedAt          DateTime?
   editedById        String?
@@ -580,6 +599,8 @@ model InventoryTransaction {
   createdAt         DateTime                 @default(now())
   branchInventory   BranchInventory          @relation(fields: [branchInventoryId], references: [id], onDelete: Cascade)
   actor             User?                    @relation("InventoryActor", fields: [actorId], references: [id], onDelete: SetNull)
+  purchaseUnit      IngredientPurchaseUnit?  @relation(fields: [purchaseUnitId], references: [id], onDelete: SetNull)
+  stockExpense      Expense?                 @relation("StockPurchase")
 }
 
 model ProductIngredient {
@@ -633,11 +654,13 @@ model Expense {
   vendor                 String?
   billReference          String?
   notes                  String?
+  stockTransactionId     String?                 @unique
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
   branch                 Branch                  @relation(fields: [branchId], references: [id], onDelete: Cascade)
   createdBy              User?                   @relation("ExpenseActor", fields: [createdById], references: [id], onDelete: SetNull)
   fixedExpenseOccurrence FixedExpenseOccurrence?
+  stockTransaction       InventoryTransaction?   @relation("StockPurchase", fields: [stockTransactionId], references: [id], onDelete: Cascade)
 }
 
 model FixedExpense {
