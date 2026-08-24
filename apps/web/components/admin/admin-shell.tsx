@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, Package2, Receipt, ShoppingCart, SlidersHorizontal, Truck, Users, X } from "lucide-react";
+import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, Package2, Receipt, Route, ShoppingCart, SlidersHorizontal, Truck, Users, X } from "lucide-react";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
@@ -27,6 +27,7 @@ const links: Array<{
   { href: "/admin/inventory", label: "Inventory", icon: Package2, permissionKey: "INVENTORY" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart, permissionKey: "ORDERS" },
   { href: "/admin/riders", label: "Riders", icon: Truck, permissionKey: "RIDERS" },
+  { href: "/admin/dispatch", label: "Dispatch", icon: Route, permissionKey: "DELIVERIES" },
   { href: "/admin/customers", label: "Customers", icon: Users, permissionKey: "CUSTOMERS" },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt, permissionKey: "EXPENSES" },
   { href: "/admin/capital", label: "Capital", icon: HandCoins, permissionKey: "CAPITAL" },

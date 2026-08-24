@@ -17,8 +17,12 @@ import type {
   AdminPackagingRuleData,
   AdminOrder,
   AdminProduct,
+  AdminDelivery,
+  AdminDeliveryMessage,
+  AdminDispatchData,
   AdminRider,
   AdminRiderData,
+  DeliveryStatus,
   RiderAvailability,
   AdminRangePreset,
   AdminUser,
@@ -724,6 +728,55 @@ export async function deleteAdminRider(riderId: string) {
     `/api/admin/riders/${riderId}`,
     { method: "DELETE" }
   );
+}
+
+export async function fetchAdminDispatch() {
+  return adminFetch<AdminDispatchData>("/api/admin/deliveries");
+}
+
+export async function assignAdminDelivery(payload: { orderId: string; riderId: string; note?: string }) {
+  const data = await adminFetch<{ delivery: AdminDelivery }>("/api/admin/deliveries/assign", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.delivery;
+}
+
+export async function reassignAdminDelivery(deliveryId: string, payload: { riderId: string; reason: string }) {
+  const data = await adminFetch<{ delivery: AdminDelivery }>(`/api/admin/deliveries/${deliveryId}/reassign`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.delivery;
+}
+
+export async function updateAdminDeliveryStatus(
+  deliveryId: string,
+  status: DeliveryStatus,
+  options?: { failureReason?: string }
+) {
+  const data = await adminFetch<{ delivery: AdminDelivery }>(`/api/admin/deliveries/${deliveryId}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status, ...(options?.failureReason ? { failureReason: options.failureReason } : {}) })
+  });
+  return data.delivery;
+}
+
+export async function retryAdminDeliveryMessage(messageId: string) {
+  const data = await adminFetch<{ message: AdminDeliveryMessage | null }>(
+    `/api/admin/deliveries/messages/${messageId}/retry`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  return data.message;
+}
+
+/** Records that a human opened the wa.me link and sent the message. */
+export async function markAdminDeliveryMessageSent(messageId: string) {
+  const data = await adminFetch<{ message: AdminDeliveryMessage }>(
+    `/api/admin/deliveries/messages/${messageId}/sent`,
+    { method: "POST", body: JSON.stringify({}) }
+  );
+  return data.message;
 }
 
 export async function updateAdminSetting(key: string, value: unknown) {

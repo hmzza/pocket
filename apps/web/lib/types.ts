@@ -753,6 +753,112 @@ export type AdminRiderData = {
   branchId: string;
 };
 
+export type DeliveryStatus =
+  | "ASSIGNED"
+  | "ACCEPTED"
+  | "PICKED_UP"
+  | "ON_THE_WAY"
+  | "DELIVERED"
+  | "REJECTED"
+  | "CANCELLED"
+  | "FAILED"
+  | "REASSIGNED";
+
+export type AdminDeliveryMessage = {
+  id: string;
+  kind: "RIDER_ASSIGNED" | "RIDER_REVOKED";
+  status: "QUEUED" | "MANUAL_PENDING" | "SENT" | "FAILED";
+  provider: string;
+  toPhone: string;
+  body: string;
+  deepLinkUrl?: string | null;
+  attempts: number;
+  lastError?: string | null;
+  queuedAt: string;
+  sentAt?: string | null;
+  /** True while a human still has to open WhatsApp and press send. */
+  requiresManualSend: boolean;
+};
+
+export type AdminDeliveryEvent = {
+  id: string;
+  status: DeliveryStatus;
+  note?: string | null;
+  riderName?: string | null;
+  actorName?: string | null;
+  createdAt: string;
+};
+
+export type AdminDispatchOrderSummary = {
+  status: string;
+  customerName: string;
+  customerPhone?: string | null;
+  customerPhoneDisplay: string;
+  totalAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  placedAt: string;
+  deliveryInstructions?: string | null;
+  address?: { addressLine1: string; addressLine2?: string | null; city: string; instructions?: string | null } | null;
+  items: Array<{ id: string; productName: string; quantity: number; unitPrice: number }>;
+};
+
+export type AdminDelivery = {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  status: DeliveryStatus;
+  trackingToken: string;
+  assignmentCount: number;
+  codAmount?: number | null;
+  failureReason?: string | null;
+  deliveryNotes?: string | null;
+  assignedAt?: string | null;
+  pickedUpAt?: string | null;
+  deliveredAt?: string | null;
+  cancelledAt?: string | null;
+  rider?: {
+    id: string;
+    name: string;
+    phone: string;
+    phoneDisplay: string;
+    vehicleType: string;
+    vehiclePlate?: string | null;
+  } | null;
+  order: AdminDispatchOrderSummary;
+  events: AdminDeliveryEvent[];
+  messages: AdminDeliveryMessage[];
+};
+
+export type AdminAssignableOrder = {
+  id: string;
+  orderNumber: string;
+  status: string;
+  customerName: string;
+  customerPhone?: string | null;
+  customerPhoneDisplay: string;
+  totalAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  placedAt: string;
+  deliveryInstructions?: string | null;
+  previousFailureReason?: string | null;
+  /** False when something about the order blocks dispatch, e.g. no address. */
+  canAssign: boolean;
+  blockedReason?: string | null;
+  address?: { addressLine1: string; addressLine2?: string | null; city: string; instructions?: string | null } | null;
+  items: Array<{ id: string; productName: string; quantity: number; unitPrice: number }>;
+};
+
+export type AdminDispatchData = {
+  active: AdminDelivery[];
+  recent: AdminDelivery[];
+  assignable: AdminAssignableOrder[];
+  riders: AdminRider[];
+  /** Whether the configured WhatsApp provider can send without a human. */
+  provider: { name: string; automatic: boolean };
+};
+
 export type AdminCustomer = {
   id: string;
   name: string;

@@ -1,5 +1,15 @@
 import { Router } from "express";
-import { Prisma, RiderAvailability, RoleCode } from "@prisma/client";
+import {
+  DeliveryStatus,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  Prisma,
+  RiderAvailability,
+  RoleCode,
+  ServiceType
+} from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
@@ -7,6 +17,17 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requireAdminRoutePermission } from "../lib/permissions.js";
 import { formatPakistanPhone, isPakistanMobile, normalizePakistanPhone } from "../lib/phone.js";
+import {
+  buildRiderAssignmentMessage,
+  buildRiderRevocationMessage,
+  dispatchWhatsAppMessage,
+  getWhatsAppProvider,
+  markWhatsAppMessageSent,
+  queueWhatsAppMessage,
+  retryWhatsAppMessage,
+  serializeWhatsAppMessage,
+  type AssignmentContext
+} from "../lib/whatsapp/index.js";
 
 /**
  * Delivery & Takeaway module routes.
@@ -352,6 +373,763 @@ router.delete("/riders/:id", async (req, res, next) => {
     });
 
     return res.json({ deleted: true, deactivated: false });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Dispatch
+// ---------------------------------------------------------------------------
+
+/**
+ * Order statuses a delivery can be assigned from. PENDING is excluded on
+ * purpose: an order has to be accepted before a rider is sent for it.
+ */
+const ASSIGNABLE_ORDER_STATUSES = [
+  OrderStatus.CONFIRMED,
+  OrderStatus.PREPARING,
+  OrderStatus.READY,
+  OrderStatus.WATCH_LATER
+] as const;
+
+/** A delivery in one of these states is finished and no longer holds a rider. */
+const CLOSED_DELIVERY_STATUSES = [
+  DeliveryStatus.DELIVERED,
+  DeliveryStatus.FAILED,
+  DeliveryStatus.CANCELLED,
+  DeliveryStatus.REJECTED
+] as const;
+
+function isClosedDelivery(status: DeliveryStatus) {
+  return (CLOSED_DELIVERY_STATUSES as readonly DeliveryStatus[]).includes(status);
+}
+
+function isCashOnDelivery(paymentMethod: PaymentMethod) {
+  return paymentMethod === PaymentMethod.CASH_ON_DELIVERY || paymentMethod === PaymentMethod.CASH;
+}
+
+const deliveryInclude = {
+  rider: true,
+  order: {
+    include: {
+      address: true,
+      items: { select: { id: true, productName: true, quantity: true, unitPrice: true } }
+    }
+  },
+  events: {
+    include: { rider: { select: { name: true } }, actor: { select: { name: true, username: true } } },
+    orderBy: { createdAt: "desc" as const },
+    take: 12
+  },
+  whatsAppMessages: { orderBy: { queuedAt: "desc" as const }, take: 6 }
+} satisfies Prisma.DeliveryInclude;
+
+function serializeDelivery(delivery: any) {
+  return {
+    id: delivery.id,
+    orderId: delivery.orderId,
+    orderNumber: delivery.order.orderNumber,
+    status: delivery.status,
+    trackingToken: delivery.trackingToken,
+    assignmentCount: delivery.assignmentCount,
+    codAmount: delivery.codAmount == null ? null : Number(delivery.codAmount),
+    failureReason: delivery.failureReason ?? null,
+    deliveryNotes: delivery.deliveryNotes ?? null,
+    assignedAt: delivery.assignedAt,
+    pickedUpAt: delivery.pickedUpAt,
+    deliveredAt: delivery.deliveredAt,
+    cancelledAt: delivery.cancelledAt,
+    rider: delivery.rider
+      ? {
+          id: delivery.rider.id,
+          name: delivery.rider.name,
+          phone: delivery.rider.phone,
+          phoneDisplay: formatPakistanPhone(delivery.rider.phone),
+          vehicleType: delivery.rider.vehicleType,
+          vehiclePlate: delivery.rider.vehiclePlate ?? null
+        }
+      : null,
+    order: {
+      status: delivery.order.status,
+      customerName: delivery.order.customerName ?? "Customer",
+      customerPhone: delivery.order.customerPhone ?? null,
+      customerPhoneDisplay: formatPakistanPhone(delivery.order.customerPhone),
+      totalAmount: Number(delivery.order.totalAmount),
+      paymentMethod: delivery.order.paymentMethod,
+      paymentStatus: delivery.order.paymentStatus,
+      placedAt: delivery.order.placedAt,
+      deliveryInstructions: delivery.order.deliveryInstructions ?? null,
+      address: delivery.order.address
+        ? {
+            addressLine1: delivery.order.address.addressLine1,
+            addressLine2: delivery.order.address.addressLine2 ?? null,
+            city: delivery.order.address.city,
+            instructions: delivery.order.address.instructions ?? null
+          }
+        : null,
+      items: (delivery.order.items ?? []).map((item: any) => ({
+        id: item.id,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice)
+      }))
+    },
+    events: (delivery.events ?? []).map((event: any) => ({
+      id: event.id,
+      status: event.status,
+      note: event.note ?? null,
+      riderName: event.rider?.name ?? null,
+      actorName: event.actor?.name ?? event.actor?.username ?? null,
+      createdAt: event.createdAt
+    })),
+    messages: (delivery.whatsAppMessages ?? []).map(serializeWhatsAppMessage)
+  };
+}
+
+/**
+ * Builds the assignment message from committed data.
+ *
+ * Read after the transaction rather than assembled from the request, so the
+ * rider is told what the database actually holds.
+ */
+async function buildAssignmentContextFor(deliveryId: string): Promise<AssignmentContext | null> {
+  const delivery = await prisma.delivery.findUnique({
+    where: { id: deliveryId },
+    include: {
+      rider: true,
+      branch: { select: { name: true, phone: true } },
+      order: { include: { address: true, items: { select: { productName: true, quantity: true } } } }
+    }
+  });
+
+  if (!delivery?.rider) return null;
+
+  return {
+    rider: { name: delivery.rider.name, phone: delivery.rider.phone },
+    order: {
+      orderNumber: delivery.order.orderNumber,
+      customerName: delivery.order.customerName,
+      customerPhone: delivery.order.customerPhone,
+      totalAmount: Number(delivery.order.totalAmount),
+      paymentMethod: delivery.order.paymentMethod,
+      deliveryInstructions: delivery.order.deliveryInstructions,
+      items: delivery.order.items.map((item) => ({ productName: item.productName, quantity: item.quantity }))
+    },
+    address: delivery.order.address,
+    branch: { name: delivery.branch.name, phone: delivery.branch.phone }
+  };
+}
+
+/**
+ * Sends queued messages after their transaction has committed.
+ *
+ * Deliberately fire-and-forget with a swallowed rejection: a WhatsApp problem
+ * must never turn a successful assignment into a failed request. Failures are
+ * already recorded on the message row for the board to show and retry.
+ */
+function dispatchQueuedMessages(messageIds: string[]) {
+  for (const id of messageIds) {
+    void dispatchWhatsAppMessage(id).catch(() => null);
+  }
+}
+
+router.get("/deliveries", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const branchId = branchContext.branchId;
+
+    const [activeDeliveries, assignableOrders, riders, recentDeliveries] = await Promise.all([
+      prisma.delivery.findMany({
+        where: { branchId, status: { notIn: [...CLOSED_DELIVERY_STATUSES] } },
+        include: deliveryInclude,
+        orderBy: [{ assignedAt: "asc" }, { createdAt: "asc" }]
+      }),
+      // Delivery orders that are accepted and have no live delivery attached.
+      prisma.order.findMany({
+        where: {
+          branchId,
+          serviceType: ServiceType.DELIVERY,
+          status: { in: [...ASSIGNABLE_ORDER_STATUSES] },
+          OR: [{ delivery: { is: null } }, { delivery: { is: { status: { in: [...CLOSED_DELIVERY_STATUSES] } } } }]
+        },
+        include: {
+          address: true,
+          delivery: { select: { id: true, status: true, failureReason: true } },
+          items: { select: { id: true, productName: true, quantity: true, unitPrice: true } }
+        },
+        orderBy: { placedAt: "asc" }
+      }),
+      prisma.rider.findMany({
+        where: { branchId, isActive: true },
+        orderBy: [{ availability: "asc" }, { name: "asc" }]
+      }),
+      prisma.delivery.findMany({
+        where: { branchId, status: { in: [...CLOSED_DELIVERY_STATUSES] } },
+        include: deliveryInclude,
+        orderBy: { updatedAt: "desc" },
+        take: 20
+      })
+    ]);
+
+    return res.json({
+      active: activeDeliveries.map(serializeDelivery),
+      recent: recentDeliveries.map(serializeDelivery),
+      assignable: assignableOrders.map((order) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        customerName: order.customerName ?? "Customer",
+        customerPhone: order.customerPhone ?? null,
+        customerPhoneDisplay: formatPakistanPhone(order.customerPhone),
+        totalAmount: Number(order.totalAmount),
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        placedAt: order.placedAt,
+        deliveryInstructions: order.deliveryInstructions ?? null,
+        // Set when a previous attempt failed, so dispatch knows this is a retry.
+        previousFailureReason: order.delivery?.failureReason ?? null,
+        // Shown as blocked rather than hidden, so a fixable order is not silently
+        // dropped from the board.
+        canAssign: Boolean(order.addressId),
+        blockedReason: order.addressId ? null : "No delivery address on this order.",
+        address: order.address
+          ? {
+              addressLine1: order.address.addressLine1,
+              addressLine2: order.address.addressLine2 ?? null,
+              city: order.address.city,
+              instructions: order.address.instructions ?? null
+            }
+          : null,
+        items: order.items.map((item) => ({
+          id: item.id,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: Number(item.unitPrice)
+        }))
+      })),
+      riders: riders.map((rider) => ({
+        id: rider.id,
+        name: rider.name,
+        phone: rider.phone,
+        phoneDisplay: formatPakistanPhone(rider.phone),
+        vehicleType: rider.vehicleType,
+        vehiclePlate: rider.vehiclePlate ?? null,
+        availability: rider.availability,
+        isActive: rider.isActive
+      })),
+      provider: {
+        name: getWhatsAppProvider().name,
+        automatic: getWhatsAppProvider().automatic
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const assignSchema = z.object({
+  orderId: z.string().min(1),
+  riderId: z.string().min(1),
+  note: z.string().trim().max(240).optional()
+});
+
+router.post("/deliveries/assign", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = assignSchema.parse(req.body);
+
+    const { delivery, messageIds } = await prisma.$transaction(async (transaction) => {
+      const order = await transaction.order.findUnique({
+        where: { id: payload.orderId },
+        include: { delivery: true }
+      });
+
+      if (!order) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+      if (order.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This order belongs to another branch."), { statusCode: 403 });
+      }
+      if (order.serviceType !== ServiceType.DELIVERY) {
+        throw Object.assign(new Error("Only delivery orders can be assigned to a rider."), {
+          statusCode: 409,
+          code: "ORDER_NOT_DELIVERY"
+        });
+      }
+      if (order.status === OrderStatus.PENDING) {
+        throw Object.assign(new Error("Accept this order before assigning a rider."), {
+          statusCode: 409,
+          code: "ORDER_NOT_ACCEPTED"
+        });
+      }
+      if (!(ASSIGNABLE_ORDER_STATUSES as readonly OrderStatus[]).includes(order.status)) {
+        throw Object.assign(new Error(`An order that is ${order.status.replaceAll("_", " ").toLowerCase()} cannot be assigned.`), {
+          statusCode: 409,
+          code: "ORDER_NOT_ASSIGNABLE"
+        });
+      }
+      if (order.delivery && !isClosedDelivery(order.delivery.status)) {
+        throw Object.assign(new Error("This order already has a rider. Use reassign instead."), {
+          statusCode: 409,
+          code: "DELIVERY_ALREADY_ACTIVE"
+        });
+      }
+      // Online checkout always captures an address, but older delivery orders
+      // predate that. Sending a rider out with "No address on file" is worse
+      // than refusing, so refuse and let staff fix the order first.
+      if (!order.addressId) {
+        throw Object.assign(new Error("This order has no delivery address, so a rider cannot be sent. Add the address to the order first."), {
+          statusCode: 409,
+          code: "ORDER_MISSING_ADDRESS"
+        });
+      }
+
+      const rider = await transaction.rider.findUnique({ where: { id: payload.riderId } });
+      if (!rider) throw Object.assign(new Error("Rider not found."), { statusCode: 404 });
+      if (rider.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This rider belongs to another branch."), { statusCode: 403 });
+      }
+      if (!rider.isActive) {
+        throw Object.assign(new Error(`${rider.name} is deactivated.`), { statusCode: 409, code: "RIDER_INACTIVE" });
+      }
+      if (rider.availability === RiderAvailability.ON_DELIVERY) {
+        throw Object.assign(new Error(`${rider.name} is already out on a delivery.`), {
+          statusCode: 409,
+          code: "RIDER_BUSY"
+        });
+      }
+      if (rider.availability === RiderAvailability.OFF_DUTY) {
+        throw Object.assign(new Error(`${rider.name} is off duty. Put them on duty first.`), {
+          statusCode: 409,
+          code: "RIDER_OFF_DUTY"
+        });
+      }
+
+      const codAmount = isCashOnDelivery(order.paymentMethod) ? order.totalAmount : null;
+
+      const saved = await transaction.delivery.upsert({
+        where: { orderId: order.id },
+        // A failed attempt leaves a row behind; reuse it so the event history and
+        // attempt count for this order stay in one place.
+        update: {
+          riderId: rider.id,
+          assignedById: req.user!.id,
+          status: DeliveryStatus.ASSIGNED,
+          assignedAt: new Date(),
+          pickedUpAt: null,
+          deliveredAt: null,
+          cancelledAt: null,
+          failureReason: null,
+          codAmount,
+          deliveryNotes: payload.note ?? null,
+          assignmentCount: { increment: 1 }
+        },
+        create: {
+          orderId: order.id,
+          branchId: order.branchId,
+          riderId: rider.id,
+          assignedById: req.user!.id,
+          status: DeliveryStatus.ASSIGNED,
+          trackingToken: randomUUID(),
+          assignedAt: new Date(),
+          codAmount,
+          deliveryNotes: payload.note ?? null,
+          assignmentCount: 1
+        }
+      });
+
+      await transaction.rider.update({
+        where: { id: rider.id },
+        data: { availability: RiderAvailability.ON_DELIVERY }
+      });
+
+      await transaction.deliveryEvent.create({
+        data: {
+          deliveryId: saved.id,
+          riderId: rider.id,
+          actorId: req.user!.id,
+          status: DeliveryStatus.ASSIGNED,
+          note: payload.note ?? null
+        }
+      });
+
+      return { delivery: saved, messageIds: [] as string[] };
+    });
+
+    // Built from committed data so the rider is told what the database holds.
+    const context = await buildAssignmentContextFor(delivery.id);
+    const queuedIds: string[] = [];
+    if (context) {
+      const message = buildRiderAssignmentMessage(context);
+      const queued = await prisma.$transaction((transaction) =>
+        queueWhatsAppMessage(transaction, {
+          ...message,
+          riderId: delivery.riderId,
+          deliveryId: delivery.id,
+          orderId: delivery.orderId
+        })
+      );
+      queuedIds.push(queued.id);
+    }
+
+    dispatchQueuedMessages([...messageIds, ...queuedIds]);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.assign",
+      entityType: "delivery",
+      entityId: delivery.id,
+      payload: { orderId: delivery.orderId, riderId: delivery.riderId, attempt: delivery.assignmentCount }
+    });
+
+    const fresh = await prisma.delivery.findUniqueOrThrow({ where: { id: delivery.id }, include: deliveryInclude });
+    return res.status(201).json({ delivery: serializeDelivery(fresh) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const reassignSchema = z.object({
+  riderId: z.string().min(1),
+  reason: z.string().trim().min(3).max(240)
+});
+
+router.post("/deliveries/:id/reassign", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = reassignSchema.parse(req.body);
+
+    const outcome = await prisma.$transaction(async (transaction) => {
+      const delivery = await transaction.delivery.findUnique({
+        where: { id: req.params.id },
+        include: { rider: true, order: { select: { orderNumber: true } } }
+      });
+
+      if (!delivery) throw Object.assign(new Error("Delivery not found."), { statusCode: 404 });
+      if (delivery.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This delivery belongs to another branch."), { statusCode: 403 });
+      }
+      if (isClosedDelivery(delivery.status)) {
+        throw Object.assign(new Error("This delivery is already finished and cannot be reassigned."), {
+          statusCode: 409,
+          code: "DELIVERY_CLOSED"
+        });
+      }
+      if (delivery.riderId === payload.riderId) {
+        throw Object.assign(new Error("That rider already has this delivery."), {
+          statusCode: 409,
+          code: "SAME_RIDER"
+        });
+      }
+
+      const nextRider = await transaction.rider.findUnique({ where: { id: payload.riderId } });
+      if (!nextRider) throw Object.assign(new Error("Rider not found."), { statusCode: 404 });
+      if (nextRider.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This rider belongs to another branch."), { statusCode: 403 });
+      }
+      if (!nextRider.isActive) {
+        throw Object.assign(new Error(`${nextRider.name} is deactivated.`), { statusCode: 409, code: "RIDER_INACTIVE" });
+      }
+      if (nextRider.availability === RiderAvailability.ON_DELIVERY) {
+        throw Object.assign(new Error(`${nextRider.name} is already out on a delivery.`), {
+          statusCode: 409,
+          code: "RIDER_BUSY"
+        });
+      }
+      if (nextRider.availability === RiderAvailability.OFF_DUTY) {
+        throw Object.assign(new Error(`${nextRider.name} is off duty. Put them on duty first.`), {
+          statusCode: 409,
+          code: "RIDER_OFF_DUTY"
+        });
+      }
+
+      const previousRider = delivery.rider;
+
+      // Free the outgoing rider before claiming the incoming one, so a rider is
+      // never left marked busy for a delivery they no longer hold.
+      if (previousRider) {
+        await transaction.rider.update({
+          where: { id: previousRider.id },
+          data: { availability: RiderAvailability.AVAILABLE }
+        });
+        await transaction.deliveryEvent.create({
+          data: {
+            deliveryId: delivery.id,
+            riderId: previousRider.id,
+            actorId: req.user!.id,
+            status: DeliveryStatus.REASSIGNED,
+            note: `Taken off ${delivery.order.orderNumber}: ${payload.reason}`
+          }
+        });
+      }
+
+      await transaction.rider.update({
+        where: { id: nextRider.id },
+        data: { availability: RiderAvailability.ON_DELIVERY }
+      });
+
+      const updated = await transaction.delivery.update({
+        where: { id: delivery.id },
+        data: {
+          riderId: nextRider.id,
+          assignedById: req.user!.id,
+          status: DeliveryStatus.ASSIGNED,
+          assignedAt: new Date(),
+          pickedUpAt: null,
+          assignmentCount: { increment: 1 }
+        }
+      });
+
+      await transaction.deliveryEvent.create({
+        data: {
+          deliveryId: delivery.id,
+          riderId: nextRider.id,
+          actorId: req.user!.id,
+          status: DeliveryStatus.ASSIGNED,
+          note: `Reassigned from ${previousRider?.name ?? "unassigned"}: ${payload.reason}`
+        }
+      });
+
+      return { delivery: updated, previousRider, orderNumber: delivery.order.orderNumber };
+    });
+
+    const queuedIds: string[] = [];
+
+    // Revoke first. If only one message gets through, it should be the one that
+    // stops a rider delivering an order that is no longer theirs.
+    if (outcome.previousRider) {
+      const branch = await prisma.branch.findUniqueOrThrow({
+        where: { id: branchContext.branchId },
+        select: { name: true, phone: true }
+      });
+      const revocation = buildRiderRevocationMessage({
+        rider: { name: outcome.previousRider.name, phone: outcome.previousRider.phone },
+        order: { orderNumber: outcome.orderNumber },
+        reason: payload.reason,
+        branch
+      });
+      const queued = await prisma.$transaction((transaction) =>
+        queueWhatsAppMessage(transaction, {
+          ...revocation,
+          riderId: outcome.previousRider!.id,
+          deliveryId: outcome.delivery.id,
+          orderId: outcome.delivery.orderId
+        })
+      );
+      queuedIds.push(queued.id);
+    }
+
+    const context = await buildAssignmentContextFor(outcome.delivery.id);
+    if (context) {
+      const message = buildRiderAssignmentMessage(context);
+      const queued = await prisma.$transaction((transaction) =>
+        queueWhatsAppMessage(transaction, {
+          ...message,
+          riderId: outcome.delivery.riderId,
+          deliveryId: outcome.delivery.id,
+          orderId: outcome.delivery.orderId
+        })
+      );
+      queuedIds.push(queued.id);
+    }
+
+    dispatchQueuedMessages(queuedIds);
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.reassign",
+      entityType: "delivery",
+      entityId: outcome.delivery.id,
+      payload: {
+        from: outcome.previousRider?.id ?? null,
+        to: outcome.delivery.riderId,
+        reason: payload.reason,
+        attempt: outcome.delivery.assignmentCount
+      }
+    });
+
+    const fresh = await prisma.delivery.findUniqueOrThrow({
+      where: { id: outcome.delivery.id },
+      include: deliveryInclude
+    });
+    return res.json({ delivery: serializeDelivery(fresh) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const deliveryStatusSchema = z
+  .object({
+    status: z.enum([
+      DeliveryStatus.PICKED_UP,
+      DeliveryStatus.ON_THE_WAY,
+      DeliveryStatus.DELIVERED,
+      DeliveryStatus.FAILED,
+      DeliveryStatus.CANCELLED
+    ]),
+    failureReason: z.string().trim().max(240).optional()
+  })
+  .superRefine((value, context) => {
+    if ((value.status === DeliveryStatus.FAILED || value.status === DeliveryStatus.CANCELLED) && !value.failureReason?.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A reason is required so the order can be followed up.",
+        path: ["failureReason"]
+      });
+    }
+  });
+
+router.post("/deliveries/:id/status", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = deliveryStatusSchema.parse(req.body);
+
+    const updated = await prisma.$transaction(async (transaction) => {
+      const delivery = await transaction.delivery.findUnique({
+        where: { id: req.params.id },
+        include: { order: true }
+      });
+
+      if (!delivery) throw Object.assign(new Error("Delivery not found."), { statusCode: 404 });
+      if (delivery.branchId !== branchContext.branchId) {
+        throw Object.assign(new Error("This delivery belongs to another branch."), { statusCode: 403 });
+      }
+      if (isClosedDelivery(delivery.status)) {
+        throw Object.assign(new Error("This delivery is already finished."), {
+          statusCode: 409,
+          code: "DELIVERY_CLOSED"
+        });
+      }
+
+      const now = new Date();
+      const deliveryData: Prisma.DeliveryUpdateInput = { status: payload.status };
+      let orderData: Prisma.OrderUpdateInput | null = null;
+      let freeRider = false;
+
+      if (payload.status === DeliveryStatus.PICKED_UP) {
+        deliveryData.pickedUpAt = now;
+        // The order only becomes out for delivery once it is physically with the
+        // rider. Assignment alone does not move it, or the kitchen queue would
+        // claim food had left before it was made.
+        orderData = { status: OrderStatus.OUT_FOR_DELIVERY };
+      }
+
+      if (payload.status === DeliveryStatus.DELIVERED) {
+        deliveryData.deliveredAt = now;
+        if (!delivery.pickedUpAt) deliveryData.pickedUpAt = now;
+        orderData = {
+          status: OrderStatus.DELIVERED,
+          // Cash reached the rider at the door. Iteration 7 reads this to decide
+          // whether the money counts toward the day's close.
+          ...(isCashOnDelivery(delivery.order.paymentMethod) ? { paymentStatus: PaymentStatus.PAID } : {})
+        };
+        freeRider = true;
+      }
+
+      if (payload.status === DeliveryStatus.FAILED || payload.status === DeliveryStatus.CANCELLED) {
+        deliveryData.failureReason = payload.failureReason?.trim() ?? null;
+        deliveryData.cancelledAt = now;
+        // Back to ready rather than cancelled: the food exists and the shop has
+        // to decide what happens to it. Stock stays consumed for the same reason.
+        orderData = { status: OrderStatus.READY };
+        freeRider = true;
+      }
+
+      const saved = await transaction.delivery.update({ where: { id: delivery.id }, data: deliveryData });
+
+      if (orderData) {
+        await transaction.order.update({ where: { id: delivery.orderId }, data: orderData });
+      }
+
+      if (freeRider && delivery.riderId) {
+        await transaction.rider.update({
+          where: { id: delivery.riderId },
+          data: { availability: RiderAvailability.AVAILABLE }
+        });
+      }
+
+      await transaction.deliveryEvent.create({
+        data: {
+          deliveryId: delivery.id,
+          riderId: delivery.riderId,
+          actorId: req.user!.id,
+          status: payload.status,
+          note: payload.failureReason?.trim() ?? null
+        }
+      });
+
+      return saved;
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.status_update",
+      entityType: "delivery",
+      entityId: updated.id,
+      payload
+    });
+
+    const fresh = await prisma.delivery.findUniqueOrThrow({ where: { id: updated.id }, include: deliveryInclude });
+    return res.json({ delivery: serializeDelivery(fresh) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/deliveries/messages/:id/retry", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const message = await prisma.whatsAppMessage.findUnique({
+      where: { id: req.params.id },
+      include: { delivery: { select: { branchId: true } } }
+    });
+
+    if (!message) return res.status(404).json({ message: "Message not found." });
+    if (message.delivery && message.delivery.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This message belongs to another branch." });
+    }
+
+    const retried = await retryWhatsAppMessage(message.id);
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.message_retry",
+      entityType: "whatsapp_message",
+      entityId: message.id,
+      payload: { status: retried?.status ?? "unknown" }
+    });
+
+    return res.json({ message: retried ? serializeWhatsAppMessage(retried) : null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+/**
+ * Confirms a click-to-send message actually went out. The deep-link provider
+ * hands a link to a human, so only that human can tell us it was sent.
+ */
+router.post("/deliveries/messages/:id/sent", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const message = await prisma.whatsAppMessage.findUnique({
+      where: { id: req.params.id },
+      include: { delivery: { select: { branchId: true } } }
+    });
+
+    if (!message) return res.status(404).json({ message: "Message not found." });
+    if (message.delivery && message.delivery.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This message belongs to another branch." });
+    }
+
+    const marked = await markWhatsAppMessageSent(message.id, req.user!.id);
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.message_marked_sent",
+      entityType: "whatsapp_message",
+      entityId: message.id,
+      payload: { toPhone: message.toPhone, kind: message.kind }
+    });
+
+    return res.json({ message: serializeWhatsAppMessage(marked) });
   } catch (error) {
     return next(error);
   }
