@@ -4,6 +4,7 @@ import { resolveAdminPermission } from "../apps/api/src/lib/permissions.js";
 
 const routeFiles = [
   { file: "apps/api/src/routes/admin.ts", prefix: "/api/admin", exempt: new Set(["/branches", "/permissions", "/settings", "/notifications", "/uploads"]) },
+  { file: "apps/api/src/routes/delivery.ts", prefix: "/api/admin", exempt: new Set<string>() },
   { file: "apps/api/src/routes/pos.ts", prefix: "/api/pos", exempt: new Set<string>() },
   { file: "apps/api/src/routes/ops.ts", prefix: "/api/ops", exempt: new Set<string>() }
 ];

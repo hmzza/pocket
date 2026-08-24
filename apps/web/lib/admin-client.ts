@@ -17,6 +17,9 @@ import type {
   AdminPackagingRuleData,
   AdminOrder,
   AdminProduct,
+  AdminRider,
+  AdminRiderData,
+  RiderAvailability,
   AdminRangePreset,
   AdminUser,
   AdminUserData,
@@ -654,6 +657,49 @@ export async function deleteAdminUser(userId: string) {
     method: "DELETE"
   });
   return data.deleted;
+}
+
+export async function fetchAdminRiders(params?: { search?: string; includeInactive?: boolean }) {
+  const searchParams = new URLSearchParams();
+  if (params?.search) searchParams.set("search", params.search);
+  if (params?.includeInactive) searchParams.set("includeInactive", "true");
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return adminFetch<AdminRiderData>(`/api/admin/riders${suffix}`);
+}
+
+export async function createAdminRider(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ rider: AdminRider }>("/api/admin/riders", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.rider;
+}
+
+export async function updateAdminRider(riderId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ rider: AdminRider }>(`/api/admin/riders/${riderId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.rider;
+}
+
+export async function updateAdminRiderAvailability(riderId: string, availability: RiderAvailability) {
+  const data = await adminFetch<{ rider: AdminRider }>(`/api/admin/riders/${riderId}/availability`, {
+    method: "PATCH",
+    body: JSON.stringify({ availability })
+  });
+  return data.rider;
+}
+
+/**
+ * The API deletes a rider with no delivery history and deactivates one that has
+ * any, so past orders stay readable. The caller needs to know which happened.
+ */
+export async function deleteAdminRider(riderId: string) {
+  return adminFetch<{ deleted: boolean; deactivated: boolean; rider?: AdminRider }>(
+    `/api/admin/riders/${riderId}`,
+    { method: "DELETE" }
+  );
 }
 
 export async function updateAdminSetting(key: string, value: unknown) {

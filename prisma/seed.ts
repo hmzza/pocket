@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { INVENTORY_ITEMS, PACKAGING_RULES, PREPARED_RECIPE_BY_SKU, PRODUCT_RECIPE_BY_SLUG } from "../apps/api/src/lib/inventory-config.js";
+import { normalizePakistanPhone } from "../apps/api/src/lib/phone.js";
 
 const seedDirectory = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(seedDirectory, "../.env") });
@@ -1310,8 +1311,11 @@ async function main() {
   ];
 
   for (const rider of riderSeeds) {
+    // Must match what the API stores, or the unique [branchId, phone] constraint
+    // lets the same person exist twice under two number formats.
+    const phone = normalizePakistanPhone(rider.phone);
     await prisma.rider.upsert({
-      where: { branchId_phone: { branchId: branch.id, phone: rider.phone } },
+      where: { branchId_phone: { branchId: branch.id, phone } },
       update: {
         name: rider.name,
         vehicleType: rider.vehicleType,
@@ -1322,7 +1326,7 @@ async function main() {
         branchId: branch.id,
         createdById: admin.id,
         name: rider.name,
-        phone: rider.phone,
+        phone,
         cnic: rider.cnic,
         vehicleType: rider.vehicleType,
         vehiclePlate: rider.vehiclePlate

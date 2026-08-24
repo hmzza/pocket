@@ -721,6 +721,38 @@ export type AdminUserData = {
   users: AdminUser[];
 };
 
+export type RiderAvailability = "AVAILABLE" | "ON_DELIVERY" | "OFF_DUTY";
+
+export type RiderVehicleType = "MOTORCYCLE" | "SCOOTER" | "BICYCLE" | "CAR" | "RICKSHAW";
+
+export type AdminRider = {
+  id: string;
+  branchId: string;
+  name: string;
+  /** Canonical digits, e.g. 923001234567. Use phoneDisplay for humans. */
+  phone: string;
+  phoneDisplay: string;
+  altPhone?: string | null;
+  cnic?: string | null;
+  licenceNumber?: string | null;
+  vehicleType: RiderVehicleType;
+  vehiclePlate?: string | null;
+  availability: RiderAvailability;
+  isActive: boolean;
+  notes?: string | null;
+  activeDeliveryCount: number;
+  totalDeliveryCount: number;
+  createdByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminRiderData = {
+  riders: AdminRider[];
+  vehicleTypes: RiderVehicleType[];
+  branchId: string;
+};
+
 export type AdminCustomer = {
   id: string;
   name: string;
