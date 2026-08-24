@@ -1,20 +1,52 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Eye, PencilLine, RefreshCcw, Trash2 } from "lucide-react";
+import { Check, Eye, PencilLine, RefreshCcw, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders } from "@/lib/admin-client";
+import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders, updateAdminOrderStatus } from "@/lib/admin-client";
 import type { AdminOrder, AdminOrderSegment, AdminRangePreset } from "@/lib/types";
 import { formatCurrency, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
 
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
+  { value: "delivery", label: "Delivery" },
+  { value: "takeaway", label: "Takeaway" },
   { value: "inshop", label: "Dine-in / Takeaway" },
   { value: "foodpanda", label: "Foodpanda Orders" }
 ];
+
+type StatusFilter = "all" | "pending" | "active" | "out_for_delivery" | "delivered" | "cancelled";
+
+const statusFilters: Array<{ value: StatusFilter; label: string; statuses?: string[] }> = [
+  { value: "all", label: "All Statuses" },
+  { value: "pending", label: "Awaiting Acceptance", statuses: ["PENDING"] },
+  { value: "active", label: "In Kitchen", statuses: ["CONFIRMED", "PREPARING", "READY", "WATCH_LATER"] },
+  { value: "out_for_delivery", label: "Out For Delivery", statuses: ["OUT_FOR_DELIVERY"] },
+  { value: "delivered", label: "Completed", statuses: ["DELIVERED"] },
+  { value: "cancelled", label: "Cancelled", statuses: ["CANCELLED"] }
+];
+
+const statusStyles: Record<string, string> = {
+  PENDING: "border-amber-200 bg-amber-50 text-amber-700",
+  CONFIRMED: "border-sky-200 bg-sky-50 text-sky-700",
+  PREPARING: "border-sky-200 bg-sky-50 text-sky-700",
+  READY: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  WATCH_LATER: "border-pocket-navy/15 bg-pocket-cream text-pocket-navy/70",
+  OUT_FOR_DELIVERY: "border-orange-200 bg-orange-50 text-orange-700",
+  DELIVERED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  CANCELLED: "border-red-200 bg-red-50 text-red-700"
+};
+
+function formatStatus(value: string) {
+  return value
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" },
@@ -35,7 +67,8 @@ const paymentFilters: Array<{ value: PaymentFilter; label: string; method?: stri
   { value: "foodpanda", label: "Foodpanda Payout", method: "FOODPANDA_PAYOUT" }
 ];
 
-const orderGridColumns = "grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,0.5fr)_minmax(0,0.8fr)_minmax(0,0.7fr)] gap-4";
+const orderGridColumns =
+  "grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,0.6fr)_minmax(0,0.35fr)_minmax(0,0.7fr)_minmax(0,0.95fr)] gap-4";
 
 function getTodayDateKey() {
   return getCurrentBusinessDateKey();
@@ -104,6 +137,25 @@ function OrderDetails({ order }: { order: AdminOrder }) {
           )}
           {order.deliveryInstructions ? <p className="mt-2 text-sm text-pocket-navy/60">Order note: {order.deliveryInstructions}</p> : null}
         </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Lifecycle</p>
+          <p className="mt-2 text-sm font-medium text-pocket-navy">{formatStatus(order.status)}</p>
+          {order.acceptedAt ? (
+            <p className="text-sm text-pocket-navy/60">
+              Accepted{" "}
+              {new Intl.DateTimeFormat("en-PK", {
+                timeZone: "Asia/Karachi",
+                dateStyle: "medium",
+                timeStyle: "short"
+              }).format(new Date(order.acceptedAt))}
+            </p>
+          ) : order.status === "PENDING" ? (
+            <p className="text-sm text-amber-700">Waiting to be accepted.</p>
+          ) : null}
+          {order.cancellationReason ? (
+            <p className="mt-1 text-sm text-red-600">Rejected: {order.cancellationReason}</p>
+          ) : null}
+        </div>
       </div>
 
       <div>
@@ -153,6 +205,8 @@ export function OrderManagement() {
   const [expandedOrderId, setExpandedOrderId] = useState("");
   const [deletingOrderId, setDeletingOrderId] = useState("");
   const [clearingOrders, setClearingOrders] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [intakeOrderId, setIntakeOrderId] = useState("");
 
   async function loadOrders() {
     try {
@@ -185,15 +239,67 @@ export function OrderManagement() {
 
   const selectedPaymentMethod = paymentFilters.find((option) => option.value === paymentFilter)?.method;
 
+  const selectedStatuses = statusFilters.find((option) => option.value === statusFilter)?.statuses;
+
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const haystack = `${order.orderNumber} ${order.customerName} ${order.branch} ${order.channel} ${order.paymentMethod} ${formatPaymentMethod(order.paymentMethod)} ${order.foodpandaOrderNumber ?? ""} ${order.address?.addressLine1 ?? ""} ${order.address?.city ?? ""}`.toLowerCase();
       const matchesSearch = !search || haystack.includes(search.toLowerCase());
       const matchesPayment = paymentFilter === "all" || order.paymentMethod === selectedPaymentMethod;
+      const matchesStatus = !selectedStatuses || selectedStatuses.includes(order.status);
 
-      return matchesSearch && matchesPayment;
+      return matchesSearch && matchesPayment && matchesStatus;
     });
-  }, [orders, search, paymentFilter, selectedPaymentMethod]);
+  }, [orders, search, paymentFilter, selectedPaymentMethod, selectedStatuses]);
+
+  const statusCounts = useMemo(() => {
+    return statusFilters.reduce<Record<StatusFilter, number>>(
+      (counts, option) => {
+        counts[option.value] = option.statuses
+          ? orders.filter((order) => option.statuses!.includes(order.status)).length
+          : orders.length;
+        return counts;
+      },
+      { all: 0, pending: 0, active: 0, out_for_delivery: 0, delivered: 0, cancelled: 0 }
+    );
+  }, [orders]);
+
+  async function acceptOrder(order: AdminOrder) {
+    setIntakeOrderId(order.id);
+    setError("");
+    try {
+      await updateAdminOrderStatus(order.id, "CONFIRMED");
+      await loadOrders();
+    } catch (acceptError) {
+      setError(acceptError instanceof Error ? acceptError.message : "Failed to accept order.");
+    } finally {
+      setIntakeOrderId("");
+    }
+  }
+
+  async function rejectOrder(order: AdminOrder) {
+    const reason = window.prompt(
+      `Reject ${order.orderNumber}? Give a reason the customer can be told, for example "shop closed" or "item unavailable".`
+    );
+    // Cancel on the prompt returns null; an empty string means they pressed OK
+    // with nothing typed, and a rejection with no reason is not useful to anyone.
+    if (reason === null) return;
+    if (!reason.trim()) {
+      setError("A rejection reason is required.");
+      return;
+    }
+
+    setIntakeOrderId(order.id);
+    setError("");
+    try {
+      await updateAdminOrderStatus(order.id, "CANCELLED", { cancellationReason: reason.trim() });
+      await loadOrders();
+    } catch (rejectError) {
+      setError(rejectError instanceof Error ? rejectError.message : "Failed to reject order.");
+    } finally {
+      setIntakeOrderId("");
+    }
+  }
 
   const paymentCounts = useMemo(() => {
     return orders.reduce<Record<PaymentFilter, number>>(
@@ -269,6 +375,24 @@ export function OrderManagement() {
             <span className="rounded-full bg-white px-3 py-1 font-bold text-pocket-navy shadow-sm">{visibleOrderCount}</span>
           </div>
           <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/50">Lifecycle</p>
+            <div className="flex flex-wrap gap-2">
+              {statusFilters.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant={statusFilter === option.value ? "default" : "outline"}
+                  onClick={() => setStatusFilter(option.value)}
+                >
+                  {option.label}
+                  <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-xs font-bold text-pocket-navy shadow-sm">
+                    {statusCounts[option.value]}
+                  </span>
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/50">Payment Filters</p>
             <div className="flex flex-wrap gap-2">
               {paymentFilters.map((option) => (
@@ -333,7 +457,8 @@ export function OrderManagement() {
           </div>
         </div>
         <p className="mt-4 text-sm text-pocket-navy/60">
-          Dine-in / Takeaway includes counter orders. Use the payment filters to isolate cash, Easypaisa, JazzCash, and Foodpanda payout orders.
+          Delivery and Takeaway isolate the two online order types. Dine-in / Takeaway is the original counter grouping and still includes takeaway, so existing
+          reporting figures are unchanged. Use the payment filters to isolate cash, Easypaisa, JazzCash, and Foodpanda payout orders.
         </p>
       </Card>
 
@@ -343,10 +468,11 @@ export function OrderManagement() {
         <div className={`${orderGridColumns} border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60`}>
           <span className="min-w-0">Order</span>
           <span className="min-w-0">Customer</span>
+          <span className="min-w-0">Status</span>
           <span className="min-w-0">Foodpanda No</span>
           <span className="min-w-0">Items</span>
           <span className="min-w-0">Total</span>
-          <span className="min-w-0">Details</span>
+          <span className="min-w-0 text-right">Actions</span>
         </div>
         {loading ? (
           <div className="px-5 py-8 text-sm text-pocket-navy/60">Loading orders...</div>
@@ -380,10 +506,46 @@ export function OrderManagement() {
                       </p>
                     ) : null}
                   </div>
+                  <div className="min-w-0">
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${statusStyles[order.status] ?? "border-pocket-navy/15 bg-white text-pocket-navy/60"}`}
+                    >
+                      {formatStatus(order.status)}
+                    </span>
+                    {order.cancellationReason ? (
+                      <p className="mt-1 break-words text-xs text-red-600">{order.cancellationReason}</p>
+                    ) : null}
+                  </div>
                   <span className="min-w-0 font-medium text-pocket-navy/70">{order.foodpandaOrderNumber ?? "null"}</span>
                   <span className="min-w-0 font-medium text-pocket-navy/70">{order.items.length}</span>
                   <span className="min-w-0 font-bold text-pocket-navy">{formatCurrency(order.totalAmount)}</span>
-                  <div className="flex min-w-0 items-center justify-end gap-1">
+                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+                    {order.status === "PENDING" ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void acceptOrder(order)}
+                          disabled={intakeOrderId === order.id}
+                          title="Accept this order into the kitchen queue"
+                        >
+                          <Check className="h-4 w-4" />
+                          Accept
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="border-red-200 bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-800"
+                          onClick={() => void rejectOrder(order)}
+                          disabled={intakeOrderId === order.id}
+                          title="Reject this order with a reason"
+                        >
+                          <X className="h-4 w-4" />
+                          Reject
+                        </Button>
+                      </>
+                    ) : null}
                     <Button
                       type="button"
                       size="sm"

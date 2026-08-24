@@ -29,6 +29,14 @@ import {
 
 const router = Router();
 const FOODPANDA_COMMISSION_RATE = 0.38;
+
+/**
+ * Order segments shared by Orders, Overview, Business Analytics and the product
+ * analytics export. Keep this the only definition: the enum used to be repeated
+ * per route, so a new segment worked on one screen and 400d on the next.
+ */
+const ADMIN_ORDER_SEGMENTS = ["all", "inshop", "foodpanda", "delivery", "takeaway"] as const;
+type AdminOrderSegment = (typeof ADMIN_ORDER_SEGMENTS)[number];
 const API_UPLOADS_IMAGES_DIR = fileURLToPath(new URL("../../public/uploads/images/", import.meta.url));
 const API_UPLOADS_VENDOR_RATE_LISTS_DIR = fileURLToPath(new URL("../../public/uploads/vendor-rate-lists/", import.meta.url));
 const VENDORS_WORKBOOK_PATH = fileURLToPath(new URL("../../../../data/vendors.xlsx", import.meta.url));
@@ -40,7 +48,7 @@ const dashboardQueryBaseSchema = z.object({
   start: z.string().datetime().optional(),
   end: z.string().datetime().optional(),
   monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-  segment: z.enum(["all", "inshop", "foodpanda"]).default("all")
+  segment: z.enum(ADMIN_ORDER_SEGMENTS).default("all")
 });
 
 const dashboardQuerySchema = dashboardQueryBaseSchema.superRefine((value, context) => {
@@ -996,11 +1004,22 @@ async function recalculateInventoryBalances(branchInventoryId: string) {
   });
 }
 
-function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda"): Prisma.OrderWhereInput {
+function buildAdminSegmentWhere(segment: AdminOrderSegment): Prisma.OrderWhereInput {
   if (segment === "foodpanda") {
     return { serviceType: ServiceType.FOODPANDA };
   }
 
+  if (segment === "delivery") {
+    return { serviceType: ServiceType.DELIVERY };
+  }
+
+  if (segment === "takeaway") {
+    return { serviceType: ServiceType.TAKEAWAY };
+  }
+
+  // Intentionally still spans TAKEAWAY. Existing finance and analytics figures
+  // are reported against this grouping, so narrowing it would move historical
+  // numbers. Use the takeaway segment to isolate takeaway instead.
   if (segment === "inshop") {
     return { serviceType: { in: [ServiceType.INSHOP, ServiceType.TAKEAWAY, ServiceType.DINE_IN] } };
   }
@@ -1051,6 +1070,8 @@ function serializeOrderForOperations(order: any) {
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     placedAt: order.placedAt,
+    acceptedAt: order.acceptedAt ?? null,
+    cancellationReason: order.cancellationReason ?? null,
     deliveryInstructions: order.deliveryInstructions,
     address: order.address
       ? {
@@ -5015,7 +5036,7 @@ router.get("/orders", async (req, res, next) => {
         preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
         start: z.string().datetime().optional(),
         end: z.string().datetime().optional(),
-        segment: z.enum(["all", "inshop", "foodpanda"]).default("all")
+        segment: z.enum(ADMIN_ORDER_SEGMENTS).default("all")
       })
       .superRefine((value, context) => {
         if (value.preset === "custom" && (!value.start || !value.end)) {
@@ -5164,7 +5185,12 @@ router.delete("/orders/:id", async (req, res, next) => {
 router.patch("/orders/:id/status", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
-    const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);
+    const payload = z
+      .object({
+        status: z.nativeEnum(OrderStatus),
+        cancellationReason: z.string().trim().max(240).optional()
+      })
+      .parse(req.body);
     const order = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
         where: { id: req.params.id },
@@ -5217,7 +5243,20 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 
       return transaction.order.update({
         where: { id: req.params.id },
-        data: { status: payload.status }
+        data: {
+          status: payload.status,
+          // Stamped the first time an order is accepted, so intake latency is
+          // measurable and a re-confirm later does not overwrite the original.
+          ...(payload.status === OrderStatus.CONFIRMED && !currentOrder.acceptedAt
+            ? { acceptedAt: new Date() }
+            : {}),
+          // Only set on the way in to CANCELLED. There is no "clear on revive"
+          // branch because the isTerminalStatus guard above rejects any
+          // transition out of CANCELLED, so such a branch would be unreachable.
+          ...(payload.status === OrderStatus.CANCELLED
+            ? { cancellationReason: payload.cancellationReason?.trim() || null }
+            : {})
+        }
       });
     }, INVENTORY_TRANSACTION_OPTIONS);
 

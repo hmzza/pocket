@@ -377,6 +377,8 @@ export async function fetchAdminOrders(params?: {
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     placedAt: order.placedAt,
+    acceptedAt: order.acceptedAt ?? null,
+    cancellationReason: order.cancellationReason ?? null,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
     address: order.address
       ? {
@@ -501,6 +503,28 @@ export async function logoutAdminSession() {
   await adminFetch<null>("/api/auth/logout", {
     method: "POST"
   });
+}
+
+/**
+ * Order intake. A rejection carries the reason so the Orders list can show why
+ * an order was turned away rather than leaving staff to guess.
+ */
+export async function updateAdminOrderStatus(
+  orderId: string,
+  status: string,
+  options?: { cancellationReason?: string }
+) {
+  const data = await adminFetch<{ order: { id: string; status: string } }>(
+    `/api/admin/orders/${orderId}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        status,
+        ...(options?.cancellationReason ? { cancellationReason: options.cancellationReason } : {})
+      })
+    }
+  );
+  return data.order;
 }
 
 export async function deleteAdminOrder(orderId: string) {
