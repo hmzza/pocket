@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Eye, PencilLine, RefreshCcw, Trash2, X } from "lucide-react";
+import { BellRing, Check, Eye, PencilLine, RefreshCcw, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -56,6 +56,9 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "year", label: "This Year" },
   { value: "custom", label: "Custom" }
 ];
+
+/** Fast enough that staff see a new order promptly, slow enough to be cheap. */
+const ORDER_POLL_MS = 20_000;
 
 type PaymentFilter = "all" | "cash" | "easypaisa" | "jazzcash" | "foodpanda";
 
@@ -237,6 +240,17 @@ export function OrderManagement() {
     void loadOrders();
   }, [segmentFilter, preset, customStart, customEnd]);
 
+  // Online orders arrive while nobody is clicking Refresh, so poll. Only while
+  // the tab is actually being looked at, to avoid pointless load from a screen
+  // left open overnight. Same dependencies as the load above, so the poll always
+  // reflects the current filters rather than the ones present on first render.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadOrders();
+    }, ORDER_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [segmentFilter, preset, customStart, customEnd]);
+
   const selectedPaymentMethod = paymentFilters.find((option) => option.value === paymentFilter)?.method;
 
   const selectedStatuses = statusFilters.find((option) => option.value === statusFilter)?.statuses;
@@ -368,6 +382,19 @@ export function OrderManagement() {
               </Button>
             ))}
           </div>
+          {statusCounts.pending > 0 ? (
+            <button
+              type="button"
+              onClick={() => setStatusFilter("pending")}
+              className="flex w-full items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100"
+            >
+              <BellRing className="h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
+              <span className="text-sm font-bold text-amber-900">
+                {statusCounts.pending} order{statusCounts.pending === 1 ? "" : "s"} waiting to be accepted
+              </span>
+              <span className="ml-auto text-xs font-semibold uppercase tracking-wide text-amber-700">Show them</span>
+            </button>
+          ) : null}
           <div className="flex flex-wrap items-center gap-3 rounded-md bg-pocket-cream/70 px-4 py-3 text-sm text-pocket-navy">
             <span className="font-semibold">Orders in range:</span>
             <span className="rounded-full bg-white px-3 py-1 font-bold text-pocket-navy shadow-sm">{totalOrderCount}</span>

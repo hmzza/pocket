@@ -43,6 +43,9 @@ const messageStatusStyles: Record<string, string> = {
   FAILED: "border-red-200 bg-red-50 text-red-700"
 };
 
+/** Deliveries move in minutes, so the board refreshes fairly briskly. */
+const DISPATCH_POLL_MS = 15_000;
+
 /** Next step offered for a delivery in each state. */
 const nextSteps: Partial<Record<string, Array<{ status: DeliveryStatus; label: string }>>> = {
   ASSIGNED: [{ status: "PICKED_UP", label: "Picked up" }],
@@ -139,6 +142,16 @@ export function DispatchBoard() {
   useEffect(() => {
     void load();
   }, []);
+
+  // Deliveries and new orders change from elsewhere, so refresh in the
+  // background. Skipped while an action is in flight so a poll cannot land
+  // mid-assignment, and skipped when the tab is not being looked at.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !busyId) void load();
+    }, DISPATCH_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [busyId]);
 
   const availableRiders = useMemo(
     () => (data?.riders ?? []).filter((rider) => rider.isActive && rider.availability === "AVAILABLE"),
