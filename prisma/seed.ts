@@ -1303,6 +1303,33 @@ async function main() {
     })
   ]);
 
+  const riderSeeds = [
+    { name: "Bilal Ahmed", phone: "03001234501", vehicleType: "MOTORCYCLE", vehiclePlate: "ISB-1234", cnic: "61101-1234567-1" },
+    { name: "Usman Tariq", phone: "03001234502", vehicleType: "MOTORCYCLE", vehiclePlate: "ISB-5678", cnic: "61101-7654321-9" },
+    { name: "Hamza Sethi", phone: "03001234503", vehicleType: "SCOOTER", vehiclePlate: "ISB-9012", cnic: "61101-2468101-3" }
+  ];
+
+  for (const rider of riderSeeds) {
+    await prisma.rider.upsert({
+      where: { branchId_phone: { branchId: branch.id, phone: rider.phone } },
+      update: {
+        name: rider.name,
+        vehicleType: rider.vehicleType,
+        vehiclePlate: rider.vehiclePlate,
+        isActive: true
+      },
+      create: {
+        branchId: branch.id,
+        createdById: admin.id,
+        name: rider.name,
+        phone: rider.phone,
+        cnic: rider.cnic,
+        vehicleType: rider.vehicleType,
+        vehiclePlate: rider.vehiclePlate
+      }
+    });
+  }
+
   await prisma.auditLog.create({
     data: {
       actorId: admin.id,
