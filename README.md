@@ -79,8 +79,9 @@ dropped response returns the original order instead of creating a second one.
 
 ### Staff flow
 
-1. A new order arrives as **Awaiting Acceptance** and Orders sounds a repeating
-   alert until someone deals with it. Browsers block audio until the page has
+1. A new order arrives as **Awaiting Acceptance**, and both the admin Orders page
+   and the POS queue sound a repeating alert until someone deals with it. Either
+   screen can accept it, so whichever one staff are sitting on works. Browsers block audio until the page has
    been clicked once, so the banner offers **Enable alert sound** when that
    happens; the alert can be silenced per browser and the choice is remembered.
 2. **Accept** moves it to the **Preparing** queue. Rejecting needs a reason,
@@ -94,6 +95,7 @@ dropped response returns the original order instead of creating a second one.
 | Screen | What it does |
 |---|---|
 | **Orders** | Delivery/Takeaway filters, the Awaiting/Preparing/Ready queues, accept, reject, mark ready, and the audible alert |
+| **POS queue** | The same audible alert, with Accept and Ready on each order, for staff working the counter screen |
 | **Riders** | Rider records: contact, CNIC, licence, vehicle, duty status |
 | **Dispatch** | Assign and reassign riders, send the WhatsApp, advance each delivery to the door |
 
