@@ -17,7 +17,17 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default("7d"),
   INITIAL_ADMIN_EMAIL: z.string().email().optional(),
-  INITIAL_ADMIN_PASSWORD: z.string().min(8).optional()
+  INITIAL_ADMIN_PASSWORD: z.string().min(8).optional(),
+  // Rider notifications. Defaults to click-to-send, which needs no Meta setup.
+  // Switching to cloud-api requires the token, phone number id and approved
+  // template names below; see lib/whatsapp/cloud-api.ts.
+  WHATSAPP_PROVIDER: z.enum(["deeplink", "cloud-api"]).default("deeplink"),
+  WHATSAPP_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_API_VERSION: z.string().default("v21.0"),
+  WHATSAPP_TEMPLATE_RIDER_ASSIGNED: z.string().optional(),
+  WHATSAPP_TEMPLATE_RIDER_REVOKED: z.string().optional(),
+  WHATSAPP_TEMPLATE_LANGUAGE: z.string().default("en")
 });
 
 const parsedEnv = envSchema.parse(process.env);

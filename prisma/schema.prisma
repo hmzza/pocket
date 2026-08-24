@@ -1076,6 +1076,9 @@ model WhatsAppMessage {
   provider    String                @default("deeplink")
   toPhone     String
   body        String
+  /// Ordered substitutions for a Cloud API template send. Persisted because a
+  /// retry has to reproduce the original message exactly.
+  templateParams String[] @default([])
   deepLinkUrl String?
   attempts    Int                   @default(0)
   lastError   String?
