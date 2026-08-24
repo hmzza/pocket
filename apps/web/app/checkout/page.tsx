@@ -12,6 +12,7 @@ import { useStore } from "@/components/store/store-provider";
 import { branch } from "@/lib/mock-data";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
+import { DEFAULT_ONLINE_ORDERING, fetchOnlineOrdering, type OnlineOrderingSetting } from "@/lib/ordering-settings";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 
@@ -37,6 +38,10 @@ export default function CheckoutPage() {
   const { cart, getCartProducts, clearCart } = useStore();
   const { products, loading: catalogLoading, error: catalogError } = useLiveProducts();
   const [confirmedOrder, setConfirmedOrder] = useState<{ orderNumber: string; serviceType: ServiceType } | null>(null);
+  // Closed until proven otherwise, so a slow settings call never shows a
+  // usable checkout while ordering is off.
+  const [ordering, setOrdering] = useState<OnlineOrderingSetting>(DEFAULT_ONLINE_ORDERING);
+  const [orderingLoaded, setOrderingLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [couponCode, setCouponCode] = useState("");
@@ -68,6 +73,18 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     setCouponCode(readStoredCoupon());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchOnlineOrdering().then((next) => {
+      if (cancelled) return;
+      setOrdering(next);
+      setOrderingLoaded(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function applyCoupon() {
@@ -175,6 +192,34 @@ export default function CheckoutPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // Reachable by deep link even when the storefront hides the cart, so the page
+  // states the position plainly rather than presenting a form the API will reject.
+  if (orderingLoaded && !ordering.enabled) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-16 md:px-6">
+        <Card className="p-8 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Notice</p>
+          <h1 className="mt-3 text-2xl font-black text-pocket-navy">Online orders are closed for now.</h1>
+          <p className="mt-3 text-sm text-pocket-navy/70">{ordering.closedMessage}</p>
+          <div className="mt-6 rounded-xl bg-pocket-cream px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Visit us</p>
+            <p className="mt-2 font-bold text-pocket-navy">
+              {branch.addressLine1}, {branch.city}
+            </p>
+            <p className="mt-1 text-sm text-pocket-navy/70">{branch.phone}</p>
+          </div>
+          <div className="mt-6">
+            <Link href="/menu">
+              <Button type="button" variant="outline">
+                Browse the menu
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   if (confirmedOrder) {

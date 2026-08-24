@@ -11,10 +11,11 @@ import { applyOrderInventory } from "../lib/inventory.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { verifyReceiptToken } from "../lib/receipt-token.js";
 import { formatPakistanPhone, isPakistanMobile, normalizePakistanPhone, phonesMatchLoosely } from "../lib/phone.js";
+import { ONLINE_ORDERING_SETTING_KEY, readOnlineOrdering } from "../lib/ordering-settings.js";
 
 const router = Router();
 const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
-const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
+const PUBLIC_SETTING_KEYS = new Set(["store.contact", ONLINE_ORDERING_SETTING_KEY]);
 
 /**
  * Checkout is unauthenticated and creates a User row for each new guest
@@ -443,6 +444,16 @@ router.post("/checkout", checkoutRateLimit, async (req, res, next) => {
         }
       })
       .parse(req.body);
+
+    // Checked on the server as well as in the storefront: a client-side gate
+    // alone would be bypassed by posting to this endpoint directly.
+    const ordering = await readOnlineOrdering();
+    if (!ordering.enabled) {
+      return res.status(403).json({
+        message: ordering.closedMessage,
+        code: "ONLINE_ORDERING_CLOSED"
+      });
+    }
 
     const customerPhone = normalizePakistanPhone(payload.phone);
     if (!isPakistanMobile(customerPhone)) {

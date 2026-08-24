@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { API_URL } from "@/lib/catalog";
 import { branch, products as legacyProducts } from "@/lib/mock-data";
 import type { AddOnOption, CartProduct, Product } from "@/lib/types";
+import { DEFAULT_ONLINE_ORDERING, fetchOnlineOrdering, type OnlineOrderingSetting } from "@/lib/ordering-settings";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
@@ -108,11 +109,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
   const [orderingNoticeOpen, setOrderingNoticeOpen] = useState(false);
+  // Starts closed so a slow or failed settings request can never briefly
+  // open ordering. See lib/ordering-settings.ts.
+  const [ordering, setOrdering] = useState<OnlineOrderingSetting>(DEFAULT_ONLINE_ORDERING);
   const [hasShownHomepageNotice, setHasShownHomepageNotice] = useState(false);
 
   function showOrderingNotice() {
     setOrderingNoticeOpen(true);
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchOnlineOrdering().then((next) => {
+      if (!cancelled) setOrdering(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const nextCart = localStorage.getItem(CART_KEY);
@@ -196,22 +210,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [recentlyViewed]);
 
   useEffect(() => {
-    if (pathname !== "/" || hasShownHomepageNotice) {
+    // No point interrupting the homepage with a closed notice when ordering is open.
+    if (pathname !== "/" || hasShownHomepageNotice || ordering.enabled) {
       return;
     }
 
     setOrderingNoticeOpen(true);
     setHasShownHomepageNotice(true);
-  }, [hasShownHomepageNotice, pathname]);
+  }, [hasShownHomepageNotice, pathname, ordering.enabled]);
 
   const value = useMemo<StoreContextValue>(
     () => ({
       cart,
       favorites,
       recentlyViewed,
-      addToCart: (_input) => {
-        showOrderingNotice();
-        return false;
+      addToCart: (input) => {
+        // Ordering is controlled from Website Control rather than hardcoded, so
+        // the shop can close it again without a deploy.
+        if (!ordering.enabled) {
+          showOrderingNotice();
+          return false;
+        }
+
+        setCart((current) =>
+          mergeCartEntries([
+            ...current,
+            {
+              id: createCartEntryId(),
+              productId: input.productId,
+              quantity: input.quantity ?? 1,
+              selectedAddOnIds: normalizeAddOnIds(input.selectedAddOnIds)
+            }
+          ])
+        );
+        return true;
       },
       updateQuantity: (cartItemId, quantity) => {
         setCart((current) =>
@@ -259,7 +291,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           })
           .filter(Boolean) as CartProduct[]
     }),
-    [cart, favorites, recentlyViewed]
+    // ordering belongs here too: addToCart reads it, so without it the callback
+    // would keep the initial closed value even after the setting arrives.
+    [cart, favorites, recentlyViewed, ordering]
   );
 
   return (
@@ -275,9 +309,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
                 <h2 id="ordering-notice-title" className="text-3xl font-black text-pocket-navy">
                   Online orders are closed for now.
                 </h2>
-                <p className="text-base leading-7 text-pocket-navy/75">
-                  Please visit us physically to place your order. Foodpanda delivery is still available through the Foodpanda app only, and you can still browse the menu and view all items on the website.
-                </p>
+                <p className="text-base leading-7 text-pocket-navy/75">{ordering.closedMessage}</p>
                 <a
                   href={foodpandaDeliveryUrl}
                   target="_blank"
