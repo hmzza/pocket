@@ -814,6 +814,9 @@ export type AdminDelivery = {
   failureReason?: string | null;
   deliveryNotes?: string | null;
   assignedAt?: string | null;
+  /** Null while the rider is assigned but the kitchen has not finished. */
+  riderNotifiedAt?: string | null;
+  waitingOnKitchen?: boolean;
   pickedUpAt?: string | null;
   deliveredAt?: string | null;
   cancelledAt?: string | null;

@@ -1006,6 +1006,10 @@ model Delivery {
   codAmount        Decimal?           @db.Decimal(10, 2)
   failureReason    String?
   assignedAt       DateTime?
+  /// When the rider was told the food is ready. Null means they are assigned but
+  /// still waiting on the kitchen. Cleared on reassignment so the incoming rider
+  /// is notified in their own right.
+  riderNotifiedAt  DateTime?
   acceptedAt       DateTime?
   pickedUpAt       DateTime?
   deliveredAt      DateTime?

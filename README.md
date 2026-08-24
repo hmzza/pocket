@@ -79,22 +79,39 @@ dropped response returns the original order instead of creating a second one.
 
 ### Staff flow
 
+1. A new order arrives as **Awaiting Acceptance** and Orders sounds a repeating
+   alert until someone deals with it. Browsers block audio until the page has
+   been clicked once, so the banner offers **Enable alert sound** when that
+   happens; the alert can be silenced per browser and the choice is remembered.
+2. **Accept** moves it to the **Preparing** queue. Rejecting needs a reason,
+   which is then shown against the order.
+3. A rider can be assigned at any point from here. Nothing is sent yet, and
+   Dispatch says the rider is waiting on the kitchen.
+4. **Ready** is the trigger: the moment the order is marked ready, from Orders or
+   the POS queue, the assigned rider is messaged to come and collect it.
+5. Dispatch then advances the delivery: picked up, on the way, delivered.
+
 | Screen | What it does |
 |---|---|
-| **Orders** | Filter by Delivery, Takeaway or the original counter grouping; accept or reject incoming orders with a reason |
+| **Orders** | Delivery/Takeaway filters, the Awaiting/Preparing/Ready queues, accept, reject, mark ready, and the audible alert |
 | **Riders** | Rider records: contact, CNIC, licence, vehicle, duty status |
 | **Dispatch** | Assign and reassign riders, send the WhatsApp, advance each delivery to the door |
 
 An order must be accepted before a rider can be assigned. Assigning does not move
 the order to *out for delivery*; that happens when the rider actually has the
 food. A failed delivery returns the order to *ready* with a reason, because the
-food exists and someone has to decide what happens to it.
+food exists and someone has to decide what happens to it. Reassigning an order
+that is already out for delivery also puts it back to *ready*, since it is up for
+collection again.
 
 ### Rider WhatsApp notifications
 
-Assignment sends the rider the order number, customer name, contact number,
-address, items, and the cash to collect. Reassignment sends the previous rider a
-message telling them not to deliver it.
+The rider is called out when the order is marked **Ready**, not when they were
+assigned, so nobody is sent for food that is not cooked yet. Both conditions have
+to hold: a rider is assigned and the order is ready, and whichever happens second
+sends the message. The call-out carries the order number, customer name, contact
+number, address, items, and the cash to collect. Reassignment sends the previous
+rider a message telling them not to deliver it, and calls the incoming rider in.
 
 Two providers, chosen with `WHATSAPP_PROVIDER`:
 

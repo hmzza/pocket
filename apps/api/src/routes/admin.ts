@@ -16,6 +16,7 @@ import { syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
 import { readIndependencePromotion, readPromotionStats, saveIndependencePromotion } from "../lib/promotions.js";
+import { notifyRiderIfOrderReady } from "../lib/delivery-notify.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -5308,9 +5309,14 @@ router.patch("/orders/:id/status", async (req, res, next) => {
         where: { id: req.params.id },
         data: {
           status: payload.status,
-          // Stamped the first time an order is accepted, so intake latency is
-          // measurable and a re-confirm later does not overwrite the original.
-          ...(payload.status === OrderStatus.CONFIRMED && !currentOrder.acceptedAt
+          // Stamped on the first move out of PENDING, whatever that move is, so
+          // intake latency is measurable and a later status change does not
+          // overwrite the original. Accepting now lands in PREPARING rather than
+          // CONFIRMED, so keying this on one specific status would miss it.
+          ...(currentOrder.status === OrderStatus.PENDING &&
+          payload.status !== OrderStatus.PENDING &&
+          payload.status !== OrderStatus.CANCELLED &&
+          !currentOrder.acceptedAt
             ? { acceptedAt: new Date() }
             : {}),
           // Only set on the way in to CANCELLED. There is no "clear on revive"
@@ -5332,6 +5338,11 @@ router.patch("/orders/:id/status", async (req, res, next) => {
         metadata: { orderNumber: order.orderNumber, status: payload.status }
       }
     });
+
+    // Food is ready, so any rider already assigned gets called out now.
+    if (payload.status === OrderStatus.READY) {
+      await notifyRiderIfOrderReady(order.id);
+    }
 
     await writeAuditLog({
       actorId: req.user!.id,

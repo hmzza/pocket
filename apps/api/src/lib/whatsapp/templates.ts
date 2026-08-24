@@ -40,10 +40,12 @@ function isCashOnDelivery(paymentMethod: string) {
 }
 
 /**
- * Assignment message. Carries the four things the rider cannot do the job
- * without: what to take, who it is for, where it goes, and the number to call.
- * Cash to collect is called out explicitly because getting that wrong costs
- * real money.
+ * The rider call-out, sent when the food is ready rather than when the rider was
+ * assigned, so it doubles as "come and collect this now".
+ *
+ * Carries the four things the rider cannot do the job without: what to take, who
+ * it is for, where it goes, and the number to call. Cash to collect is called out
+ * separately because getting that wrong costs real money.
  */
 export function buildRiderAssignmentMessage(context: AssignmentContext): OutgoingWhatsAppMessage {
   const { rider, order, address, branch } = context;
@@ -56,7 +58,7 @@ export function buildRiderAssignmentMessage(context: AssignmentContext): Outgoin
   const lines = [
     `Assalam o Alaikum ${rider.name},`,
     "",
-    `You have a new delivery from ${branch.name}.`,
+    `Order ${order.orderNumber} is READY for pickup at ${branch.name}.`,
     "",
     `Order: ${order.orderNumber}`,
     `Customer: ${customerName}`,
@@ -70,7 +72,7 @@ export function buildRiderAssignmentMessage(context: AssignmentContext): Outgoin
     "",
     isCashOnDelivery(order.paymentMethod) ? `COLLECT CASH: ${total}` : `Total: ${total} (already paid)`,
     "",
-    `Please call the customer before you set off. Any problem, call the branch on ${branch.phone}.`
+    `Please collect it now and call the customer before you set off. Any problem, call the branch on ${branch.phone}.`
   ];
 
   return {

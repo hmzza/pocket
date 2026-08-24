@@ -17,16 +17,15 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requireAdminRoutePermission } from "../lib/permissions.js";
 import { formatPakistanPhone, isPakistanMobile, normalizePakistanPhone } from "../lib/phone.js";
+import { cancelUnsentRiderCallout, notifyRiderIfOrderReady } from "../lib/delivery-notify.js";
 import {
-  buildRiderAssignmentMessage,
   buildRiderRevocationMessage,
   dispatchWhatsAppMessage,
   getWhatsAppProvider,
   markWhatsAppMessageSent,
   queueWhatsAppMessage,
   retryWhatsAppMessage,
-  serializeWhatsAppMessage,
-  type AssignmentContext
+  serializeWhatsAppMessage
 } from "../lib/whatsapp/index.js";
 
 /**
@@ -437,6 +436,9 @@ function serializeDelivery(delivery: any) {
     failureReason: delivery.failureReason ?? null,
     deliveryNotes: delivery.deliveryNotes ?? null,
     assignedAt: delivery.assignedAt,
+    riderNotifiedAt: delivery.riderNotifiedAt,
+    // Assigned, but the kitchen has not finished, so no call-out has gone out.
+    waitingOnKitchen: Boolean(delivery.riderId) && !delivery.riderNotifiedAt && delivery.order.status !== OrderStatus.READY,
     pickedUpAt: delivery.pickedUpAt,
     deliveredAt: delivery.deliveredAt,
     cancelledAt: delivery.cancelledAt,
@@ -487,39 +489,6 @@ function serializeDelivery(delivery: any) {
   };
 }
 
-/**
- * Builds the assignment message from committed data.
- *
- * Read after the transaction rather than assembled from the request, so the
- * rider is told what the database actually holds.
- */
-async function buildAssignmentContextFor(deliveryId: string): Promise<AssignmentContext | null> {
-  const delivery = await prisma.delivery.findUnique({
-    where: { id: deliveryId },
-    include: {
-      rider: true,
-      branch: { select: { name: true, phone: true } },
-      order: { include: { address: true, items: { select: { productName: true, quantity: true } } } }
-    }
-  });
-
-  if (!delivery?.rider) return null;
-
-  return {
-    rider: { name: delivery.rider.name, phone: delivery.rider.phone },
-    order: {
-      orderNumber: delivery.order.orderNumber,
-      customerName: delivery.order.customerName,
-      customerPhone: delivery.order.customerPhone,
-      totalAmount: Number(delivery.order.totalAmount),
-      paymentMethod: delivery.order.paymentMethod,
-      deliveryInstructions: delivery.order.deliveryInstructions,
-      items: delivery.order.items.map((item) => ({ productName: item.productName, quantity: item.quantity }))
-    },
-    address: delivery.order.address,
-    branch: { name: delivery.branch.name, phone: delivery.branch.phone }
-  };
-}
 
 /**
  * Sends queued messages after their transaction has committed.
@@ -719,6 +688,9 @@ router.post("/deliveries/assign", async (req, res, next) => {
           deliveredAt: null,
           cancelledAt: null,
           failureReason: null,
+          // A fresh assignment has not been called out yet, even if a previous
+          // rider on this order had been.
+          riderNotifiedAt: null,
           codAmount,
           deliveryNotes: payload.note ?? null,
           assignmentCount: { increment: 1 }
@@ -755,23 +727,11 @@ router.post("/deliveries/assign", async (req, res, next) => {
       return { delivery: saved, messageIds: [] as string[] };
     });
 
-    // Built from committed data so the rider is told what the database holds.
-    const context = await buildAssignmentContextFor(delivery.id);
-    const queuedIds: string[] = [];
-    if (context) {
-      const message = buildRiderAssignmentMessage(context);
-      const queued = await prisma.$transaction((transaction) =>
-        queueWhatsAppMessage(transaction, {
-          ...message,
-          riderId: delivery.riderId,
-          deliveryId: delivery.id,
-          orderId: delivery.orderId
-        })
-      );
-      queuedIds.push(queued.id);
-    }
-
-    dispatchQueuedMessages([...messageIds, ...queuedIds]);
+    // The rider is called out when the food is ready, not now. If the kitchen
+    // has already finished, this sends immediately; otherwise marking the order
+    // READY will. Either way the rule lives in one place.
+    await notifyRiderIfOrderReady(delivery.orderId);
+    dispatchQueuedMessages(messageIds);
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -801,7 +761,7 @@ router.post("/deliveries/:id/reassign", async (req, res, next) => {
     const outcome = await prisma.$transaction(async (transaction) => {
       const delivery = await transaction.delivery.findUnique({
         where: { id: req.params.id },
-        include: { rider: true, order: { select: { orderNumber: true } } }
+        include: { rider: true, order: { select: { orderNumber: true, status: true } } }
       });
 
       if (!delivery) throw Object.assign(new Error("Delivery not found."), { statusCode: 404 });
@@ -875,6 +835,8 @@ router.post("/deliveries/:id/reassign", async (req, res, next) => {
           status: DeliveryStatus.ASSIGNED,
           assignedAt: new Date(),
           pickedUpAt: null,
+          // The incoming rider has not been called out yet.
+          riderNotifiedAt: null,
           assignmentCount: { increment: 1 }
         }
       });
@@ -888,6 +850,18 @@ router.post("/deliveries/:id/reassign", async (req, res, next) => {
           note: `Reassigned from ${previousRider?.name ?? "unassigned"}: ${payload.reason}`
         }
       });
+
+      // If the previous rider had already taken the food, the order was out for
+      // delivery. Handing it to someone else means it is up for collection
+      // again, so put it back to ready: the delivery is ASSIGNED with no pickup
+      // time, and leaving the order OUT_FOR_DELIVERY would contradict that and
+      // would stop the incoming rider being called out at all.
+      if (delivery.order.status === OrderStatus.OUT_FOR_DELIVERY) {
+        await transaction.order.update({
+          where: { id: delivery.orderId },
+          data: { status: OrderStatus.READY }
+        });
+      }
 
       return { delivery: updated, previousRider, orderNumber: delivery.order.orderNumber };
     });
@@ -918,21 +892,17 @@ router.post("/deliveries/:id/reassign", async (req, res, next) => {
       queuedIds.push(queued.id);
     }
 
-    const context = await buildAssignmentContextFor(outcome.delivery.id);
-    if (context) {
-      const message = buildRiderAssignmentMessage(context);
-      const queued = await prisma.$transaction((transaction) =>
-        queueWhatsAppMessage(transaction, {
-          ...message,
-          riderId: outcome.delivery.riderId,
-          deliveryId: outcome.delivery.id,
-          orderId: outcome.delivery.orderId
-        })
-      );
-      queuedIds.push(queued.id);
+    // Retire a call-out the outgoing rider never actually received, so the board
+    // does not keep prompting someone to send it. An already-sent one stands, and
+    // the revocation above covers it.
+    if (outcome.previousRider) {
+      await cancelUnsentRiderCallout(outcome.delivery.id, outcome.previousRider.id);
     }
 
     dispatchQueuedMessages(queuedIds);
+
+    // Call the incoming rider out only if the food is already ready.
+    await notifyRiderIfOrderReady(outcome.delivery.orderId);
 
     await writeAuditLog({
       actorId: req.user!.id,

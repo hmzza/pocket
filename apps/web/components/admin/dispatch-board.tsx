@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bike, CheckCircle2, MapPin, Phone, RefreshCcw, Send, Truck, XCircle } from "lucide-react";
+import { AlertTriangle, Bike, CheckCircle2, ChefHat, MapPin, Phone, RefreshCcw, Send, Truck, XCircle } from "lucide-react";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -283,8 +283,9 @@ export function DispatchBoard() {
           <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
             <p className="text-sm text-amber-900">
-              <span className="font-bold">WhatsApp messages are not sent automatically.</span> Assigning a rider prepares the message; you
-              still have to press <span className="font-semibold">Open WhatsApp</span> and send it.
+              <span className="font-bold">WhatsApp messages are not sent automatically.</span> A rider is called out when the order is
+              marked <span className="font-semibold">Ready</span>, which prepares the message; you still have to press{" "}
+              <span className="font-semibold">Open WhatsApp</span> and send it.
               {pendingMessageCount > 0 ? (
                 <span className="font-bold"> {pendingMessageCount} message(s) are waiting to be sent.</span>
               ) : null}
@@ -409,6 +410,16 @@ export function DispatchBoard() {
                       <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-pocket-navy/40" />
                       <span>
                         {delivery.order.address.addressLine1}, {delivery.order.address.city}
+                      </span>
+                    </p>
+                  ) : null}
+
+                  {delivery.waitingOnKitchen ? (
+                    <p className="mt-3 flex items-start gap-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+                      <ChefHat className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span>
+                        Waiting on the kitchen. {delivery.rider?.name ?? "The rider"} is assigned but has not been messaged yet. Mark the
+                        order <span className="font-semibold">Ready</span> in Orders or the POS queue to call them in.
                       </span>
                     </p>
                   ) : null}

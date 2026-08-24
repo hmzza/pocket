@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BellRing, Check, Eye, PencilLine, RefreshCcw, Trash2, X } from "lucide-react";
+import { BellRing, Check, ChefHat, Eye, PackageCheck, PencilLine, RefreshCcw, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders, updateAdminOrderStatus } from "@/lib/admin-client";
 import type { AdminOrder, AdminOrderSegment, AdminRangePreset } from "@/lib/types";
 import { formatCurrency, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
+import { useOrderAlarm } from "@/components/admin/use-order-alarm";
 
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
@@ -18,12 +19,15 @@ const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "foodpanda", label: "Foodpanda Orders" }
 ];
 
-type StatusFilter = "all" | "pending" | "active" | "out_for_delivery" | "delivered" | "cancelled";
+type StatusFilter = "all" | "pending" | "preparing" | "ready" | "out_for_delivery" | "delivered" | "cancelled";
 
 const statusFilters: Array<{ value: StatusFilter; label: string; statuses?: string[] }> = [
   { value: "all", label: "All Statuses" },
   { value: "pending", label: "Awaiting Acceptance", statuses: ["PENDING"] },
-  { value: "active", label: "In Kitchen", statuses: ["CONFIRMED", "PREPARING", "READY", "WATCH_LATER"] },
+  // Accepting an order lands it here, and it stays until the kitchen says ready.
+  { value: "preparing", label: "Preparing", statuses: ["CONFIRMED", "PREPARING", "WATCH_LATER"] },
+  // Marking ready is what calls an assigned rider out on WhatsApp.
+  { value: "ready", label: "Ready", statuses: ["READY"] },
   { value: "out_for_delivery", label: "Out For Delivery", statuses: ["OUT_FOR_DELIVERY"] },
   { value: "delivered", label: "Completed", statuses: ["DELIVERED"] },
   { value: "cancelled", label: "Cancelled", statuses: ["CANCELLED"] }
@@ -274,7 +278,7 @@ export function OrderManagement() {
           : orders.length;
         return counts;
       },
-      { all: 0, pending: 0, active: 0, out_for_delivery: 0, delivered: 0, cancelled: 0 }
+      { all: 0, pending: 0, preparing: 0, ready: 0, out_for_delivery: 0, delivered: 0, cancelled: 0 }
     );
   }, [orders]);
 
@@ -282,10 +286,30 @@ export function OrderManagement() {
     setIntakeOrderId(order.id);
     setError("");
     try {
-      await updateAdminOrderStatus(order.id, "CONFIRMED");
+      // Straight into the preparing queue: accepting an order means the kitchen
+      // is starting it, and a separate "confirmed but not started" step is a
+      // click nobody needs.
+      await updateAdminOrderStatus(order.id, "PREPARING");
       await loadOrders();
     } catch (acceptError) {
       setError(acceptError instanceof Error ? acceptError.message : "Failed to accept order.");
+    } finally {
+      setIntakeOrderId("");
+    }
+  }
+
+  /**
+   * Moving an order to ready is what calls an assigned rider out on WhatsApp, so
+   * the confirmation says so rather than leaving it as a surprise.
+   */
+  async function markReady(order: AdminOrder) {
+    setIntakeOrderId(order.id);
+    setError("");
+    try {
+      await updateAdminOrderStatus(order.id, "READY");
+      await loadOrders();
+    } catch (readyError) {
+      setError(readyError instanceof Error ? readyError.message : "Failed to mark order ready.");
     } finally {
       setIntakeOrderId("");
     }
@@ -328,6 +352,9 @@ export function OrderManagement() {
       { all: 0, cash: 0, easypaisa: 0, jazzcash: 0, foodpanda: 0 }
     );
   }, [orders]);
+
+  // Repeating alert while anything is waiting to be accepted.
+  const { muted, toggleMuted, needsArming, arm, alarmActive } = useOrderAlarm(statusCounts.pending);
 
   const totalOrderCount = orders.length;
   const visibleOrderCount = filteredOrders.length;
@@ -383,17 +410,48 @@ export function OrderManagement() {
             ))}
           </div>
           {statusCounts.pending > 0 ? (
-            <button
-              type="button"
-              onClick={() => setStatusFilter("pending")}
-              className="flex w-full items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100"
+            <div
+              className={`flex flex-wrap items-center gap-3 rounded-md border px-4 py-3 ${
+                alarmActive ? "border-amber-400 bg-amber-100" : "border-amber-300 bg-amber-50"
+              }`}
+              role="alert"
             >
-              <BellRing className="h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
-              <span className="text-sm font-bold text-amber-900">
+              <BellRing
+                className={`h-5 w-5 shrink-0 text-amber-600 ${alarmActive ? "animate-pulse" : ""}`}
+                aria-hidden="true"
+              />
+              <button
+                type="button"
+                onClick={() => setStatusFilter("pending")}
+                className="text-left text-sm font-bold text-amber-900 underline-offset-2 hover:underline"
+              >
                 {statusCounts.pending} order{statusCounts.pending === 1 ? "" : "s"} waiting to be accepted
-              </span>
-              <span className="ml-auto text-xs font-semibold uppercase tracking-wide text-amber-700">Show them</span>
-            </button>
+              </button>
+              {needsArming ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={arm}
+                  className="ml-auto"
+                  title="Browsers block sound until the page is clicked once"
+                >
+                  <Volume2 className="h-4 w-4" />
+                  Enable alert sound
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={toggleMuted}
+                  className="ml-auto"
+                  title={muted ? "Turn the repeating alert back on" : "Silence the repeating alert"}
+                >
+                  {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                  {muted ? "Sound off" : "Sound on"}
+                </Button>
+              )}
+            </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-3 rounded-md bg-pocket-cream/70 px-4 py-3 text-sm text-pocket-navy">
             <span className="font-semibold">Orders in range:</span>
@@ -484,6 +542,10 @@ export function OrderManagement() {
           </div>
         </div>
         <p className="mt-4 text-sm text-pocket-navy/60">
+          <ChefHat className="mr-1 inline-block h-4 w-4 align-text-bottom" />
+          Accept an order to move it into Preparing. Marking it Ready is what messages the assigned rider to come and collect it.
+        </p>
+        <p className="mt-2 text-sm text-pocket-navy/60">
           Delivery and Takeaway isolate the two online order types. Dine-in / Takeaway is the original counter grouping and still includes takeaway, so existing
           reporting figures are unchanged. Use the payment filters to isolate cash, Easypaisa, JazzCash, and Foodpanda payout orders.
         </p>
@@ -547,6 +609,18 @@ export function OrderManagement() {
                   <span className="min-w-0 font-medium text-pocket-navy/70">{order.items.length}</span>
                   <span className="min-w-0 font-bold text-pocket-navy">{formatCurrency(order.totalAmount)}</span>
                   <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+                    {["CONFIRMED", "PREPARING", "WATCH_LATER"].includes(order.status) ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void markReady(order)}
+                        disabled={intakeOrderId === order.id}
+                        title="Mark ready. This messages the assigned rider to collect it."
+                      >
+                        <PackageCheck className="h-4 w-4" />
+                        Ready
+                      </Button>
+                    ) : null}
                     {order.status === "PENDING" ? (
                       <>
                         <Button
