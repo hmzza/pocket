@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { InventoryTransactionType, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { InventoryTransactionType, OrderStatus, PaymentMethod, PaymentStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -3169,6 +3169,20 @@ function emptyMoneyTotals() {
   return { CASH: 0, EASYPAISA: 0, JAZZCASH: 0 };
 }
 
+/**
+ * Which till a payment lands in.
+ *
+ * CASH_ON_DELIVERY has to be mapped explicitly: the totals are keyed by money
+ * source, and indexing them by payment method directly would create a stray
+ * CASH_ON_DELIVERY key that no later loop reads, silently dropping the money.
+ */
+function moneySourceForPayment(paymentMethod: PaymentMethod): (typeof MONEY_SOURCES)[number] | null {
+  if (paymentMethod === PaymentMethod.CASH || paymentMethod === PaymentMethod.CASH_ON_DELIVERY) return "CASH";
+  if (paymentMethod === PaymentMethod.EASYPAISA) return "EASYPAISA";
+  if (paymentMethod === PaymentMethod.JAZZCASH) return "JAZZCASH";
+  return null;
+}
+
 function isMissingTableError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && ["P2021", "P2022"].includes(error.code);
 }
@@ -3229,7 +3243,19 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     prisma.openingBalance.findFirst({ where: { branchId, balanceDate: { lte: start } }, orderBy: { balanceDate: "desc" } })
   ]);
 
-  const [orders, foodpandaOrders, expenses, transfers, additions, loanCashflow, investmentCashflow, currentClosing, recentClosings] = await Promise.all([
+  const [
+    orders,
+    codDeliveredOrders,
+    codCounterOrders,
+    foodpandaOrders,
+    expenses,
+    transfers,
+    additions,
+    loanCashflow,
+    investmentCashflow,
+    currentClosing,
+    recentClosings
+  ] = await Promise.all([
     prisma.order.findMany({
       where: {
         branchId,
@@ -3238,6 +3264,38 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
         paymentMethod: { in: [PaymentMethod.CASH, PaymentMethod.EASYPAISA, PaymentMethod.JAZZCASH] }
       },
       select: { paymentMethod: true, totalAmount: true }
+    }),
+    // Cash on delivery counts on the day the rider handed the money in, not the
+    // day the order was placed. An order taken at 11pm and delivered after
+    // midnight would otherwise land on a day that is already closed, so the cash
+    // would never appear in any open day's expected total.
+    prisma.order.findMany({
+      where: {
+        branchId,
+        status: { not: OrderStatus.CANCELLED },
+        paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
+        // Only once it is actually collected. While the order is still out, the
+        // money is with the customer, not the till.
+        paymentStatus: PaymentStatus.PAID,
+        delivery: { is: { deliveredAt: { gte: start, lte: end } } }
+      },
+      select: { totalAmount: true }
+    }),
+    // Cash-on-collection with no rider involved at all: takeaway paid at the
+    // counter. There is no delivery to key on, so these fall back to the order
+    // date. Orders that DO have a delivery are handled above and deliberately
+    // excluded here: while a delivery is still open the money is with the
+    // customer, even if the order has been marked paid ahead of time.
+    prisma.order.findMany({
+      where: {
+        branchId,
+        status: { not: OrderStatus.CANCELLED },
+        paymentMethod: PaymentMethod.CASH_ON_DELIVERY,
+        paymentStatus: PaymentStatus.PAID,
+        placedAt: { gte: start, lte: end },
+        delivery: { is: null }
+      },
+      select: { totalAmount: true }
     }),
     prisma.order.findMany({
       where: {
@@ -3300,7 +3358,12 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   };
   const sales = emptyMoneyTotals();
   for (const order of orders) {
-    sales[order.paymentMethod as keyof typeof sales] += parseDecimal(order.totalAmount);
+    const source = moneySourceForPayment(order.paymentMethod);
+    if (source) sales[source] += parseDecimal(order.totalAmount);
+  }
+  // Collected cash on delivery, from both the rider and the counter, is cash.
+  for (const order of [...codDeliveredOrders, ...codCounterOrders]) {
+    sales.CASH += parseDecimal(order.totalAmount);
   }
   const foodpandaSales = roundMoney(foodpandaOrders.reduce((sum, order) => sum + parseDecimal(order.totalAmount), 0));
   const expenseTotals = emptyMoneyTotals();
