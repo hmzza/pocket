@@ -418,6 +418,31 @@ export async function fetchAdminOrders(params?: {
   return orders;
 }
 
+export type PendingCustomerDeliveryAlert = {
+  id: string;
+  orderNumber: string;
+  customerName: string | null;
+  deliverySector: string | null;
+  deliverySubsector: string | null;
+  placedAt: string;
+};
+
+export async function fetchPendingCustomerDeliveryAlerts(): Promise<PendingCustomerDeliveryAlert[]> {
+  const data = await adminFetch<{ orders: PendingCustomerDeliveryAlert[] }>("/api/admin/orders/pending-delivery-alerts");
+  return data.orders;
+}
+
+export async function fetchDeliveryPushConfiguration() {
+  return adminFetch<{ enabled: boolean; publicKey: string | null }>("/api/admin/orders/push-config");
+}
+
+export async function saveDeliveryPushSubscription(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }) {
+  return adminFetch<{ subscription: { id: string } }>("/api/admin/orders/push-subscriptions", {
+    method: "POST",
+    body: JSON.stringify(subscription)
+  });
+}
+
 export async function updateAdminDeliveryStatus(orderId: string, status: "CONFIRMED" | "DELIVERED" | "CANCELLED") {
   return adminFetch<{ order: { id: string; status: string } }>(`/api/admin/orders/${orderId}/status`, {
     method: "PATCH",

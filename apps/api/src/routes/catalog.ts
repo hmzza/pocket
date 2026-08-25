@@ -10,6 +10,7 @@ import { applyOrderInventory } from "../lib/inventory.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { verifyReceiptToken } from "../lib/receipt-token.js";
 import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
+import { notifyStaffAboutNewDelivery } from "../lib/delivery-push.js";
 
 const router = Router();
 const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
@@ -663,6 +664,15 @@ router.post("/checkout", async (req, res, next) => {
       entityId: order.id,
       payload: { orderNumber, guest: true }
     });
+
+    // Push delivery alerts after the transaction commits; a failed device
+    // notification must never block or roll back a customer's order.
+    void notifyStaffAboutNewDelivery({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      branchName: branch.name,
+      customerName: order.customerName
+    }).catch((pushError) => console.error("Failed to queue delivery push notification", pushError));
 
     return res.status(201).json({ order });
   } catch (error) {

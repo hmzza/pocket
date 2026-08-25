@@ -117,6 +117,7 @@ model User {
   reviews               Review[]
   favorites             Favorite[]
   notifications         Notification[]
+  pushSubscriptions     PushSubscription[]
   auditLogs             AuditLog[]
   cart                  ShoppingCart?
   inventoryTransactions InventoryTransaction[] @relation("InventoryActor")
@@ -526,6 +527,20 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime         @default(now())
   user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Supplier {

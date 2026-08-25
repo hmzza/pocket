@@ -9,6 +9,7 @@ import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
+import { clearStaffDeliveryPush } from "../lib/delivery-push.js";
 
 const router = Router();
 
@@ -246,6 +247,10 @@ router.patch("/orders/:id/status", async (req, res, next) => {
       entityId: order.id,
       payload
     });
+
+    if (order.serviceType === "DELIVERY" && payload.status !== OrderStatus.PENDING) {
+      void clearStaffDeliveryPush(order.id).catch((pushError) => console.error("Failed to clear delivery push notification", pushError));
+    }
 
     return res.json({ order });
   } catch (error) {

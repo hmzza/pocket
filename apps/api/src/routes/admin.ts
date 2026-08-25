@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { InventoryTransactionType, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { InventoryTransactionType, OrderChannel, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -17,6 +17,7 @@ import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchConte
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
 import { readIndependencePromotion, readPromotionStats, saveIndependencePromotion } from "../lib/promotions.js";
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
+import { clearStaffDeliveryPush, getDeliveryPushConfiguration } from "../lib/delivery-push.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -5102,6 +5103,88 @@ router.get("/orders", async (req, res, next) => {
   }
 });
 
+// Lightweight alert feed used by the admin shell. It intentionally contains
+// only customer-created delivery orders that still need a staff action.
+router.get("/orders/pending-delivery-alerts", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const orders = await prisma.order.findMany({
+      where: {
+        branchId: branchContext.branchId,
+        channel: OrderChannel.ONLINE,
+        serviceType: ServiceType.DELIVERY,
+        status: OrderStatus.PENDING
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        customerName: true,
+        deliverySubsector: true,
+        deliverySector: true,
+        placedAt: true
+      },
+      orderBy: { placedAt: "asc" }
+    });
+
+    return res.json({ orders });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/orders/push-config", (_req, res) => {
+  return res.json(getDeliveryPushConfiguration());
+});
+
+const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url().max(2_000),
+  keys: z.object({
+    p256dh: z.string().min(1).max(1_000),
+    auth: z.string().min(1).max(1_000)
+  })
+});
+
+router.post("/orders/push-subscriptions", async (req, res, next) => {
+  try {
+    const payload = pushSubscriptionSchema.parse(req.body);
+    const subscription = await prisma.pushSubscription.upsert({
+      where: { endpoint: payload.endpoint },
+      update: {
+        userId: req.user!.id,
+        p256dh: payload.keys.p256dh,
+        auth: payload.keys.auth,
+        userAgent: req.get("user-agent")?.slice(0, 500) ?? null
+      },
+      create: {
+        userId: req.user!.id,
+        endpoint: payload.endpoint,
+        p256dh: payload.keys.p256dh,
+        auth: payload.keys.auth,
+        userAgent: req.get("user-agent")?.slice(0, 500) ?? null
+      }
+    });
+
+    return res.status(201).json({ subscription: { id: subscription.id } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/orders/push-subscriptions", async (req, res, next) => {
+  try {
+    const payload = z.object({ endpoint: z.string().url().max(2_000) }).parse(req.body);
+    await prisma.pushSubscription.deleteMany({
+      where: {
+        endpoint: payload.endpoint,
+        userId: req.user!.id
+      }
+    });
+    return res.status(204).send();
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
@@ -5267,6 +5350,10 @@ router.patch("/orders/:id/status", async (req, res, next) => {
       entityId: order.id,
       payload
     });
+
+    if (order.serviceType === ServiceType.DELIVERY && payload.status !== OrderStatus.PENDING) {
+      void clearStaffDeliveryPush(order.id).catch((pushError) => console.error("Failed to clear delivery push notification", pushError));
+    }
 
     return res.json({ order });
   } catch (error) {
