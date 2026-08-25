@@ -117,7 +117,6 @@ model User {
   reviews               Review[]
   favorites             Favorite[]
   notifications         Notification[]
-  pushSubscriptions     PushSubscription[]
   auditLogs             AuditLog[]
   cart                  ShoppingCart?
   inventoryTransactions InventoryTransaction[] @relation("InventoryActor")
@@ -135,6 +134,17 @@ model User {
   investmentPayments    InvestmentPayment[]    @relation("InvestmentPaymentActor")
   branchAccesses        UserBranchAccess[]
   permissionGrants      UserPermission[]
+}
+
+model DeliveryRider {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, name])
 }
 
 model Permission {
@@ -517,6 +527,18 @@ model Review {
   product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
+model CustomerReview {
+  id         String   @id @default(cuid())
+  authorName String
+  rating     Int
+  body       String
+  isApproved Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([isApproved, createdAt])
+}
+
 model Notification {
   id        String           @id @default(cuid())
   userId    String?
@@ -527,20 +549,6 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime         @default(now())
   user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model PushSubscription {
-  id        String   @id @default(cuid())
-  userId    String
-  endpoint  String   @unique
-  p256dh    String
-  auth      String
-  userAgent String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
 }
 
 model Supplier {

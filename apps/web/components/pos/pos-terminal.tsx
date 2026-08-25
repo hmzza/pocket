@@ -499,8 +499,9 @@ export function PosTerminal() {
   const discountAmount = promotionApplied ? Math.min(subtotal, promotionDiscountAmount) : manualDiscountAmount;
   const deliveryFee = useMemo(() => {
     if (serviceType !== "DELIVERY") return 0;
-    if (deliveryDetails.sector === "G-11") return 100;
+    if (deliveryDetails.sector === "G-11") return 70;
     if (["G-10", "F-11"].includes(deliveryDetails.sector)) return 150;
+    if (["G-13", "G-9"].includes(deliveryDetails.sector)) return 200;
     return deliveryDetails.sector ? 180 : 0;
   }, [deliveryDetails.sector, serviceType]);
   const total = useMemo(() => Math.max(0, subtotal - discountAmount + deliveryFee), [deliveryFee, discountAmount, subtotal]);
@@ -679,6 +680,15 @@ export function PosTerminal() {
     setCustomerName(order.customerName || "");
     setCustomerPhone(order.customerPhone || "");
     setServiceType(order.serviceType as ServiceTypeValue);
+    setDeliveryDetails({
+      sector: order.delivery?.sector ?? "",
+      subsector: order.delivery?.subsector ?? "",
+      addressLine1: order.delivery?.addressLine1 ?? "",
+      addressLine2: order.delivery?.addressLine2 ?? "",
+      addressInstructions: order.delivery?.addressInstructions ?? "",
+      orderInstructions: order.delivery?.orderInstructions ?? ""
+    });
+    setDeliveryDialogOpen(order.serviceType === "DELIVERY");
     setFoodpandaOrderNumber(order.foodpandaOrderNumber || "");
     setPaymentMethod(order.paymentMethod as PaymentOptionValue);
     setDiscountType(order.discountType === "NONE" ? "PERCENTAGE" : order.discountType);
@@ -1311,7 +1321,7 @@ export function PosTerminal() {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">POS delivery</p>
                 <h2 id="pos-delivery-title" className="mt-1 text-2xl font-black text-pocket-navy">Customer delivery details</h2>
-                <p className="mt-2 text-sm text-pocket-navy/60">Pocket delivers only in Islamabad and only to the listed sectors. This order will enter the same delivery queue as website orders.</p>
+                <p className="mt-2 text-sm text-pocket-navy/60">Pocket delivers only in Islamabad and only to the listed sectors. {editingOrderId ? "Save your changes, then use Send rider update in the POS queue to send the latest details again." : "This order will enter the same delivery queue as website orders."}</p>
               </div>
               <Button type="button" variant="ghost" onClick={() => setDeliveryDialogOpen(false)}>Close</Button>
             </div>

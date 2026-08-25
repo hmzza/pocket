@@ -20,6 +20,9 @@ import type {
   AdminRangePreset,
   AdminUser,
   AdminUserData,
+  CustomerReview,
+  DeliveryLog,
+  DeliveryRider,
   AdminVendor,
   AdminVendorData,
   Branch,
@@ -418,31 +421,6 @@ export async function fetchAdminOrders(params?: {
   return orders;
 }
 
-export type PendingCustomerDeliveryAlert = {
-  id: string;
-  orderNumber: string;
-  customerName: string | null;
-  deliverySector: string | null;
-  deliverySubsector: string | null;
-  placedAt: string;
-};
-
-export async function fetchPendingCustomerDeliveryAlerts(): Promise<PendingCustomerDeliveryAlert[]> {
-  const data = await adminFetch<{ orders: PendingCustomerDeliveryAlert[] }>("/api/admin/orders/pending-delivery-alerts");
-  return data.orders;
-}
-
-export async function fetchDeliveryPushConfiguration() {
-  return adminFetch<{ enabled: boolean; publicKey: string | null }>("/api/admin/orders/push-config");
-}
-
-export async function saveDeliveryPushSubscription(subscription: { endpoint: string; keys: { p256dh: string; auth: string } }) {
-  return adminFetch<{ subscription: { id: string } }>("/api/admin/orders/push-subscriptions", {
-    method: "POST",
-    body: JSON.stringify(subscription)
-  });
-}
-
 export async function updateAdminDeliveryStatus(orderId: string, status: "CONFIRMED" | "DELIVERED" | "CANCELLED") {
   return adminFetch<{ order: { id: string; status: string } }>(`/api/admin/orders/${orderId}/status`, {
     method: "PATCH",
@@ -450,10 +428,60 @@ export async function updateAdminDeliveryStatus(orderId: string, status: "CONFIR
   });
 }
 
-export async function dispatchAdminDeliveryOrder(orderId: string) {
+export async function dispatchAdminDeliveryOrder(orderId: string, riderId: string) {
   return adminFetch<{ order: { id: string; status: string; riderName?: string | null }; whatsappUrl: string }>(`/api/admin/orders/${orderId}/dispatch`, {
-    method: "PATCH"
+    method: "PATCH",
+    body: JSON.stringify({ riderId })
   });
+}
+
+export async function fetchAdminDeliveryRiders(): Promise<DeliveryRider[]> {
+  const data = await adminFetch<{ riders: DeliveryRider[] }>("/api/admin/delivery-riders");
+  return data.riders;
+}
+
+export async function createAdminDeliveryRider(payload: { name: string; phone: string; isActive?: boolean }) {
+  const data = await adminFetch<{ rider: DeliveryRider }>("/api/admin/delivery-riders", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.rider;
+}
+
+export async function updateAdminDeliveryRider(riderId: string, payload: Partial<{ name: string; phone: string; isActive: boolean }>) {
+  const data = await adminFetch<{ rider: DeliveryRider }>(`/api/admin/delivery-riders/${riderId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.rider;
+}
+
+export async function deleteAdminDeliveryRider(riderId: string) {
+  const data = await adminFetch<{ deleted: boolean }>(`/api/admin/delivery-riders/${riderId}`, { method: "DELETE" });
+  return data.deleted;
+}
+
+export async function fetchAdminDeliveryLogs(): Promise<DeliveryLog[]> {
+  const data = await adminFetch<{ logs: DeliveryLog[] }>("/api/admin/delivery-logs");
+  return data.logs;
+}
+
+export async function fetchAdminCustomerReviews(): Promise<CustomerReview[]> {
+  const data = await adminFetch<{ reviews: CustomerReview[] }>("/api/admin/customer-reviews");
+  return data.reviews;
+}
+
+export async function updateAdminCustomerReview(reviewId: string, isApproved: boolean) {
+  const data = await adminFetch<{ review: CustomerReview }>(`/api/admin/customer-reviews/${reviewId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ isApproved })
+  });
+  return data.review;
+}
+
+export async function deleteAdminCustomerReview(reviewId: string) {
+  const data = await adminFetch<{ deleted: boolean }>(`/api/admin/customer-reviews/${reviewId}`, { method: "DELETE" });
+  return data.deleted;
 }
 
 export async function fetchAdminSession() {

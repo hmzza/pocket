@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { ArrowRight, Clock3, ShieldCheck, Truck } from "lucide-react";
+import { ArrowRight, Clock3, ShieldCheck, Star, Truck } from "lucide-react";
 import { ProductCard } from "@/components/site/product-card";
 import { HeroSlider } from "@/components/site/hero-slider";
+import { ReviewPrompt } from "@/components/site/review-prompt";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { getHomeData } from "@/lib/api";
 
 export default async function HomePage() {
   const data = await getHomeData();
+  const testimonials = [...data.customerReviews, ...data.testimonials].slice(0, 6);
 
   return (
     <>
@@ -95,10 +97,14 @@ export default async function HomePage() {
             eyebrow="Testimonials"
             title="What customers keep coming back for"
             description="Pocket is built around speed, taste, and a brand that actually feels current."
+            action={<ReviewPrompt />}
           />
           <div className="mt-8 grid gap-6 md:grid-cols-3">
-            {data.testimonials.map((item: { author: string; body: string; rating: number }) => (
-              <div key={item.author} className="border-t-4 border-pocket-orange bg-pocket-cream p-6">
+            {testimonials.map((item: { author: string; body: string; rating: number }, index: number) => (
+              <div key={`${item.author}-${index}`} className="border-t-4 border-pocket-orange bg-pocket-cream p-6">
+                <div className="flex gap-0.5 text-pocket-orange" aria-label={`${item.rating} out of 5 stars`}>
+                  {Array.from({ length: 5 }, (_, star) => <Star key={star} className={`h-4 w-4 ${star < item.rating ? "fill-current" : "text-pocket-navy/15"}`} />)}
+                </div>
                 <p className="text-base leading-7">"{item.body}"</p>
                 <p className="mt-4 text-sm font-semibold uppercase tracking-[0.25em] text-pocket-orange">{item.author}</p>
               </div>

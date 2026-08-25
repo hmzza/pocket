@@ -14,6 +14,7 @@ import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
 import { readIndependencePromotion } from "../lib/promotions.js";
 import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
+import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 
 const router = Router();
 
@@ -207,6 +208,17 @@ function formatEditablePosOrder(order: any) {
     promotionName: order.promotionName ?? null,
     promotionDiscountAmount: order.promotionDiscountAmount == null ? null : Number(order.promotionDiscountAmount),
     foodpandaOrderNumber: order.foodpandaOrderNumber ?? "",
+    delivery: order.serviceType === ServiceType.DELIVERY
+      ? {
+          sector: order.deliverySector ?? "",
+          subsector: order.deliverySubsector ?? "",
+          city: order.address?.city ?? DELIVERY_CITY,
+          addressLine1: order.address?.addressLine1 ?? "",
+          addressLine2: order.address?.addressLine2 ?? null,
+          addressInstructions: order.address?.instructions ?? null,
+          orderInstructions: order.deliveryInstructions ?? null
+        }
+      : null,
     items: order.items.map((item: any) => ({
       id: item.id,
       productId: item.productId ?? item.product?.id ?? null,
@@ -539,6 +551,7 @@ const posOrderInclude = {
     }
   },
   branch: true,
+  address: true,
   cashier: { select: { username: true, name: true } },
   items: {
     include: {
@@ -645,7 +658,7 @@ router.get("/orders/lookup", async (req, res, next) => {
       include: posOrderInclude
     });
 
-    if (!order || order.channel !== OrderChannel.POS || order.branchId !== branchContext.branchId) {
+    if (!order || (order.channel !== OrderChannel.POS && order.serviceType !== ServiceType.DELIVERY) || order.branchId !== branchContext.branchId) {
       return res.status(404).json({ message: "POS order not found." });
     }
 
@@ -822,14 +835,15 @@ router.post("/checkout", async (req, res, next) => {
     // Failures are logged, not surfaced.
     void writeAuditLog({
       actorId: req.user!.id,
-      action: "pos.checkout",
+      action: payload.serviceType === "DELIVERY" ? "delivery.order_placed" : "pos.checkout",
       entityType: "order",
       entityId: order.id,
         payload: {
           orderNumber,
           branchId: payload.branchId,
           itemCount: payload.items.length,
-          paymentMethod
+          paymentMethod,
+          source: payload.serviceType === "DELIVERY" ? "pos" : undefined
         }
       }).catch((auditError) => {
       console.error("Failed to write POS checkout audit log", auditError);
@@ -848,6 +862,15 @@ router.patch("/orders/:orderId", async (req, res, next) => {
     const parsedPayload = checkoutSchema.parse(req.body);
     const branchContext = await resolveBranchContext(req);
     const payload: ResolvedCheckoutPayload = { ...parsedPayload, branchId: branchContext.branchId };
+    const delivery = payload.serviceType === "DELIVERY" ? payload.delivery : undefined;
+    const deliveryArea = delivery ? getDeliveryArea(delivery.sector) : null;
+    if (delivery && !deliveryArea) {
+      return res.status(400).json({ message: "Choose a supported delivery sector." });
+    }
+    const deliveryPhone = delivery ? normalizePakistanWhatsAppNumber(payload.customerPhone ?? "") : null;
+    if (delivery && !deliveryPhone) {
+      return res.status(400).json({ message: "Enter a valid Pakistani WhatsApp number, for example 0300 1234567." });
+    }
     const paymentMethod =
       payload.serviceType === "FOODPANDA"
         ? PaymentMethod.FOODPANDA_PAYOUT
@@ -864,7 +887,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
       }
     });
 
-    if (!existingOrder || existingOrder.channel !== OrderChannel.POS) {
+    if (!existingOrder || (existingOrder.channel !== OrderChannel.POS && existingOrder.serviceType !== ServiceType.DELIVERY)) {
       return res.status(404).json({ message: "POS order not found." });
     }
 
@@ -929,32 +952,66 @@ router.patch("/orders/:orderId", async (req, res, next) => {
         where: { orderId: existingOrder.id }
       });
 
+      const address = delivery
+        ? existingOrder.addressId
+          ? await transaction.address.update({
+              where: { id: existingOrder.addressId },
+              data: {
+                label: "Delivery",
+                addressLine1: delivery.addressLine1.trim(),
+                addressLine2: delivery.addressLine2?.trim() || null,
+                city: DELIVERY_CITY,
+                instructions: delivery.addressInstructions?.trim() || null
+              }
+            })
+          : await transaction.address.create({
+              data: {
+                label: "Delivery",
+                addressLine1: delivery.addressLine1.trim(),
+                addressLine2: delivery.addressLine2?.trim() || null,
+                city: DELIVERY_CITY,
+                instructions: delivery.addressInstructions?.trim() || null
+              }
+            })
+        : null;
+
       const order = await transaction.order.update({
         where: { id: existingOrder.id },
         data: {
           customerName: payload.customerName?.trim() || null,
-          customerPhone: payload.customerPhone?.trim() || null,
+          customerPhone: deliveryPhone ?? (payload.customerPhone?.trim() || null),
           foodpandaOrderNumber: payload.serviceType === "FOODPANDA" ? payload.foodpandaOrderNumber?.trim() || null : null,
           serviceType: payload.serviceType as ServiceType,
-          status: OrderStatus.CONFIRMED,
+          status: delivery
+            ? existingOrder.serviceType === ServiceType.DELIVERY
+              ? existingOrder.status
+              : OrderStatus.PENDING
+            : OrderStatus.CONFIRMED,
           paymentMethod,
-          paymentStatus: PaymentStatus.UNSET,
-          cashierId: req.user!.id,
+          paymentStatus: delivery
+            ? existingOrder.serviceType === ServiceType.DELIVERY
+              ? existingOrder.paymentStatus
+              : PaymentStatus.PENDING
+            : PaymentStatus.UNSET,
+          cashierId: existingOrder.channel === OrderChannel.POS ? req.user!.id : existingOrder.cashierId,
           // Preserve the original punch time when a paid POS order is edited.
           placedAt: existingOrder.placedAt,
+          addressId: address?.id ?? null,
           subtotal: orderPayload.subtotal,
           taxRate: 0,
           taxAmount: 0,
-          deliveryFee: 0,
+          deliveryFee: deliveryArea?.fee ?? 0,
           discountAmount: orderPayload.discountAmount,
           manualDiscountType: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
           manualDiscountValue: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
           promotionName: orderPayload.promotionName,
           promotionDiscountAmount: orderPayload.promotionDiscountAmount,
-          cashReceivedAmount: orderPayload.paidAmount,
-          changeDueAmount: orderPayload.changeDueAmount,
-          totalAmount: orderPayload.totalAmount,
-          deliveryInstructions: null,
+          cashReceivedAmount: delivery ? null : orderPayload.paidAmount,
+          changeDueAmount: delivery ? null : orderPayload.changeDueAmount,
+          totalAmount: Number((orderPayload.totalAmount + (deliveryArea?.fee ?? 0)).toFixed(2)),
+          deliveryInstructions: delivery?.orderInstructions?.trim() || null,
+          deliverySector: delivery?.sector ?? null,
+          deliverySubsector: delivery?.subsector ?? null,
           items: {
             create: buildOrderItemCreateData(orderPayload.normalizedItems)
           }
@@ -975,7 +1032,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
 
     void writeAuditLog({
       actorId: req.user!.id,
-      action: "pos.order_update",
+      action: delivery ? "delivery.order_updated" : "pos.order_update",
       entityType: "order",
       entityId: updatedOrder.id,
         payload: {
@@ -987,6 +1044,16 @@ router.patch("/orders/:orderId", async (req, res, next) => {
       }).catch((auditError) => {
       console.error("Failed to write POS order update audit log", auditError);
     });
+
+    if (delivery) {
+      publishDeliveryOrderEvent({
+        branchId: updatedOrder.branchId,
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        channel: updatedOrder.channel,
+        kind: "UPDATED"
+      });
+    }
 
     return res.json({
       order: formatReceiptResponse(updatedOrder)

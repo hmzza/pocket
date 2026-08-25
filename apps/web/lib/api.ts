@@ -57,6 +57,7 @@ export async function getHomeData() {
       heroSliderIntervalMs: homeContent.heroSliderIntervalMs,
       whyPocket: homeContent.whyPocket,
       testimonials: homeContent.testimonials,
+      customerReviews: [],
       featured: products.filter((product) => product.featured).slice(0, 4).map(normalizeLocalProduct),
       bestSellers: products.filter((product) => product.bestSeller).slice(0, 4).map(normalizeLocalProduct),
       categories,
@@ -75,6 +76,12 @@ export async function getHomeData() {
     hero: data.hero?.content ?? homeContent.hero,
     whyPocket: data.whyPocket?.content ?? homeContent.whyPocket,
     testimonials: data.testimonials?.content ?? homeContent.testimonials,
+    customerReviews: (data.customerReviews ?? []).map((review: any) => ({
+      id: review.id,
+      author: review.authorName,
+      rating: Number(review.rating),
+      body: review.body
+    })),
     heroImages: normalizeHeroImages(data.heroImages ?? homeContent.heroImages),
     heroSliderIntervalMs: Number(data.heroSliderIntervalMs ?? homeContent.heroSliderIntervalMs ?? 4500),
     featured: normalizeProducts(data.featured),

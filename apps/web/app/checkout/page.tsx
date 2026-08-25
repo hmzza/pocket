@@ -16,13 +16,13 @@ import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 
 const deliveryAreas = [
-  { sector: "G-11", fee: 100 },
+  { sector: "G-11", fee: 70 },
   { sector: "G-10", fee: 150 },
   { sector: "F-11", fee: 150 },
   { sector: "G-12", fee: 180 },
-  { sector: "G-13", fee: 180 },
+  { sector: "G-13", fee: 200 },
   { sector: "F-10", fee: 180 },
-  { sector: "G-9", fee: 180 }
+  { sector: "G-9", fee: 200 }
 ] as const;
 
 export default function CheckoutPage() {

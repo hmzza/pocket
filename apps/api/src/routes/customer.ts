@@ -7,7 +7,7 @@ import { withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
-import { notifyStaffAboutNewDelivery } from "../lib/delivery-push.js";
+import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 
 const router = Router();
 
@@ -472,20 +472,19 @@ router.post("/checkout", async (req, res, next) => {
 
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "order.checkout",
+      action: "delivery.order_placed",
       entityType: "order",
       entityId: order.id,
-      payload: { orderNumber }
+      payload: { orderNumber, branchId: order.branchId, source: "website" }
     });
 
-    // Delivery push failures are deliberately non-blocking after an order is
-    // safely recorded. Staff can still see it in the alert feed and queue.
-    void notifyStaffAboutNewDelivery({
+    publishDeliveryOrderEvent({
+      branchId: order.branchId,
       orderId: order.id,
       orderNumber: order.orderNumber,
-      branchName: branch.name,
-      customerName: order.customerName
-    }).catch((pushError) => console.error("Failed to queue delivery push notification", pushError));
+      channel: order.channel,
+      kind: "NEW"
+    });
 
     return res.status(201).json({ order });
   } catch (error) {

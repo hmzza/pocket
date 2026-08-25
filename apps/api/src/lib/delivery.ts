@@ -1,19 +1,14 @@
 import { OrderStatus, ServiceType } from "@prisma/client";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "./prisma.js";
 
-export const POCKET_RIDER = {
-  name: "Zeeshan",
-  phone: "+923086548469"
-} as const;
-
 export const DELIVERY_AREAS = {
-  "G-11": { label: "G-11", fee: 100 },
+  "G-11": { label: "G-11", fee: 70 },
   "G-10": { label: "G-10", fee: 150 },
   "F-11": { label: "F-11", fee: 150 },
   "G-12": { label: "G-12", fee: 180 },
-  "G-13": { label: "G-13", fee: 180 },
+  "G-13": { label: "G-13", fee: 200 },
   "F-10": { label: "F-10", fee: 180 },
-  "G-9": { label: "G-9", fee: 180 }
+  "G-9": { label: "G-9", fee: 200 }
 } as const;
 
 export type DeliveryArea = keyof typeof DELIVERY_AREAS;
@@ -72,7 +67,7 @@ export function formatDeliveryAddress(order: {
     .join("\n");
 }
 
-export async function dispatchDeliveryOrder(input: { orderId: string; branchId: string; actorId: string }) {
+export async function dispatchDeliveryOrder(input: { orderId: string; branchId: string; actorId: string; riderId: string }) {
   return prisma.$transaction(async (transaction) => {
     const currentOrder = await transaction.order.findUnique({
       where: { id: input.orderId },
@@ -91,16 +86,24 @@ export async function dispatchDeliveryOrder(input: { orderId: string; branchId: 
     if (currentOrder.serviceType !== ServiceType.DELIVERY) {
       throw Object.assign(new Error("Only delivery orders can be assigned to a rider."), { statusCode: 400 });
     }
-    if (currentOrder.status !== OrderStatus.CONFIRMED) {
+    if (currentOrder.status !== OrderStatus.CONFIRMED && currentOrder.status !== OrderStatus.OUT_FOR_DELIVERY) {
       throw Object.assign(new Error("Accept this order before assigning it to a rider."), { statusCode: 409 });
+    }
+
+    const rider = await transaction.deliveryRider.findFirst({
+      where: { id: input.riderId, isActive: true },
+      select: { id: true, name: true, phone: true }
+    });
+    if (!rider) {
+      throw Object.assign(new Error("Select an active delivery rider."), { statusCode: 400 });
     }
 
     const order = await transaction.order.update({
       where: { id: currentOrder.id },
       data: {
-        status: OrderStatus.OUT_FOR_DELIVERY,
-        riderName: POCKET_RIDER.name,
-        riderPhone: POCKET_RIDER.phone,
+        status: currentOrder.status === OrderStatus.CONFIRMED ? OrderStatus.OUT_FOR_DELIVERY : currentOrder.status,
+        riderName: rider.name,
+        riderPhone: rider.phone,
         riderAssignedAt: new Date(),
         dispatchedById: input.actorId,
         dispatchedAt: new Date()
@@ -109,7 +112,8 @@ export async function dispatchDeliveryOrder(input: { orderId: string; branchId: 
 
     return {
       order,
-      whatsappUrl: `https://wa.me/${POCKET_RIDER.phone.replace(/\D/g, "")}?text=${encodeURIComponent(formatDeliveryAddress(currentOrder))}`
+      resentToRider: currentOrder.status === OrderStatus.OUT_FOR_DELIVERY,
+      whatsappUrl: `https://wa.me/${rider.phone.replace(/\D/g, "")}?text=${encodeURIComponent(formatDeliveryAddress(currentOrder))}`
     };
   }, INVENTORY_TRANSACTION_OPTIONS);
 }

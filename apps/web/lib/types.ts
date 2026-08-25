@@ -721,6 +721,33 @@ export type AdminUserData = {
   users: AdminUser[];
 };
 
+export type DeliveryRider = {
+  id: string;
+  name: string;
+  phone: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type DeliveryLog = {
+  id: string;
+  action: string;
+  orderNumber: string;
+  riderName?: string | null;
+  actorName: string;
+  createdAt: string;
+};
+
+export type CustomerReview = {
+  id: string;
+  authorName: string;
+  rating: number;
+  body: string;
+  isApproved: boolean;
+  createdAt: string;
+};
+
 export type AdminCustomer = {
   id: string;
   name: string;
@@ -939,6 +966,15 @@ export type PosEditableOrder = {
   promotionName?: string | null;
   promotionDiscountAmount?: number | null;
   foodpandaOrderNumber: string;
+  delivery?: {
+    sector: string;
+    subsector: string;
+    city: string;
+    addressLine1: string;
+    addressLine2?: string | null;
+    addressInstructions?: string | null;
+    orderInstructions?: string | null;
+  } | null;
   items: Array<{
     id: string;
     productId: string | null;
