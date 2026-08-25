@@ -1,12 +1,9 @@
 "use client";
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
 import { API_URL } from "@/lib/catalog";
-import { branch, products as legacyProducts } from "@/lib/mock-data";
+import { products as legacyProducts } from "@/lib/mock-data";
 import type { AddOnOption, CartProduct, Product } from "@/lib/types";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 
 type CartEntry = {
   id: string;
@@ -27,6 +24,7 @@ type StoreContextValue = {
   recentlyViewed: string[];
   addToCart: (input: AddToCartInput) => boolean;
   updateQuantity: (cartItemId: string, quantity: number) => void;
+  updateCartItem: (cartItemId: string, input: Pick<AddToCartInput, "selectedAddOnIds">) => void;
   clearCart: () => void;
   toggleFavorite: (productId: string) => void;
   markViewed: (productId: string) => void;
@@ -40,8 +38,6 @@ const CART_KEY = "pocket-cart";
 const FAVORITES_KEY = "pocket-favorites";
 const RECENT_KEY = "pocket-recent";
 const legacyIdToSlug = new Map(legacyProducts.map((product) => [product.id, product.slug]));
-const storeAddress = `${branch.addressLine1}, ${branch.city}`;
-const foodpandaDeliveryUrl = "https://foodpanda.go.link/eLIh7";
 
 function createCartEntryId() {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -103,24 +99,25 @@ function mergeCartEntries(entries: CartEntry[]) {
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
-  const [orderingNoticeOpen, setOrderingNoticeOpen] = useState(false);
-  const [hasShownHomepageNotice, setHasShownHomepageNotice] = useState(false);
-
-  function showOrderingNotice() {
-    setOrderingNoticeOpen(true);
-  }
+  const [cartNotice, setCartNotice] = useState("");
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
-    const nextCart = localStorage.getItem(CART_KEY);
-    const nextFavorites = localStorage.getItem(FAVORITES_KEY);
-    const nextRecent = localStorage.getItem(RECENT_KEY);
-    if (nextCart) setCart(normalizeCartEntries(JSON.parse(nextCart)));
-    if (nextFavorites) setFavorites(JSON.parse(nextFavorites));
-    if (nextRecent) setRecentlyViewed(JSON.parse(nextRecent));
+    try {
+      const nextCart = localStorage.getItem(CART_KEY);
+      const nextFavorites = localStorage.getItem(FAVORITES_KEY);
+      const nextRecent = localStorage.getItem(RECENT_KEY);
+      if (nextCart) setCart(normalizeCartEntries(JSON.parse(nextCart)));
+      if (nextFavorites) setFavorites(JSON.parse(nextFavorites));
+      if (nextRecent) setRecentlyViewed(JSON.parse(nextRecent));
+    } catch {
+      // Invalid browser storage must never prevent the storefront from loading.
+    } finally {
+      setHasHydrated(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -184,34 +181,50 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [cart, favorites, recentlyViewed]);
 
   useEffect(() => {
+    if (!hasHydrated) return;
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  }, [cart]);
+  }, [cart, hasHydrated]);
 
   useEffect(() => {
+    if (!hasHydrated) return;
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
-  }, [favorites]);
+  }, [favorites, hasHydrated]);
 
   useEffect(() => {
+    if (!hasHydrated) return;
     localStorage.setItem(RECENT_KEY, JSON.stringify(recentlyViewed));
-  }, [recentlyViewed]);
-
-  useEffect(() => {
-    if (pathname !== "/" || hasShownHomepageNotice) {
-      return;
-    }
-
-    setOrderingNoticeOpen(true);
-    setHasShownHomepageNotice(true);
-  }, [hasShownHomepageNotice, pathname]);
+  }, [recentlyViewed, hasHydrated]);
 
   const value = useMemo<StoreContextValue>(
     () => ({
       cart,
       favorites,
       recentlyViewed,
-      addToCart: (_input) => {
-        showOrderingNotice();
-        return false;
+      addToCart: (input) => {
+        const selectedAddOnIds = normalizeAddOnIds(input.selectedAddOnIds);
+        setCart((current) => {
+          const signature = buildEntrySignature(input.productId, selectedAddOnIds);
+          const existing = current.find((entry) => buildEntrySignature(entry.productId, entry.selectedAddOnIds) === signature);
+          if (existing) {
+            return current.map((entry) =>
+              entry.id === existing.id
+                ? { ...entry, quantity: Math.min(20, entry.quantity + Math.max(1, input.quantity ?? 1)) }
+                : entry
+            );
+          }
+
+          return [
+            ...current,
+            {
+              id: createCartEntryId(),
+              productId: input.productId,
+              quantity: Math.min(20, Math.max(1, input.quantity ?? 1)),
+              selectedAddOnIds
+            }
+          ];
+        });
+        setCartNotice("Added to cart");
+        return true;
       },
       updateQuantity: (cartItemId, quantity) => {
         setCart((current) =>
@@ -219,6 +232,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             ? current.filter((entry) => entry.id !== cartItemId)
             : current.map((entry) => (entry.id === cartItemId ? { ...entry, quantity } : entry))
         );
+      },
+      updateCartItem: (cartItemId, input) => {
+        const selectedAddOnIds = normalizeAddOnIds(input.selectedAddOnIds);
+        setCart((current) =>
+          current.map((entry) => (entry.id === cartItemId ? { ...entry, selectedAddOnIds } : entry))
+        );
+        setCartNotice("Cart updated");
       },
       clearCart: () => {
         setCart([]);
@@ -262,40 +282,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [cart, favorites, recentlyViewed]
   );
 
+  useEffect(() => {
+    if (!cartNotice) return;
+    const timer = window.setTimeout(() => setCartNotice(""), 2200);
+    return () => window.clearTimeout(timer);
+  }, [cartNotice]);
+
   return (
     <StoreContext.Provider value={value}>
       {children}
-
-      {orderingNoticeOpen ? (
-        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="ordering-notice-title">
-          <Card className="w-full max-w-xl rounded-3xl border-pocket-navy/10 p-6 sm:p-8">
-            <div className="space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-pocket-orange">Notice</p>
-              <div className="space-y-3">
-                <h2 id="ordering-notice-title" className="text-3xl font-black text-pocket-navy">
-                  Online orders are closed for now.
-                </h2>
-                <p className="text-base leading-7 text-pocket-navy/75">
-                  Please visit us physically to place your order. Foodpanda delivery is still available through the Foodpanda app only, and you can still browse the menu and view all items on the website.
-                </p>
-                <a
-                  href={foodpandaDeliveryUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center rounded-full bg-pocket-orange px-4 py-2 text-sm font-semibold text-white transition hover:bg-pocket-orange/90"
-                >
-                  Here’s Pocket - The Shawarma Spot on Foodpanda for deliveries!
-                </a>
-              </div>
-              <div className="rounded-2xl bg-pocket-cream p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Visit Us</p>
-                <p className="mt-2 text-lg font-bold text-pocket-navy">{storeAddress}</p>
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={() => setOrderingNoticeOpen(false)}>Close</Button>
-              </div>
-            </div>
-          </Card>
+      {cartNotice ? (
+        <div className="fixed bottom-5 right-5 z-[70] rounded-full bg-pocket-navy px-4 py-3 text-sm font-semibold text-white shadow-lg" role="status" aria-live="polite">
+          {cartNotice}
         </div>
       ) : null}
     </StoreContext.Provider>

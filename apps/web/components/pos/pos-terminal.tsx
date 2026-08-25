@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarDays, Car, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
+import { Bike, CalendarDays, Car, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,8 +31,8 @@ type TicketLine = {
 
 type ProductSelection = { groupId: string; optionIds: string[] };
 
-type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT";
-type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA";
+type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT" | "CASH_ON_DELIVERY";
+type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA" | "DELIVERY";
 type ServiceTypeSelection = ServiceTypeValue | "";
 
 const basePaymentOptions = [
@@ -42,12 +42,16 @@ const basePaymentOptions = [
 ] as const;
 
 const foodpandaPaymentOption = { value: "FOODPANDA_PAYOUT", label: "Foodpanda payout", logo: "/images/foodpanda-logo.png" } as const;
+const cashOnDeliveryPaymentOption = { value: "CASH_ON_DELIVERY", label: "Cash on Delivery", logo: "/images/cash-logo.png" } as const;
 
 const serviceTypes = [
   { value: "INSHOP", label: "Dine-in", logo: "/images/instore-logo.png" },
   { value: "TAKEAWAY", label: "Takeaway", icon: Car },
-  { value: "FOODPANDA", label: "Foodpanda", logo: "/images/foodpanda-logo.png" }
+  { value: "FOODPANDA", label: "Foodpanda", logo: "/images/foodpanda-logo.png" },
+  { value: "DELIVERY", label: "Delivery", icon: Bike }
 ] as const;
+
+const deliveryAreas = ["G-11", "G-10", "F-11", "G-12", "G-13", "F-10", "G-9"] as const;
 
 function getLocalDateInputValue(date = new Date()) {
   return getCurrentBusinessDateKey(date);
@@ -154,7 +158,9 @@ function formatPaymentMethod(value: string) {
 
 function getPaymentOptions(serviceType: ServiceTypeSelection) {
   if (!serviceType) return [];
-  return serviceType === "FOODPANDA" ? [foodpandaPaymentOption] : basePaymentOptions;
+  if (serviceType === "FOODPANDA") return [foodpandaPaymentOption];
+  if (serviceType === "DELIVERY") return [cashOnDeliveryPaymentOption];
+  return basePaymentOptions;
 }
 
 function formatServiceType(value: string) {
@@ -373,6 +379,15 @@ export function PosTerminal() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [serviceType, setServiceType] = useState<ServiceTypeSelection>("");
   const [foodpandaOrderNumber, setFoodpandaOrderNumber] = useState("");
+  const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false);
+  const [deliveryDetails, setDeliveryDetails] = useState({
+    sector: "",
+    subsector: "",
+    addressLine1: "",
+    addressLine2: "",
+    addressInstructions: "",
+    orderInstructions: ""
+  });
   const [paymentMethod, setPaymentMethod] = useState<PaymentOptionValue | "">("");
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "FIXED">("PERCENTAGE");
   const [discountValue, setDiscountValue] = useState("0");
@@ -482,7 +497,13 @@ export function PosTerminal() {
     return 0;
   }, [discountType, discountValue, subtotal]);
   const discountAmount = promotionApplied ? Math.min(subtotal, promotionDiscountAmount) : manualDiscountAmount;
-  const total = useMemo(() => Math.max(0, subtotal - discountAmount), [discountAmount, subtotal]);
+  const deliveryFee = useMemo(() => {
+    if (serviceType !== "DELIVERY") return 0;
+    if (deliveryDetails.sector === "G-11") return 100;
+    if (["G-10", "F-11"].includes(deliveryDetails.sector)) return 150;
+    return deliveryDetails.sector ? 180 : 0;
+  }, [deliveryDetails.sector, serviceType]);
+  const total = useMemo(() => Math.max(0, subtotal - discountAmount + deliveryFee), [deliveryFee, discountAmount, subtotal]);
   const payableTotal = total;
   const editingCompletedOrder = Boolean(editingOrderId);
   const ticketLocked = orderCompleted && !editingCompletedOrder;
@@ -505,7 +526,12 @@ export function PosTerminal() {
       return;
     }
 
-    if (paymentMethod === "FOODPANDA_PAYOUT") {
+    if (serviceType === "DELIVERY") {
+      setPaymentMethod("CASH_ON_DELIVERY");
+      return;
+    }
+
+    if (paymentMethod === "FOODPANDA_PAYOUT" || paymentMethod === "CASH_ON_DELIVERY") {
       setPaymentMethod("");
     }
   }, [paymentMethod, serviceType]);
@@ -539,6 +565,13 @@ export function PosTerminal() {
       window.clearTimeout(timer);
     };
   }, [customerName, customerPhone, ticketLocked]);
+
+  function selectServiceType(nextServiceType: ServiceTypeValue) {
+    setServiceType(nextServiceType);
+    if (nextServiceType === "DELIVERY") {
+      setDeliveryDialogOpen(true);
+    }
+  }
 
   function addProductToTicket(product: PosCatalogProduct) {
     if (ticketLocked) {
@@ -708,7 +741,7 @@ export function PosTerminal() {
     const submittedFoodpandaOrderNumber = foodpandaOrderNumber.trim();
 
     if (!serviceType) {
-      setError("Pick Dine-in, Takeaway, or Foodpanda before finishing the order.");
+      setError("Pick Dine-in, Takeaway, Foodpanda, or Delivery before finishing the order.");
       setSubmitting(false);
       return;
     }
@@ -725,11 +758,29 @@ export function PosTerminal() {
       return;
     }
 
+    if (serviceType === "DELIVERY") {
+      if (!customerName.trim() || !submittedCustomerPhone || !deliveryDetails.sector || !deliveryDetails.subsector || !deliveryDetails.addressLine1.trim()) {
+        setError("Complete the customer, sector, sub-sector, and address fields for delivery.");
+        setSubmitting(false);
+        setDeliveryDialogOpen(true);
+        return;
+      }
+    }
+
     try {
       const payload = {
         branchId,
         serviceType,
         foodpandaOrderNumber: serviceType === "FOODPANDA" ? submittedFoodpandaOrderNumber : undefined,
+        delivery: serviceType === "DELIVERY" ? {
+          sector: deliveryDetails.sector,
+          subsector: deliveryDetails.subsector,
+          city: "Islamabad",
+          addressLine1: deliveryDetails.addressLine1.trim(),
+          addressLine2: deliveryDetails.addressLine2.trim() || undefined,
+          addressInstructions: deliveryDetails.addressInstructions.trim() || undefined,
+          orderInstructions: deliveryDetails.orderInstructions.trim() || undefined
+        } : undefined,
         paymentMethod,
         customerName: customerName.trim() || undefined,
         customerPhone: submittedCustomerPhone || undefined,
@@ -789,6 +840,8 @@ export function PosTerminal() {
     setCustomerPhone("");
     setServiceType("");
     setFoodpandaOrderNumber("");
+    setDeliveryDialogOpen(false);
+    setDeliveryDetails({ sector: "", subsector: "", addressLine1: "", addressLine2: "", addressInstructions: "", orderInstructions: "" });
     setPaymentMethod("");
     setDiscountType("PERCENTAGE");
     setDiscountValue("0");
@@ -1064,7 +1117,7 @@ export function PosTerminal() {
                         <button
                           key={entry.value}
                           type="button"
-                          onClick={() => setServiceType(entry.value)}
+                          onClick={() => selectServiceType(entry.value)}
                           disabled={ticketLocked}
                           className={cn(
                             "grid h-10 w-10 shrink-0 place-items-center rounded-full border transition",
@@ -1166,6 +1219,7 @@ export function PosTerminal() {
             <div className={splitView ? "mt-2 space-y-1 rounded-2xl bg-slate-950 px-2 py-1.5 text-[0.74rem] text-white" : "mt-2 space-y-1 rounded-2xl bg-slate-950 px-2.5 py-1.5 text-[0.8rem] text-white"}>
               <div className="flex justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex justify-between"><span>Discount</span><span>-{formatCurrency(discountAmount)}</span></div>
+              {serviceType === "DELIVERY" ? <div className="flex justify-between"><span>Delivery {deliveryDetails.sector ? `(${deliveryDetails.sector})` : ""}</span><span>{deliveryDetails.sector ? formatCurrency(deliveryFee) : "Set area"}</span></div> : null}
               <div className={splitView ? "flex justify-between text-[0.8rem] font-bold" : "flex justify-between text-[0.88rem] font-bold"}><span>Total</span><span>{formatCurrency(payableTotal)}</span></div>
             </div>
 
@@ -1249,6 +1303,34 @@ export function PosTerminal() {
           ) : null}
         </div>
       </div>
+
+      {deliveryDialogOpen ? (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="pos-delivery-title">
+          <Card className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">POS delivery</p>
+                <h2 id="pos-delivery-title" className="mt-1 text-2xl font-black text-pocket-navy">Customer delivery details</h2>
+                <p className="mt-2 text-sm text-pocket-navy/60">Pocket delivers only in Islamabad and only to the listed sectors. This order will enter the same delivery queue as website orders.</p>
+              </div>
+              <Button type="button" variant="ghost" onClick={() => setDeliveryDialogOpen(false)}>Close</Button>
+            </div>
+
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>City</span><select value="Islamabad" disabled className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-pocket-cream px-3 text-sm"><option>Islamabad</option></select></label>
+              <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sector</span><select value={deliveryDetails.sector} onChange={(event) => setDeliveryDetails((current) => ({ ...current, sector: event.target.value, subsector: "" }))} className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Choose sector</option>{deliveryAreas.map((sector) => <option key={sector} value={sector}>{sector}</option>)}</select></label>
+              <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sub-sector</span><select value={deliveryDetails.subsector} onChange={(event) => setDeliveryDetails((current) => ({ ...current, subsector: event.target.value }))} disabled={!deliveryDetails.sector} className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Choose sub-sector</option>{deliveryDetails.sector ? [1, 2, 3, 4].map((number) => { const subsector = `${deliveryDetails.sector}/${number}`; return <option key={subsector} value={subsector}>{subsector}</option>; }) : null}</select></label>
+              <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer full name" />
+              <Input type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Customer WhatsApp number (03xx xxxxxxx)" />
+              <div className="md:col-span-2"><Input value={deliveryDetails.addressLine1} onChange={(event) => setDeliveryDetails((current) => ({ ...current, addressLine1: event.target.value }))} placeholder="House / building, street and area" /></div>
+              <div className="md:col-span-2"><Input value={deliveryDetails.addressLine2} onChange={(event) => setDeliveryDetails((current) => ({ ...current, addressLine2: event.target.value }))} placeholder="Landmark, floor or apartment (optional)" /></div>
+              <div className="md:col-span-2"><Textarea value={deliveryDetails.addressInstructions} onChange={(event) => setDeliveryDetails((current) => ({ ...current, addressInstructions: event.target.value }))} placeholder="Helpful location instructions (optional)" /></div>
+              <div className="md:col-span-2"><Textarea value={deliveryDetails.orderInstructions} onChange={(event) => setDeliveryDetails((current) => ({ ...current, orderInstructions: event.target.value }))} placeholder="Anything staff should know about this order? (optional)" /></div>
+            </div>
+            <Button type="button" className="mt-6 w-full" onClick={() => setDeliveryDialogOpen(false)} disabled={!customerName.trim() || !customerPhone.trim() || !deliveryDetails.sector || !deliveryDetails.subsector || !deliveryDetails.addressLine1.trim()}>Save delivery details</Button>
+          </Card>
+        </div>
+      ) : null}
 
       {productDialog ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4">

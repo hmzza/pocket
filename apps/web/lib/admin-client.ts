@@ -373,11 +373,23 @@ export async function fetchAdminOrders(params?: {
     manualDiscountValue: order.manualDiscountValue == null ? undefined : Number(order.manualDiscountValue),
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+    cashierUsername: order.cashierUsername ?? null,
+    cashierName: order.cashierName ?? null,
     placedAt: order.placedAt,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
+    deliverySector: order.deliverySector ?? null,
+    deliverySubsector: order.deliverySubsector ?? null,
+    riderName: order.riderName ?? null,
+    riderPhone: order.riderPhone ?? null,
+    riderAssignedAt: order.riderAssignedAt ?? null,
+    acceptedByName: order.acceptedByName ?? null,
+    acceptedAt: order.acceptedAt ?? null,
+    dispatchedByName: order.dispatchedByName ?? null,
+    dispatchedAt: order.dispatchedAt ?? null,
     address: order.address
       ? {
           addressLine1: order.address.addressLine1,
+          addressLine2: order.address.addressLine2 ?? undefined,
           city: order.address.city,
           instructions: order.address.instructions ?? undefined
         }
@@ -404,6 +416,19 @@ export async function fetchAdminOrders(params?: {
   }));
 
   return orders;
+}
+
+export async function updateAdminDeliveryStatus(orderId: string, status: "CONFIRMED" | "DELIVERED" | "CANCELLED") {
+  return adminFetch<{ order: { id: string; status: string } }>(`/api/admin/orders/${orderId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status })
+  });
+}
+
+export async function dispatchAdminDeliveryOrder(orderId: string) {
+  return adminFetch<{ order: { id: string; status: string; riderName?: string | null }; whatsappUrl: string }>(`/api/admin/orders/${orderId}/dispatch`, {
+    method: "PATCH"
+  });
 }
 
 export async function fetchAdminSession() {

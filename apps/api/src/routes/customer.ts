@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { DiscountType, PaymentMethod, PaymentStatus, ServiceType } from "@prisma/client";
+import { DiscountType, OrderStatus, PaymentMethod, PaymentStatus, ServiceType } from "@prisma/client";
 import { z } from "zod";
 import { authenticate } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
+import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
 
 const router = Router();
 
@@ -255,7 +256,9 @@ router.post("/checkout", async (req, res, next) => {
     const payload = z
       .object({
         branchSlug: z.string(),
-        paymentMethod: z.nativeEnum(PaymentMethod),
+        paymentMethod: z.literal(PaymentMethod.CASH_ON_DELIVERY),
+        deliverySector: z.enum(DELIVERY_AREA_KEYS as [string, ...string[]]),
+        deliverySubsector: z.string().min(5).max(10),
         couponCode: z.string().optional(),
         deliveryInstructions: z.string().max(240).optional(),
         addressId: z.string().optional(),
@@ -264,7 +267,7 @@ router.post("/checkout", async (req, res, next) => {
             label: z.string().optional(),
             addressLine1: z.string().min(5),
             addressLine2: z.string().optional(),
-            city: z.string().min(2),
+          city: z.literal(DELIVERY_CITY),
             instructions: z.string().optional()
           })
           .optional()
@@ -272,6 +275,13 @@ router.post("/checkout", async (req, res, next) => {
       .parse(req.body);
 
     const branch = await prisma.branch.findUniqueOrThrow({ where: { slug: payload.branchSlug } });
+    const deliveryArea = getDeliveryArea(payload.deliverySector);
+    if (!deliveryArea) {
+      return res.status(400).json({ message: "We currently deliver only to the listed sectors." });
+    }
+    if (!isDeliverySubsector(payload.deliverySector, payload.deliverySubsector)) {
+      return res.status(400).json({ message: "Choose a valid sub-sector for your selected delivery sector." });
+    }
     const cart = await prisma.shoppingCart.findUnique({
       where: { userId: req.user!.id },
       include: {
@@ -344,8 +354,8 @@ router.post("/checkout", async (req, res, next) => {
       }
     }
 
-    const taxAmount = Number((subtotal * 0.12).toFixed(2));
-    const deliveryFee = Number(branch.deliveryFee);
+    const taxAmount = 0;
+    const deliveryFee = deliveryArea.fee;
     const totalAmount = Math.max(0, subtotal + taxAmount + deliveryFee - discountAmount);
 
     let addressId = payload.addressId;
@@ -387,16 +397,19 @@ router.post("/checkout", async (req, res, next) => {
             addressId,
             couponId,
             customerName: req.user!.name,
+            status: OrderStatus.PENDING,
             paymentMethod: payload.paymentMethod,
             paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
             subtotal,
-            taxRate: 12,
+            taxRate: 0,
             taxAmount,
             deliveryFee,
             discountAmount,
             totalAmount,
             expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
             deliveryInstructions: payload.deliveryInstructions,
+            deliverySector: payload.deliverySector,
+            deliverySubsector: payload.deliverySubsector,
             items: {
               create: normalizedItems.map((item) => ({
                 productId: item.productId,

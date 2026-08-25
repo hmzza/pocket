@@ -26,6 +26,7 @@ const links: Array<{
   { href: "/admin/users", label: "Users", icon: Users, permissionKey: "USERS" },
   { href: "/admin/inventory", label: "Inventory", icon: Package2, permissionKey: "INVENTORY" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart, permissionKey: "ORDERS" },
+  { href: "/admin/delivery", label: "Delivery", icon: Bike, permissionKey: "ORDERS" },
   { href: "/admin/customers", label: "Customers", icon: Users, permissionKey: "CUSTOMERS" },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt, permissionKey: "EXPENSES" },
   { href: "/admin/capital", label: "Capital", icon: HandCoins, permissionKey: "CAPITAL" },

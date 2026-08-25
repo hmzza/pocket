@@ -1,6 +1,8 @@
 import { API_URL } from "./catalog";
 
-export const ORDER_TAX_RATE = 0.12;
+// Direct Pocket delivery is quoted as item total plus the sector delivery fee.
+// Do not add an extra checkout tax that was not shown to the customer.
+export const ORDER_TAX_RATE = 0;
 export const STORED_COUPON_KEY = "pocket-coupon-code";
 
 export type CouponValidationResult = {

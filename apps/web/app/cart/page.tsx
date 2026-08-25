@@ -2,27 +2,50 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Minus, Plus, Trash2 } from "lucide-react";
+import { Minus, PencilLine, Plus, Trash2 } from "lucide-react";
 import { useLiveProducts } from "@/components/site/use-live-products";
 import { useStore } from "@/components/store/store-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { branch } from "@/lib/mock-data";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 
 export default function CartPage() {
-  const { cart, getCartProducts, updateQuantity } = useStore();
+  const { cart, getCartProducts, updateCartItem, updateQuantity } = useStore();
   const { products, loading, error: catalogError } = useLiveProducts();
   const [coupon, setCoupon] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
   const [couponMessage, setCouponMessage] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
+  const [editingCartItemId, setEditingCartItemId] = useState("");
+  const [editedOptions, setEditedOptions] = useState<Record<string, string[]>>({});
   const cartProducts = getCartProducts(products);
   const missingItems = Math.max(0, cart.length - cartProducts.length);
   const subtotal = useMemo(() => cartProducts.reduce((total, product) => total + product.price * product.quantity, 0), [cartProducts]);
-  const totals = useMemo(() => calculateOrderTotals(subtotal, cartProducts.length ? branch.deliveryFee : 0, couponDiscount), [couponDiscount, cartProducts.length, subtotal]);
+  const totals = useMemo(() => calculateOrderTotals(subtotal, 0, couponDiscount), [couponDiscount, subtotal]);
+  const editingProduct = cartProducts.find((product) => product.cartItemId === editingCartItemId) ?? null;
+
+  function beginEdit(cartItemId: string) {
+    const product = cartProducts.find((item) => item.cartItemId === cartItemId);
+    if (!product) return;
+    setEditedOptions(
+      Object.fromEntries(product.addOnGroups.map((group) => [group.id, product.selectedAddOnIds.filter((optionId) => group.options.some((option) => option.id === optionId))]))
+    );
+    setEditingCartItemId(cartItemId);
+  }
+
+  function saveEdit() {
+    if (!editingProduct) return;
+    for (const group of editingProduct.addOnGroups) {
+      const optionIds = editedOptions[group.id] ?? [];
+      if (optionIds.length < group.minSelect || optionIds.length > group.maxSelect) {
+        return;
+      }
+    }
+    updateCartItem(editingProduct.cartItemId, { selectedAddOnIds: editingProduct.addOnGroups.flatMap((group) => editedOptions[group.id] ?? []) });
+    setEditingCartItemId("");
+  }
 
   useEffect(() => {
     setCoupon(readStoredCoupon());
@@ -127,6 +150,12 @@ export default function CartPage() {
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
+                  {product.addOnGroups.length ? (
+                    <button type="button" onClick={() => beginEdit(product.cartItemId)} className="inline-flex h-10 items-center gap-2 rounded-md border border-pocket-navy/10 px-3 text-sm font-semibold text-pocket-navy hover:bg-pocket-cream">
+                      <PencilLine className="h-4 w-4" />
+                      Edit
+                    </button>
+                  ) : null}
                   <button type="button" onClick={() => updateQuantity(product.cartItemId, 0)} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-pocket-navy/10 hover:bg-pocket-cream">
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -178,19 +207,12 @@ export default function CartPage() {
               <span>Discount</span>
               <span className="min-w-0 break-words text-right">-{formatCurrency(totals.discount)}</span>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <span>Tax</span>
-              <span className="min-w-0 break-words text-right">{formatCurrency(totals.tax)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span>Delivery</span>
-              <span className="min-w-0 break-words text-right">{formatCurrency(totals.delivery)}</span>
-            </div>
             <div className="flex items-center justify-between gap-3 border-t border-pocket-navy/10 pt-3 text-base font-black">
-              <span>Total</span>
+              <span>Items total</span>
               <span className="min-w-0 break-words text-right text-pocket-orange">{formatCurrency(totals.total)}</span>
             </div>
           </div>
+          <p className="mt-4 text-xs leading-5 text-pocket-navy/60">Delivery fee is selected next, after you choose your sector.</p>
           <Link href="/checkout" className="mt-6 inline-flex w-full">
             <Button className="w-full" disabled={!cartProducts.length || loading || Boolean(catalogError)}>
               Continue to Checkout
@@ -198,6 +220,53 @@ export default function CartPage() {
           </Link>
         </Card>
       </div>
+
+      {editingProduct ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-cart-item-title">
+          <Card className="w-full max-w-2xl rounded-3xl border-pocket-navy/10 p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Edit item</p>
+                <h2 id="edit-cart-item-title" className="mt-2 text-2xl font-black text-pocket-navy">{editingProduct.name}</h2>
+              </div>
+              <Button type="button" variant="ghost" onClick={() => setEditingCartItemId("")}>Close</Button>
+            </div>
+            <div className="mt-6 space-y-5">
+              {editingProduct.addOnGroups.map((group) => (
+                <div key={group.id}>
+                  <p className="font-semibold text-pocket-navy">{group.name}</p>
+                  <p className="mt-1 text-sm text-pocket-navy/60">Choose {group.minSelect} to {group.maxSelect}</p>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {group.options.map((option) => {
+                      const selected = (editedOptions[group.id] ?? []).includes(option.id);
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => {
+                            setEditedOptions((current) => {
+                              const optionIds = current[group.id] ?? [];
+                              const next = optionIds.includes(option.id)
+                                ? optionIds.filter((id) => id !== option.id)
+                                : [...optionIds, option.id].slice(-group.maxSelect);
+                              return { ...current, [group.id]: next };
+                            });
+                          }}
+                          className={selected ? "rounded-xl border border-pocket-orange bg-pocket-orange/10 px-4 py-3 text-left" : "rounded-xl border border-pocket-navy/10 bg-white px-4 py-3 text-left hover:border-pocket-orange/50"}
+                        >
+                          <p className="font-semibold text-pocket-navy">{option.name}</p>
+                          <p className="text-sm text-pocket-navy/60">{option.priceDelta ? `+${formatCompactCurrency(option.priceDelta)}` : "Included"}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              <Button type="button" className="w-full" onClick={saveEdit}>Save changes</Button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
 }
