@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Sparkles, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, ShoppingBag, Sparkles, Upload } from "lucide-react";
 import { HeroSlider } from "@/components/site/hero-slider";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,12 @@ import { fetchAdminSettings, updateAdminSetting, uploadAdminImage } from "@/lib/
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile } from "@/lib/image-upload";
 import { homeContent } from "@/lib/mock-data";
 import { resolvePocketImagePath } from "@/lib/image-paths";
+import {
+  DEFAULT_ONLINE_ORDERING,
+  ONLINE_ORDERING_SETTING_KEY,
+  normalizeOnlineOrdering,
+  type OnlineOrderingSetting
+} from "@/lib/ordering-settings";
 
 type SliderImage = {
   id: string;
@@ -68,6 +74,8 @@ export function WebsiteControlPanel() {
   const [intervalMs, setIntervalMs] = useState(String(homeContent.heroSliderIntervalMs));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [ordering, setOrdering] = useState<OnlineOrderingSetting>(DEFAULT_ONLINE_ORDERING);
+  const [savingOrdering, setSavingOrdering] = useState(false);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -80,9 +88,11 @@ export function WebsiteControlPanel() {
       try {
         const settings = await fetchAdminSettings();
         const sliderSetting = settings.find((setting) => setting.key === "homepage.slider");
+        const orderingSetting = settings.find((setting) => setting.key === ONLINE_ORDERING_SETTING_KEY);
         const normalized = normalizeSetting(sliderSetting?.value);
 
         if (!cancelled) {
+          setOrdering(normalizeOnlineOrdering(orderingSetting?.value));
           const nextImages = normalized.images.map((image) => createRow(image.url, image.alt));
           setImages(nextImages);
           setSavedImages(nextImages);
@@ -178,6 +188,21 @@ export function WebsiteControlPanel() {
     }
   }
 
+  async function saveOrdering(next: OnlineOrderingSetting) {
+    setSavingOrdering(true);
+    setError("");
+    try {
+      await updateAdminSetting(ONLINE_ORDERING_SETTING_KEY, next);
+      setOrdering(next);
+      setNotice(next.enabled ? "Online ordering is now OPEN." : "Online ordering is now CLOSED.");
+      setTimeout(() => setNotice(""), 3500);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to update online ordering.");
+    } finally {
+      setSavingOrdering(false);
+    }
+  }
+
   function restoreDefaults() {
     setImages(homeContent.heroImages.map((image) => createRow(image.url, image.alt)));
     setIntervalMs(String(homeContent.heroSliderIntervalMs));
@@ -187,6 +212,65 @@ export function WebsiteControlPanel() {
     <div className="space-y-6">
       {notice ? <AdminToast message={notice} variant="success" onClose={() => setNotice("")} className="top-4" /> : null}
       {error ? <AdminToast message={error} variant="error" onClose={() => setError("")} className="top-20" /> : null}
+
+      <Card className="p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <ShoppingBag className="h-5 w-5 text-pocket-orange" />
+              <p className="text-lg font-black text-pocket-navy">Online ordering</p>
+              <span
+                className={`rounded-full border px-2.5 py-1 text-xs font-bold ${
+                  ordering.enabled
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-red-200 bg-red-50 text-red-700"
+                }`}
+              >
+                {ordering.enabled ? "Open" : "Closed"}
+              </span>
+            </div>
+            <p className="mt-2 max-w-2xl text-sm text-pocket-navy/70">
+              {ordering.enabled
+                ? "Customers can add items to the cart and place delivery or takeaway orders on the website. New orders arrive in Orders awaiting acceptance."
+                : "Customers can browse the menu but cannot place orders. They see the notice below instead."}
+            </p>
+            <p className="mt-2 text-sm text-pocket-navy/50">
+              Turn this on only when riders and counter staff are ready to take online orders. It takes effect immediately, with no deploy.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => void saveOrdering({ ...ordering, enabled: !ordering.enabled })}
+            disabled={savingOrdering || loading}
+            className={ordering.enabled ? "border-red-200 bg-red-600 text-white hover:bg-red-700" : ""}
+          >
+            {savingOrdering ? "Saving..." : ordering.enabled ? "Close online ordering" : "Open online ordering"}
+          </Button>
+        </div>
+
+        <div className="mt-4">
+          <label className="block text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
+            Notice shown while ordering is closed
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Input
+              value={ordering.closedMessage}
+              onChange={(event) => setOrdering((current) => ({ ...current, closedMessage: event.target.value }))}
+              placeholder={DEFAULT_ONLINE_ORDERING.closedMessage}
+              className="min-w-0 flex-1"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void saveOrdering(ordering)}
+              disabled={savingOrdering || loading}
+            >
+              <Save className="h-4 w-4" />
+              Save notice
+            </Button>
+          </div>
+        </div>
+      </Card>
       <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,_#102a43,_#172554_48%,_#1f2937)] p-6 text-white shadow-[0_24px_64px_rgba(16,42,67,0.28)]">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
