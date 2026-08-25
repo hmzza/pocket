@@ -17,13 +17,6 @@ import type {
   AdminPackagingRuleData,
   AdminOrder,
   AdminProduct,
-  AdminDelivery,
-  AdminDeliveryMessage,
-  AdminDispatchData,
-  AdminRider,
-  AdminRiderData,
-  DeliveryStatus,
-  RiderAvailability,
   AdminRangePreset,
   AdminUser,
   AdminUserData,
@@ -381,8 +374,6 @@ export async function fetchAdminOrders(params?: {
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     placedAt: order.placedAt,
-    acceptedAt: order.acceptedAt ?? null,
-    cancellationReason: order.cancellationReason ?? null,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
     address: order.address
       ? {
@@ -507,28 +498,6 @@ export async function logoutAdminSession() {
   await adminFetch<null>("/api/auth/logout", {
     method: "POST"
   });
-}
-
-/**
- * Order intake. A rejection carries the reason so the Orders list can show why
- * an order was turned away rather than leaving staff to guess.
- */
-export async function updateAdminOrderStatus(
-  orderId: string,
-  status: string,
-  options?: { cancellationReason?: string }
-) {
-  const data = await adminFetch<{ order: { id: string; status: string } }>(
-    `/api/admin/orders/${orderId}/status`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({
-        status,
-        ...(options?.cancellationReason ? { cancellationReason: options.cancellationReason } : {})
-      })
-    }
-  );
-  return data.order;
 }
 
 export async function deleteAdminOrder(orderId: string) {
@@ -685,98 +654,6 @@ export async function deleteAdminUser(userId: string) {
     method: "DELETE"
   });
   return data.deleted;
-}
-
-export async function fetchAdminRiders(params?: { search?: string; includeInactive?: boolean }) {
-  const searchParams = new URLSearchParams();
-  if (params?.search) searchParams.set("search", params.search);
-  if (params?.includeInactive) searchParams.set("includeInactive", "true");
-  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
-  return adminFetch<AdminRiderData>(`/api/admin/riders${suffix}`);
-}
-
-export async function createAdminRider(payload: Record<string, unknown>) {
-  const data = await adminFetch<{ rider: AdminRider }>("/api/admin/riders", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-  return data.rider;
-}
-
-export async function updateAdminRider(riderId: string, payload: Record<string, unknown>) {
-  const data = await adminFetch<{ rider: AdminRider }>(`/api/admin/riders/${riderId}`, {
-    method: "PATCH",
-    body: JSON.stringify(payload)
-  });
-  return data.rider;
-}
-
-export async function updateAdminRiderAvailability(riderId: string, availability: RiderAvailability) {
-  const data = await adminFetch<{ rider: AdminRider }>(`/api/admin/riders/${riderId}/availability`, {
-    method: "PATCH",
-    body: JSON.stringify({ availability })
-  });
-  return data.rider;
-}
-
-/**
- * The API deletes a rider with no delivery history and deactivates one that has
- * any, so past orders stay readable. The caller needs to know which happened.
- */
-export async function deleteAdminRider(riderId: string) {
-  return adminFetch<{ deleted: boolean; deactivated: boolean; rider?: AdminRider }>(
-    `/api/admin/riders/${riderId}`,
-    { method: "DELETE" }
-  );
-}
-
-export async function fetchAdminDispatch() {
-  return adminFetch<AdminDispatchData>("/api/admin/deliveries");
-}
-
-export async function assignAdminDelivery(payload: { orderId: string; riderId: string; note?: string }) {
-  const data = await adminFetch<{ delivery: AdminDelivery }>("/api/admin/deliveries/assign", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-  return data.delivery;
-}
-
-export async function reassignAdminDelivery(deliveryId: string, payload: { riderId: string; reason: string }) {
-  const data = await adminFetch<{ delivery: AdminDelivery }>(`/api/admin/deliveries/${deliveryId}/reassign`, {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-  return data.delivery;
-}
-
-export async function updateAdminDeliveryStatus(
-  deliveryId: string,
-  status: DeliveryStatus,
-  options?: { failureReason?: string }
-) {
-  const data = await adminFetch<{ delivery: AdminDelivery }>(`/api/admin/deliveries/${deliveryId}/status`, {
-    method: "POST",
-    body: JSON.stringify({ status, ...(options?.failureReason ? { failureReason: options.failureReason } : {}) })
-  });
-  return data.delivery;
-}
-
-export async function retryAdminDeliveryMessage(messageId: string) {
-  const data = await adminFetch<{ message: AdminDeliveryMessage | null }>(
-    `/api/admin/deliveries/messages/${messageId}/retry`,
-    { method: "POST", body: JSON.stringify({}) }
-  );
-  return data.message;
-}
-
-/** Records that a human opened the wa.me link and sent the message. */
-export async function markAdminDeliveryMessageSent(messageId: string) {
-  const data = await adminFetch<{ message: AdminDeliveryMessage }>(
-    `/api/admin/deliveries/messages/${messageId}/sent`,
-    { method: "POST", body: JSON.stringify({}) }
-  );
-  return data.message;
 }
 
 export async function updateAdminSetting(key: string, value: unknown) {

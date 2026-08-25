@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, BellRing, Check, CheckCircle2, Clock3, ListChecks, PackageCheck, PencilLine, RefreshCcw, Search, Trash2, Volume2, VolumeX } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, Clock3, ListChecks, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,11 +17,8 @@ import {
 } from "@/lib/pos-client";
 import type { AdminOrder } from "@/lib/types";
 import { formatCurrency, toBusinessDateInputValue } from "@/lib/utils";
-import { useOrderAlarm } from "@/components/admin/use-order-alarm";
 
 type QueueScope = "active" | "watch_later" | "delivered" | "unpaid" | "all";
-/** Statuses this screen can set directly. */
-type QueueStatusChange = "DELIVERED" | "CANCELLED" | "WATCH_LATER" | "PREPARING" | "READY";
 
 const scopeOptions: Array<{ value: QueueScope; label: string }> = [
   { value: "active", label: "Active" },
@@ -136,14 +133,10 @@ function CompactOrderCard({
   onEdit: (order: AdminOrder) => void;
   onDelete: (order: AdminOrder) => void;
   onDetails: (order: AdminOrder) => void;
-  onChangeStatus: (order: AdminOrder, status: QueueStatusChange) => void;
+  onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
   onTogglePaymentStatus: (order: AdminOrder) => void;
 }) {
   const isTerminal = order.status === "DELIVERED" || order.status === "CANCELLED";
-  // Online orders arrive unaccepted and have to be taken before the kitchen
-  // starts. Counter orders are created already confirmed, so they never show it.
-  const needsAcceptance = order.status === "PENDING";
-  const canMarkReady = ["CONFIRMED", "PREPARING", "WATCH_LATER"].includes(order.status);
   const isWatchLater = order.status === "WATCH_LATER";
   const isPaid = order.paymentStatus === "PAID";
   const isUnpaid = order.paymentStatus === "PENDING";
@@ -247,26 +240,6 @@ function CompactOrderCard({
       <div className={embedded ? "mt-auto pt-1.5" : "mt-auto pt-2"}>
         {!isTerminal ? (
           <div className={embedded ? "flex items-center justify-end gap-1" : "flex items-center justify-end gap-1"}>
-            {needsAcceptance ? (
-              <OrderActionButton
-                title="Accept this order and start preparing it"
-                label="Accept"
-                className="border-amber-500 bg-amber-500 text-slate-950 hover:bg-amber-600"
-                icon={<Check className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
-                disabled={busy}
-                onClick={() => onChangeStatus(order, "PREPARING")}
-              />
-            ) : null}
-            {canMarkReady ? (
-              <OrderActionButton
-                title="Mark ready. This messages the assigned rider to collect it."
-                label="Ready"
-                className="border-indigo-500 bg-indigo-500 text-white hover:bg-indigo-600"
-                icon={<PackageCheck className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
-                disabled={busy}
-                onClick={() => onChangeStatus(order, "READY")}
-              />
-            ) : null}
             <OrderActionButton
               title="Edit order"
               label="Edit"
@@ -338,7 +311,7 @@ function OrderSection({
   mutedOrderId: string;
   exitingOrderIds: string[];
   emptyText: string;
-  onChangeStatus: (order: AdminOrder, status: QueueStatusChange) => void;
+  onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
   onTogglePaymentStatus: (order: AdminOrder) => void;
   onEdit: (order: AdminOrder) => void;
   onDelete: (order: AdminOrder) => void;
@@ -406,10 +379,6 @@ function PosOrderQueueView({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scope, setScope] = useState<QueueScope>("all");
-  // Orders awaiting acceptance anywhere in the loaded set, so the alert does
-  // not go quiet just because a filter is hiding them.
-  const [pendingAcceptanceCount, setPendingAcceptanceCount] = useState(0);
-  const { muted, toggleMuted, needsArming, arm, alarmActive } = useOrderAlarm(pendingAcceptanceCount);
   const [search, setSearch] = useState("");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [error, setError] = useState("");
@@ -434,9 +403,6 @@ function PosOrderQueueView({
       const data = await fetchPosOrders({ scope: todayOnly ? "all" : nextScope, search: search.trim() || undefined, today: todayOnly });
       if (requestSequence !== loadSequenceRef.current) return;
       setOrders(data.orders);
-      // Counted after the stale-response guard, so a slow earlier request cannot
-      // leave the alert ringing for orders that have since been accepted.
-      setPendingAcceptanceCount(data.orders.filter((entry) => entry.status === "PENDING").length);
       setPendingStatuses((current) => {
         const next = { ...current };
 
@@ -598,7 +564,7 @@ function PosOrderQueueView({
     };
   }, [orders, pendingStatuses, pendingPaymentStatuses, exitingOrderIds]);
 
-  async function changeStatus(order: AdminOrder, status: QueueStatusChange) {
+  async function changeStatus(order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") {
     setUpdatingOrderId(order.id);
     setError("");
     setNotice("");
@@ -856,46 +822,6 @@ function PosOrderQueueView({
           </select> : <div className="flex h-9 items-center rounded-2xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700">Business day orders · 6AM-6AM PKT</div>}
         </div>
       </Card>
-
-      {pendingAcceptanceCount > 0 ? (
-        <div
-          className={[
-            "flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3",
-            alarmActive ? "border-amber-400 bg-amber-100" : "border-amber-300 bg-amber-50"
-          ].join(" ")}
-          role="alert"
-        >
-          <BellRing className={`h-5 w-5 shrink-0 text-amber-600 ${alarmActive ? "animate-pulse" : ""}`} aria-hidden="true" />
-          <span className="text-sm font-bold text-amber-900">
-            {pendingAcceptanceCount} new order{pendingAcceptanceCount === 1 ? "" : "s"} waiting to be accepted. Press{" "}
-            <span className="underline">Accept</span> on the order to start preparing it.
-          </span>
-          {needsArming ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={arm}
-              className="ml-auto"
-              title="Browsers block sound until the page is clicked once"
-            >
-              <Volume2 className="h-4 w-4" />
-              Enable alert sound
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={toggleMuted}
-              className="ml-auto"
-              title={muted ? "Turn the repeating alert back on" : "Silence the repeating alert"}
-            >
-              {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-              {muted ? "Sound off" : "Sound on"}
-            </Button>
-          )}
-        </div>
-      ) : null}
 
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
       {notice ? <p className="text-sm font-medium text-emerald-700">{notice}</p> : null}

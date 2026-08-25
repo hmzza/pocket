@@ -4,7 +4,6 @@ import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { INVENTORY_ITEMS, PACKAGING_RULES, PREPARED_RECIPE_BY_SKU, PRODUCT_RECIPE_BY_SLUG } from "../apps/api/src/lib/inventory-config.js";
-import { normalizePakistanPhone } from "../apps/api/src/lib/phone.js";
 
 const seedDirectory = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(seedDirectory, "../.env") });
@@ -1303,36 +1302,6 @@ async function main() {
       }
     })
   ]);
-
-  const riderSeeds = [
-    { name: "Bilal Ahmed", phone: "03001234501", vehicleType: "MOTORCYCLE", vehiclePlate: "ISB-1234", cnic: "61101-1234567-1" },
-    { name: "Usman Tariq", phone: "03001234502", vehicleType: "MOTORCYCLE", vehiclePlate: "ISB-5678", cnic: "61101-7654321-9" },
-    { name: "Hamza Sethi", phone: "03001234503", vehicleType: "SCOOTER", vehiclePlate: "ISB-9012", cnic: "61101-2468101-3" }
-  ];
-
-  for (const rider of riderSeeds) {
-    // Must match what the API stores, or the unique [branchId, phone] constraint
-    // lets the same person exist twice under two number formats.
-    const phone = normalizePakistanPhone(rider.phone);
-    await prisma.rider.upsert({
-      where: { branchId_phone: { branchId: branch.id, phone } },
-      update: {
-        name: rider.name,
-        vehicleType: rider.vehicleType,
-        vehiclePlate: rider.vehiclePlate,
-        isActive: true
-      },
-      create: {
-        branchId: branch.id,
-        createdById: admin.id,
-        name: rider.name,
-        phone,
-        cnic: rider.cnic,
-        vehicleType: rider.vehicleType,
-        vehiclePlate: rider.vehiclePlate
-      }
-    });
-  }
 
   await prisma.auditLog.create({
     data: {

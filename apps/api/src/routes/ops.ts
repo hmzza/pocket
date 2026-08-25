@@ -8,7 +8,6 @@ import { applyOrderInventory } from "../lib/inventory.js";
 import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
-import { notifyRiderIfOrderReady } from "../lib/delivery-notify.js";
 
 const router = Router();
 
@@ -190,12 +189,6 @@ router.patch("/orders/:id/status", async (req, res, next) => {
       });
     });
 
-    // The kitchen usually marks food ready from this screen, so the rider
-    // call-out has to fire here too, not only from the admin Orders page.
-    if (payload.status === OrderStatus.READY) {
-      await notifyRiderIfOrderReady(order.id);
-    }
-
     if (order.customerId) {
       await prisma.notification.create({
         data: {
@@ -275,13 +268,6 @@ router.patch("/orders/bulk-status", async (req, res, next) => {
 
       return orders;
     });
-
-    // Bulk "mark ready" is a normal kitchen action, so it calls riders out too.
-    if (payload.status === OrderStatus.READY) {
-      for (const order of updatedOrders) {
-        await notifyRiderIfOrderReady(order.id);
-      }
-    }
 
     await Promise.all(
       updatedOrders.flatMap((order) =>
