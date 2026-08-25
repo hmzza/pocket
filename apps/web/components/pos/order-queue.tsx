@@ -11,12 +11,13 @@ import {
   bulkUpdatePosOrderStatus,
   deletePosOrder,
   dispatchPosDeliveryOrder,
+  fetchPosDeliveryRiders,
   fetchPosOrders,
   fetchPosSession,
   updatePosOrderPaymentStatus,
   updatePosOrderStatus
 } from "@/lib/pos-client";
-import type { AdminOrder } from "@/lib/types";
+import type { AdminOrder, DeliveryRider } from "@/lib/types";
 import { formatCurrency, toBusinessDateInputValue } from "@/lib/utils";
 
 type QueueScope = "active" | "watch_later" | "delivered" | "unpaid" | "all";
@@ -126,6 +127,7 @@ function CompactOrderCard({
   onDelete,
   onDetails,
   onDispatchDelivery,
+  riders,
   riderPickerOrderId,
   onToggleRiderPicker
 }: {
@@ -137,7 +139,8 @@ function CompactOrderCard({
   onEdit: (order: AdminOrder) => void;
   onDelete: (order: AdminOrder) => void;
   onDetails: (order: AdminOrder) => void;
-  onDispatchDelivery: (order: AdminOrder) => void;
+  onDispatchDelivery: (order: AdminOrder, riderId: string) => void;
+  riders: DeliveryRider[];
   riderPickerOrderId: string;
   onToggleRiderPicker: (orderId: string) => void;
   onChangeStatus: (order: AdminOrder, status: "CONFIRMED" | "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
@@ -148,6 +151,12 @@ function CompactOrderCard({
   const isPaid = order.paymentStatus === "PAID";
   const isUnpaid = order.paymentStatus === "PENDING";
   const isDelivery = order.serviceType === "DELIVERY";
+  const canSendDeliveryUpdate = order.status === "CONFIRMED" || order.status === "OUT_FOR_DELIVERY";
+  const labelText = isDelivery ? "text-blue-100" : "text-orange-600";
+  const primaryText = isDelivery ? "text-white" : "text-slate-900";
+  const mutedText = isDelivery ? "text-blue-100" : "text-slate-500";
+  const totalText = isDelivery ? "text-white" : "text-orange-600";
+  const itemsSurface = isDelivery ? "bg-white/95 text-slate-700 shadow-sm" : "bg-slate-50 text-slate-700";
 
   return (
     <Card
@@ -155,36 +164,36 @@ function CompactOrderCard({
         embedded
           ? "flex h-full flex-col rounded-xl border p-2 shadow-none transition-all duration-150 ease-out transform-gpu"
           : "flex h-full flex-col rounded-xl border p-2.5 shadow-none transition-all duration-150 ease-out transform-gpu",
-        isUnpaid ? "border-red-200 bg-red-50/80" : isPaid ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white",
+        isDelivery ? "border-blue-300 bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 shadow-lg shadow-blue-950/30" : isUnpaid ? "border-red-200 bg-red-50/80" : isPaid ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white",
         muted ? "pointer-events-none opacity-30" : "",
         exiting ? "pointer-events-none scale-[0.98] translate-y-1 opacity-0" : "",
-        busy ? "ring-1 ring-orange-200" : ""
+        busy ? isDelivery ? "ring-2 ring-sky-200" : "ring-1 ring-orange-200" : ""
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className={embedded ? "text-[9px] font-semibold uppercase tracking-[0.24em] text-orange-600" : "text-[10px] font-semibold uppercase tracking-[0.24em] text-orange-600"}>Order</p>
-          <h3 className={embedded ? "mt-0.5 truncate text-[13px] font-black leading-tight text-slate-900" : "mt-0.5 truncate text-[15px] font-black leading-tight text-slate-900"}>{order.orderNumber}</h3>
-          <p className={embedded ? "mt-0.5 text-[9px] text-slate-500" : "mt-0.5 text-[10px] text-slate-500"}>
+          <p className={`${embedded ? "text-[9px]" : "text-[10px]"} font-semibold uppercase tracking-[0.24em] ${labelText}`}>Order</p>
+          <h3 className={`${embedded ? "text-[13px]" : "text-[15px]"} mt-0.5 truncate font-black leading-tight ${primaryText}`}>{order.orderNumber}</h3>
+          <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 ${mutedText}`}>
             {order.channel.replaceAll("_", " ")} · {formatDateTime(order.placedAt)}
           </p>
-          <p className={embedded ? "mt-0.5 text-[9px] font-semibold text-slate-500" : "mt-0.5 text-[10px] font-semibold text-slate-500"}>
+          <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 font-semibold ${mutedText}`}>
             {formatServiceType(order.serviceType)} · {formatPaymentMethod(order.paymentMethod)}
           </p>
         </div>
         <div className="text-right">
-          <p className={embedded ? "text-[9px] font-semibold uppercase tracking-[0.22em] text-slate-400" : "text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400"}>Total</p>
-          <p className={embedded ? "mt-0.5 text-[13px] font-black text-orange-600" : "mt-0.5 text-[15px] font-black text-orange-600"}>{formatCurrency(order.totalAmount)}</p>
-          <p className={embedded ? "text-[9px] text-slate-500" : "text-[10px] text-slate-500"}>{order.items.length} items</p>
+          <p className={`${embedded ? "text-[9px]" : "text-[10px]"} font-semibold uppercase tracking-[0.22em] ${mutedText}`}>Total</p>
+          <p className={`${embedded ? "text-[13px]" : "text-[15px]"} mt-0.5 font-black ${totalText}`}>{formatCurrency(order.totalAmount)}</p>
+          <p className={`${embedded ? "text-[9px]" : "text-[10px]"} ${mutedText}`}>{order.items.length} items</p>
         </div>
       </div>
 
       <div className="mt-1 flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className={embedded ? "text-[11px] font-semibold leading-tight text-slate-900" : "text-[13px] font-semibold leading-tight text-slate-900"}>{order.customerName}</p>
-          {order.customerPhone ? <p className={embedded ? "text-[9px] text-slate-500" : "text-[10px] text-slate-500"}>{order.customerPhone}</p> : null}
-          <p className={embedded ? "mt-0.5 text-[9px] text-slate-500" : "mt-0.5 text-[10px] text-slate-500"}>{order.branch}</p>
-          <p className={embedded ? "mt-0.5 text-[9px] font-medium text-slate-500" : "mt-0.5 text-[10px] font-medium text-slate-500"}>{order.channel === "POS" ? `Placed by: ${order.cashierUsername ?? order.cashierName ?? "staff"}` : "Placed via: website customer"}</p>
+          <p className={`${embedded ? "text-[11px]" : "text-[13px]"} font-semibold leading-tight ${primaryText}`}>{order.customerName}</p>
+          {order.customerPhone ? <p className={`${embedded ? "text-[9px]" : "text-[10px]"} ${mutedText}`}>{order.customerPhone}</p> : null}
+          <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 ${mutedText}`}>{order.branch}</p>
+          <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 font-medium ${mutedText}`}>{order.channel === "POS" ? `Placed by: ${order.cashierUsername ?? order.cashierName ?? "staff"}` : "Placed via: website customer"}</p>
           {order.foodpandaOrderNumber ? (
             <p className={embedded ? "mt-1 inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-[11px] font-black tracking-[0.14em] text-orange-700" : "mt-1 inline-flex rounded-full bg-orange-50 px-3 py-0.5 text-[13px] font-black tracking-[0.14em] text-orange-700"}>
               FP: {order.foodpandaOrderNumber}
@@ -216,16 +225,16 @@ function CompactOrderCard({
       </div>
 
       {order.deliveryInstructions ? (
-        <div className={embedded ? "mt-1 rounded-lg bg-orange-50 px-1.5 py-1 text-[9px] leading-tight text-slate-700" : "mt-1 rounded-lg bg-orange-50 px-2 py-1.5 text-[10px] leading-tight text-slate-700"}>
-          <span className="font-semibold text-orange-700">Note:</span> {order.deliveryInstructions}
+        <div className={`${embedded ? "px-1.5 py-1 text-[9px]" : "px-2 py-1.5 text-[10px]"} mt-1 rounded-lg leading-tight ${isDelivery ? "bg-blue-950/25 text-blue-50" : "bg-orange-50 text-slate-700"}`}>
+          <span className={isDelivery ? "font-semibold text-white" : "font-semibold text-orange-700"}>Note:</span> {order.deliveryInstructions}
         </div>
       ) : null}
       {isDelivery && order.deliverySector ? (
-        <p className={embedded ? "mt-1 text-[9px] font-semibold text-violet-700" : "mt-1 text-[10px] font-semibold text-violet-700"}>Delivery: {order.deliverySubsector ?? order.deliverySector}</p>
+        <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-1 font-semibold ${isDelivery ? "text-blue-50" : "text-violet-700"}`}>Delivery: {order.deliverySubsector ?? order.deliverySector}</p>
       ) : null}
-      {isDelivery && (order.acceptedByName || order.dispatchedByName) ? <p className={embedded ? "mt-0.5 text-[9px] text-slate-500" : "mt-0.5 text-[10px] text-slate-500"}>{[order.acceptedByName ? `Accepted: ${order.acceptedByName}` : null, order.dispatchedByName ? `Dispatched: ${order.dispatchedByName}` : null].filter(Boolean).join(" · ")}</p> : null}
+      {isDelivery && (order.acceptedByName || order.dispatchedByName) ? <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 ${mutedText}`}>{[order.acceptedByName ? `Accepted: ${order.acceptedByName}` : null, order.dispatchedByName ? `Dispatched: ${order.dispatchedByName}` : null].filter(Boolean).join(" · ")}</p> : null}
 
-      <div className={embedded ? "mt-1 rounded-lg bg-slate-50 px-1.5 py-1 text-[9px] text-slate-700" : "mt-1 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] text-slate-700"}>
+      <div className={`${embedded ? "px-1.5 py-1 text-[9px]" : "px-2 py-1.5 text-[10px]"} mt-1 rounded-lg ${itemsSurface}`}>
         <p className="font-semibold text-slate-900">Items</p>
         <div className={embedded ? "mt-1 grid grid-cols-1 gap-1" : "mt-1 space-y-1"}>
           {order.items.map((item, index) => (
@@ -253,6 +262,14 @@ function CompactOrderCard({
         {!isTerminal ? (
           isDelivery ? (
             <div className="flex flex-wrap items-center justify-end gap-1">
+              <OrderActionButton
+                title="Edit delivery order"
+                label="Edit delivery order"
+                className="border-white/80 bg-white text-blue-700 hover:bg-blue-50"
+                icon={<PencilLine className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                disabled={busy}
+                onClick={() => onEdit(order)}
+              />
               {order.status === "PENDING" ? (
                 <OrderActionButton
                   title="Accept delivery order"
@@ -263,10 +280,10 @@ function CompactOrderCard({
                   onClick={() => onChangeStatus(order, "CONFIRMED")}
                 />
               ) : null}
-              {order.status === "CONFIRMED" ? (
+              {canSendDeliveryUpdate ? (
                 <OrderActionButton
-                  title="Assign rider"
-                  label="Assign rider"
+                  title={order.status === "OUT_FOR_DELIVERY" ? "Send updated details to rider" : "Assign rider"}
+                  label={order.status === "OUT_FOR_DELIVERY" ? "Send rider update" : "Assign rider"}
                   className="border-violet-600 bg-violet-600 text-white hover:bg-violet-700"
                   icon={<Bike className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
                   disabled={busy}
@@ -283,9 +300,9 @@ function CompactOrderCard({
                   onClick={() => onChangeStatus(order, "DELIVERED")}
                 />
               ) : null}
-              {riderPickerOrderId === order.id ? (
-                <button type="button" className="h-10 rounded-full border border-violet-300 bg-violet-50 px-3 text-[11px] font-bold text-violet-800 hover:bg-violet-100" disabled={busy} onClick={() => onDispatchDelivery(order)}>Zeeshan · WhatsApp</button>
-              ) : null}
+              {riderPickerOrderId === order.id ? riders.length ? riders.map((rider) => (
+                <button key={rider.id} type="button" className="h-10 rounded-full border border-white/70 bg-white px-3 text-[11px] font-bold text-blue-700 hover:bg-blue-50" disabled={busy} onClick={() => onDispatchDelivery(order, rider.id)}>{rider.name} · {order.status === "OUT_FOR_DELIVERY" ? "Send update" : "WhatsApp"}</button>
+              )) : <p className="text-[10px] font-semibold text-blue-50">Add an active rider in Users first.</p> : null}
               <OrderActionButton
                 title="Cancel order"
                 label="Cancel"
@@ -348,7 +365,7 @@ function CompactOrderCard({
           </div>
           )
         ) : (
-          <p className="text-right text-[11px] text-slate-500">Completed orders are read-only.</p>
+          <p className={`text-right text-[11px] ${mutedText}`}>Completed orders are read-only.</p>
         )}
       </div>
     </Card>
@@ -365,6 +382,7 @@ function OrderSection({
   onDelete,
   onDetails,
   onDispatchDelivery,
+  riders,
   riderPickerOrderId,
   onToggleRiderPicker,
   embedded,
@@ -385,7 +403,8 @@ function OrderSection({
   onEdit: (order: AdminOrder) => void;
   onDelete: (order: AdminOrder) => void;
   onDetails: (order: AdminOrder) => void;
-  onDispatchDelivery: (order: AdminOrder) => void;
+  onDispatchDelivery: (order: AdminOrder, riderId: string) => void;
+  riders: DeliveryRider[];
   riderPickerOrderId: string;
   onToggleRiderPicker: (orderId: string) => void;
   embedded?: boolean;
@@ -413,6 +432,7 @@ function OrderSection({
               onDelete={onDelete}
               onDetails={onDetails}
               onDispatchDelivery={onDispatchDelivery}
+              riders={riders}
               riderPickerOrderId={riderPickerOrderId}
               onToggleRiderPicker={onToggleRiderPicker}
               busy={busy && order.id === mutedOrderId}
@@ -461,6 +481,7 @@ function PosOrderQueueView({
   const [updatingOrderId, setUpdatingOrderId] = useState("");
   const [exitingOrderIds, setExitingOrderIds] = useState<string[]>([]);
   const [riderPickerOrderId, setRiderPickerOrderId] = useState("");
+  const [riders, setRiders] = useState<DeliveryRider[]>([]);
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, AdminOrder["status"]>>({});
   const [pendingPaymentStatuses, setPendingPaymentStatuses] = useState<Record<string, AdminOrder["paymentStatus"]>>({});
   const [refreshTimer, setRefreshTimer] = useState<number | null>(null);
@@ -542,7 +563,8 @@ function PosOrderQueueView({
           return;
         }
 
-        await loadOrders("all");
+        const [_, deliveryRiders] = await Promise.all([loadOrders("all"), fetchPosDeliveryRiders()]);
+        if (!cancelled) setRiders(deliveryRiders);
         if (!cancelled) {
           setReady(true);
         }
@@ -678,13 +700,18 @@ function PosOrderQueueView({
     }
   }
 
-  async function dispatchDelivery(order: AdminOrder) {
+  async function dispatchDelivery(order: AdminOrder, riderId: string) {
+    const rider = riders.find((entry) => entry.id === riderId);
+    if (!rider) {
+      setError("Select an active rider before dispatching.");
+      return;
+    }
     const whatsappWindow = window.open("", "_blank");
     setUpdatingOrderId(order.id);
     setError("");
     setNotice("");
     try {
-      const result = await dispatchPosDeliveryOrder(order.id);
+      const result = await dispatchPosDeliveryOrder(order.id, riderId);
       if (whatsappWindow) {
         whatsappWindow.location.assign(result.whatsappUrl);
       } else {
@@ -692,7 +719,7 @@ function PosOrderQueueView({
       }
       setPendingStatuses((current) => ({ ...current, [order.id]: "OUT_FOR_DELIVERY" }));
       setRiderPickerOrderId("");
-      setNotice(`${order.orderNumber} dispatched to Zeeshan.`);
+      setNotice(result.resentToRider ? `${order.orderNumber} delivery update sent to ${rider.name}.` : `${order.orderNumber} dispatched to ${rider.name}.`);
       broadcastQueueRefresh();
       scheduleRefresh(scope);
     } catch (dispatchError) {
@@ -942,6 +969,7 @@ function PosOrderQueueView({
             onDelete={deleteOrder}
             onDetails={openDetails}
             onDispatchDelivery={dispatchDelivery}
+            riders={riders}
             riderPickerOrderId={riderPickerOrderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No orders have been punched in this business day."
@@ -962,6 +990,7 @@ function PosOrderQueueView({
             onDelete={deleteOrder}
             onDetails={openDetails}
             onDispatchDelivery={dispatchDelivery}
+            riders={riders}
             riderPickerOrderId={riderPickerOrderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No active orders match the current filter."
@@ -983,6 +1012,7 @@ function PosOrderQueueView({
             onDelete={deleteOrder}
             onDetails={openDetails}
             onDispatchDelivery={dispatchDelivery}
+            riders={riders}
             riderPickerOrderId={riderPickerOrderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No watch later orders yet."
@@ -1004,6 +1034,7 @@ function PosOrderQueueView({
             onDelete={deleteOrder}
             onDetails={openDetails}
             onDispatchDelivery={dispatchDelivery}
+            riders={riders}
             riderPickerOrderId={riderPickerOrderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No completed orders match the current filter."
@@ -1024,6 +1055,7 @@ function PosOrderQueueView({
             onDelete={deleteOrder}
             onDetails={openDetails}
             onDispatchDelivery={dispatchDelivery}
+            riders={riders}
             riderPickerOrderId={riderPickerOrderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No unpaid orders match the current filter."

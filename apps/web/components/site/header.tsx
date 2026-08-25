@@ -39,15 +39,15 @@ export function Header() {
           </div>
         </Link>
 
-        <nav className="ml-auto hidden items-center gap-4 md:flex">
-          {links.map((link) => (
-            <Link key={link.href} href={link.href} className="text-[13px] font-medium text-pocket-navy transition hover:text-pocket-orange">
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
+          <nav className="hidden items-center gap-4 md:flex">
+            {links.map((link) => (
+              <Link key={link.href} href={link.href} className="text-[13px] font-medium text-pocket-navy transition hover:text-pocket-orange">
+                {link.label}
+              </Link>
+            ))}
+          </nav>
 
-        <div className="flex items-center gap-2">
           <Link href="/search" className="hidden md:inline-flex">
             <Button variant="ghost" size="sm" className="h-8 w-8 px-0">
               <Search className="h-3.5 w-3.5" />

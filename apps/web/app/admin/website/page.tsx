@@ -2,6 +2,7 @@
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { AdminPinGate } from "@/components/admin/admin-pin-gate";
+import { CustomerReviewManagement } from "@/components/admin/customer-review-management";
 import { ProductManagement } from "@/components/admin/product-management";
 import { WebsiteControlPanel } from "@/components/admin/website-control-panel";
 
@@ -15,6 +16,7 @@ export default function AdminWebsitePage() {
         >
           <div className="space-y-8">
             <WebsiteControlPanel />
+            <CustomerReviewManagement />
             <ProductManagement mode="website" />
           </div>
         </AdminPinGate>

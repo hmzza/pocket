@@ -9,7 +9,7 @@ import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
-import { clearStaffDeliveryPush } from "../lib/delivery-push.js";
+import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 
 const router = Router();
 
@@ -177,6 +177,19 @@ router.get("/orders", async (req, res, next) => {
   }
 });
 
+router.get("/delivery-riders", async (_req, res, next) => {
+  try {
+    const riders = await prisma.deliveryRider.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, phone: true }
+    });
+    return res.json({ riders });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.patch("/orders/:id/status", async (req, res, next) => {
   try {
     const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);
@@ -242,14 +255,29 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "order.status_update",
+      action:
+        order.serviceType === "DELIVERY"
+          ? payload.status === OrderStatus.CONFIRMED
+            ? "delivery.accepted"
+            : payload.status === OrderStatus.DELIVERED
+              ? "delivery.delivered"
+              : payload.status === OrderStatus.CANCELLED
+                ? "delivery.cancelled"
+                : "delivery.status_updated"
+          : "order.status_update",
       entityType: "order",
       entityId: order.id,
-      payload
+      payload: { ...payload, orderNumber: order.orderNumber, branchId: order.branchId }
     });
 
-    if (order.serviceType === "DELIVERY" && payload.status !== OrderStatus.PENDING) {
-      void clearStaffDeliveryPush(order.id).catch((pushError) => console.error("Failed to clear delivery push notification", pushError));
+    if (order.serviceType === "DELIVERY") {
+      publishDeliveryOrderEvent({
+        branchId: order.branchId,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        channel: order.channel,
+        kind: "UPDATED"
+      });
     }
 
     return res.json({ order });
@@ -291,10 +319,12 @@ router.patch("/orders/:id/payment-status", async (req, res, next) => {
 router.patch("/orders/:id/dispatch", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
-    const { order, whatsappUrl } = await dispatchDeliveryOrder({
+    const payload = z.object({ riderId: z.string().cuid() }).parse(req.body);
+    const { order, whatsappUrl, resentToRider } = await dispatchDeliveryOrder({
       orderId: req.params.id,
       branchId: branchContext.branchId,
-      actorId: req.user!.id
+      actorId: req.user!.id,
+      riderId: payload.riderId
     });
 
     if (order.customerId) {
@@ -311,13 +341,28 @@ router.patch("/orders/:id/dispatch", async (req, res, next) => {
 
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "delivery.dispatch",
+      action: "delivery.whatsapp_opened",
       entityType: "order",
       entityId: order.id,
-      payload: { orderNumber: order.orderNumber, riderName: order.riderName }
+      payload: {
+        orderNumber: order.orderNumber,
+        branchId: order.branchId,
+        riderName: order.riderName,
+        riderPhone: order.riderPhone,
+        message: resentToRider ? "WhatsApp delivery update opened for the selected rider." : "WhatsApp delivery message opened for the selected rider.",
+        resentToRider
+      }
     });
 
-    return res.json({ order, whatsappUrl });
+    publishDeliveryOrderEvent({
+      branchId: order.branchId,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      channel: order.channel,
+      kind: "UPDATED"
+    });
+
+    return res.json({ order, whatsappUrl, resentToRider });
   } catch (error) {
     return next(error);
   }

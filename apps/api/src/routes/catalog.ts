@@ -10,11 +10,12 @@ import { applyOrderInventory } from "../lib/inventory.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { verifyReceiptToken } from "../lib/receipt-token.js";
 import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
-import { notifyStaffAboutNewDelivery } from "../lib/delivery-push.js";
+import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 
 const router = Router();
 const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
 const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
+const reviewSubmissionCooldowns = new Map<string, number>();
 
 function normalizePakistanWhatsAppNumber(value: string) {
   const digits = value.replace(/\D/g, "");
@@ -52,7 +53,7 @@ const productInclude = {
 };
 
 router.get("/content/home", async (_req, res) => {
-  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, branch, contact] = await Promise.all([
+  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, branch, contact, customerReviews] = await Promise.all([
     prisma.cmsContent.findUnique({ where: { key: "homepage.hero" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.why-pocket" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.testimonials" } }),
@@ -83,7 +84,13 @@ router.get("/content/home", async (_req, res) => {
       where: { isActive: true },
       include: { hours: { orderBy: { dayOfWeek: "asc" } } }
     }),
-    prisma.setting.findUnique({ where: { key: "store.contact" } })
+    prisma.setting.findUnique({ where: { key: "store.contact" } }),
+    prisma.customerReview.findMany({
+      where: { isApproved: true },
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: { id: true, authorName: true, rating: true, body: true, createdAt: true }
+    })
   ]);
 
   res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=600");
@@ -104,8 +111,35 @@ router.get("/content/home", async (_req, res) => {
     bestSellers,
     categories,
     branch,
-    contact
+    contact,
+    customerReviews
   });
+});
+
+router.post("/reviews", async (req, res, next) => {
+  try {
+    const source = req.ip || req.socket.remoteAddress || "unknown";
+    const now = Date.now();
+    const nextAllowedAt = reviewSubmissionCooldowns.get(source) ?? 0;
+    if (nextAllowedAt > now) {
+      return res.status(429).json({ message: "Please wait a minute before submitting another review." });
+    }
+
+    const payload = z.object({
+      authorName: z.string().trim().min(2).max(80),
+      rating: z.number().int().min(1).max(5),
+      body: z.string().trim().min(10).max(600)
+    }).parse(req.body);
+    const review = await prisma.customerReview.create({
+      data: payload,
+      select: { id: true, authorName: true, rating: true, body: true, isApproved: true, createdAt: true }
+    });
+    reviewSubmissionCooldowns.set(source, now + 60_000);
+
+    return res.status(201).json({ review, message: "Thanks for your review. It will appear after approval." });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.get("/categories", async (_req, res) => {
@@ -659,20 +693,19 @@ router.post("/checkout", async (req, res, next) => {
 
     await writeAuditLog({
       actorId: customerId,
-      action: "order.checkout.guest",
+      action: "delivery.order_placed",
       entityType: "order",
       entityId: order.id,
-      payload: { orderNumber, guest: true }
+      payload: { orderNumber, branchId: order.branchId, source: "website", guest: true }
     });
 
-    // Push delivery alerts after the transaction commits; a failed device
-    // notification must never block or roll back a customer's order.
-    void notifyStaffAboutNewDelivery({
+    publishDeliveryOrderEvent({
+      branchId: order.branchId,
       orderId: order.id,
       orderNumber: order.orderNumber,
-      branchName: branch.name,
-      customerName: order.customerName
-    }).catch((pushError) => console.error("Failed to queue delivery push notification", pushError));
+      channel: order.channel,
+      kind: "NEW"
+    });
 
     return res.status(201).json({ order });
   } catch (error) {

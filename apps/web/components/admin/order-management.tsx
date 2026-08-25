@@ -13,7 +13,8 @@ import { formatCurrency, getCurrentBusinessDateKey, toPakistanDateIso } from "@/
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
   { value: "inshop", label: "Dine-in / Takeaway" },
-  { value: "foodpanda", label: "Foodpanda Orders" }
+  { value: "foodpanda", label: "Foodpanda Orders" },
+  { value: "delivery", label: "Delivery Orders" }
 ];
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
@@ -25,11 +26,12 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "custom", label: "Custom" }
 ];
 
-type PaymentFilter = "all" | "cash" | "easypaisa" | "jazzcash" | "foodpanda";
+type PaymentFilter = "all" | "cash" | "cod" | "easypaisa" | "jazzcash" | "foodpanda";
 
 const paymentFilters: Array<{ value: PaymentFilter; label: string; method?: string }> = [
   { value: "all", label: "All Payments" },
   { value: "cash", label: "Cash", method: "CASH" },
+  { value: "cod", label: "Delivery", method: "CASH_ON_DELIVERY" },
   { value: "easypaisa", label: "Easypaisa", method: "EASYPAISA" },
   { value: "jazzcash", label: "JazzCash", method: "JAZZCASH" },
   { value: "foodpanda", label: "Foodpanda Payout", method: "FOODPANDA_PAYOUT" }
@@ -45,6 +47,7 @@ function formatServiceType(value: string) {
   if (["INSHOP", "DINE_IN"].includes(value)) return "Dine-in";
   if (value === "TAKEAWAY") return "Takeaway";
   if (value === "FOODPANDA") return "Foodpanda";
+  if (value === "DELIVERY") return "Delivery";
   return value.replaceAll("_", " ");
 }
 
@@ -191,7 +194,7 @@ export function OrderManagement() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
-      const haystack = `${order.orderNumber} ${order.customerName} ${order.branch} ${order.channel} ${order.paymentMethod} ${formatPaymentMethod(order.paymentMethod)} ${order.foodpandaOrderNumber ?? ""} ${order.address?.addressLine1 ?? ""} ${order.address?.city ?? ""}`.toLowerCase();
+      const haystack = `${order.orderNumber} ${order.customerName} ${order.branch} ${order.channel} ${order.paymentMethod} ${formatPaymentMethod(order.paymentMethod)} ${order.foodpandaOrderNumber ?? ""} ${order.address?.addressLine1 ?? ""} ${order.address?.city ?? ""} ${order.deliverySector ?? ""} ${order.deliverySubsector ?? ""} ${order.riderName ?? ""}`.toLowerCase();
       const matchesSearch = !search || haystack.includes(search.toLowerCase());
       const matchesPayment = paymentFilter === "all" || order.paymentMethod === selectedPaymentMethod;
 
@@ -204,12 +207,13 @@ export function OrderManagement() {
       (counts, order) => {
         counts.all += 1;
         if (order.paymentMethod === "CASH") counts.cash += 1;
+        if (order.paymentMethod === "CASH_ON_DELIVERY") counts.cod += 1;
         if (order.paymentMethod === "EASYPAISA") counts.easypaisa += 1;
         if (order.paymentMethod === "JAZZCASH") counts.jazzcash += 1;
         if (order.paymentMethod === "FOODPANDA_PAYOUT") counts.foodpanda += 1;
         return counts;
       },
-      { all: 0, cash: 0, easypaisa: 0, jazzcash: 0, foodpanda: 0 }
+      { all: 0, cash: 0, cod: 0, easypaisa: 0, jazzcash: 0, foodpanda: 0 }
     );
   }, [orders]);
 
@@ -337,7 +341,7 @@ export function OrderManagement() {
           </div>
         </div>
         <p className="mt-4 text-sm text-pocket-navy/60">
-          Dine-in / Takeaway includes counter orders. Use the payment filters to isolate cash, Easypaisa, JazzCash, and Foodpanda payout orders.
+          Dine-in / Takeaway includes counter orders. Delivery includes website and POS delivery orders; use the Delivery filter to isolate them.
         </p>
       </Card>
 
@@ -405,9 +409,9 @@ export function OrderManagement() {
                       size="sm"
                       variant="ghost"
                       className="h-8 w-8 px-0"
-                      disabled={order.channel !== "POS" || order.serviceType === "DELIVERY"}
+                      disabled={order.channel !== "POS" && order.serviceType !== "DELIVERY"}
                       onClick={() => router.push(`/pos?orderNumber=${encodeURIComponent(order.orderNumber)}`)}
-                      title={order.channel !== "POS" ? "Only POS orders can be edited" : order.serviceType === "DELIVERY" ? "Edit delivery details from the delivery workflow" : "Edit order"}
+                      title={order.serviceType === "DELIVERY" ? "Edit delivery order" : order.channel !== "POS" ? "Only POS orders can be edited" : "Edit order"}
                     >
                       <PencilLine className="h-4 w-4" />
                       <span className="sr-only">Edit order</span>

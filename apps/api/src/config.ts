@@ -16,9 +16,6 @@ const envSchema = z.object({
   API_URL: z.string().url().default("http://localhost:4000"),
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default("7d"),
-  VAPID_SUBJECT: z.string().min(1).optional(),
-  VAPID_PUBLIC_KEY: z.string().min(1).optional(),
-  VAPID_PRIVATE_KEY: z.string().min(1).optional(),
   INITIAL_ADMIN_EMAIL: z.string().email().optional(),
   INITIAL_ADMIN_PASSWORD: z.string().min(8).optional()
 });

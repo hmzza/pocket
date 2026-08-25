@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminOrder, Branch, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
+import type { AdminOrder, Branch, DeliveryRider, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { getSelectedBranchId } from "@/lib/branch-selection";
 import { resolvePocketImagePath } from "@/lib/image-paths";
 
@@ -227,9 +227,15 @@ export async function updatePosOrderStatus(orderId: string, status: string) {
   });
 }
 
-export async function dispatchPosDeliveryOrder(orderId: string) {
-  return posFetch<{ order: { id: string; status: string; riderName?: string | null }; whatsappUrl: string }>(`/api/ops/orders/${orderId}/dispatch`, {
-    method: "PATCH"
+export async function fetchPosDeliveryRiders(): Promise<DeliveryRider[]> {
+  const data = await posFetch<{ riders: DeliveryRider[] }>("/api/ops/delivery-riders");
+  return data.riders;
+}
+
+export async function dispatchPosDeliveryOrder(orderId: string, riderId: string) {
+  return posFetch<{ order: { id: string; status: string; riderName?: string | null }; whatsappUrl: string; resentToRider?: boolean }>(`/api/ops/orders/${orderId}/dispatch`, {
+    method: "PATCH",
+    body: JSON.stringify({ riderId })
   });
 }
 

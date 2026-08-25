@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { InventoryTransactionType, OrderChannel, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { InventoryTransactionType, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -17,7 +17,7 @@ import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchConte
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
 import { readIndependencePromotion, readPromotionStats, saveIndependencePromotion } from "../lib/promotions.js";
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
-import { clearStaffDeliveryPush, getDeliveryPushConfiguration } from "../lib/delivery-push.js";
+import { publishDeliveryOrderEvent, subscribeToDeliveryOrderEvents } from "../lib/delivery-events.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -42,7 +42,7 @@ const dashboardQueryBaseSchema = z.object({
   start: z.string().datetime().optional(),
   end: z.string().datetime().optional(),
   monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-  segment: z.enum(["all", "inshop", "foodpanda"]).default("all")
+  segment: z.enum(["all", "inshop", "foodpanda", "delivery"]).default("all")
 });
 
 const dashboardQuerySchema = dashboardQueryBaseSchema.superRefine((value, context) => {
@@ -545,6 +545,42 @@ const userPatchSchema = userWriteSchema.partial().extend({
   password: z.string().min(8).optional()
 });
 
+const deliveryRiderWriteSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  phone: z.string().trim().min(8).max(24),
+  isActive: z.boolean().optional()
+});
+
+const deliveryRiderPatchSchema = deliveryRiderWriteSchema.partial();
+
+function normalizePakistanMobile(value: string) {
+  const digits = value.replace(/\D/g, "");
+  const normalized = digits.startsWith("0")
+    ? `+92${digits.slice(1)}`
+    : digits.startsWith("92")
+      ? `+${digits}`
+      : digits.startsWith("3")
+        ? `+92${digits}`
+        : "";
+
+  if (!/^\+923\d{9}$/.test(normalized)) {
+    throw Object.assign(new Error("Use a valid Pakistani mobile number, for example +92 341 1471884."), { statusCode: 400 });
+  }
+
+  return normalized;
+}
+
+function serializeDeliveryRider(rider: { id: string; name: string; phone: string; isActive: boolean; createdAt: Date; updatedAt: Date }) {
+  return {
+    id: rider.id,
+    name: rider.name,
+    phone: rider.phone,
+    isActive: rider.isActive,
+    createdAt: rider.createdAt.toISOString(),
+    updatedAt: rider.updatedAt.toISOString()
+  };
+}
+
 function serializeManagedUser(user: {
   id: string;
   name: string;
@@ -1029,6 +1065,10 @@ function getServiceBreakdown(value: ServiceType | string) {
 
   if (value === ServiceType.FOODPANDA) {
     return { key: "FOODPANDA", label: "Foodpanda" };
+  }
+
+  if (value === ServiceType.DELIVERY) {
+    return { key: "DELIVERY", label: "Delivery" };
   }
 
   return { key: String(value), label: String(value).replaceAll("_", " ") };
@@ -5103,88 +5143,6 @@ router.get("/orders", async (req, res, next) => {
   }
 });
 
-// Lightweight alert feed used by the admin shell. It intentionally contains
-// only customer-created delivery orders that still need a staff action.
-router.get("/orders/pending-delivery-alerts", async (req, res, next) => {
-  try {
-    const branchContext = await resolveBranchContext(req);
-    const orders = await prisma.order.findMany({
-      where: {
-        branchId: branchContext.branchId,
-        channel: OrderChannel.ONLINE,
-        serviceType: ServiceType.DELIVERY,
-        status: OrderStatus.PENDING
-      },
-      select: {
-        id: true,
-        orderNumber: true,
-        customerName: true,
-        deliverySubsector: true,
-        deliverySector: true,
-        placedAt: true
-      },
-      orderBy: { placedAt: "asc" }
-    });
-
-    return res.json({ orders });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.get("/orders/push-config", (_req, res) => {
-  return res.json(getDeliveryPushConfiguration());
-});
-
-const pushSubscriptionSchema = z.object({
-  endpoint: z.string().url().max(2_000),
-  keys: z.object({
-    p256dh: z.string().min(1).max(1_000),
-    auth: z.string().min(1).max(1_000)
-  })
-});
-
-router.post("/orders/push-subscriptions", async (req, res, next) => {
-  try {
-    const payload = pushSubscriptionSchema.parse(req.body);
-    const subscription = await prisma.pushSubscription.upsert({
-      where: { endpoint: payload.endpoint },
-      update: {
-        userId: req.user!.id,
-        p256dh: payload.keys.p256dh,
-        auth: payload.keys.auth,
-        userAgent: req.get("user-agent")?.slice(0, 500) ?? null
-      },
-      create: {
-        userId: req.user!.id,
-        endpoint: payload.endpoint,
-        p256dh: payload.keys.p256dh,
-        auth: payload.keys.auth,
-        userAgent: req.get("user-agent")?.slice(0, 500) ?? null
-      }
-    });
-
-    return res.status(201).json({ subscription: { id: subscription.id } });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-router.delete("/orders/push-subscriptions", async (req, res, next) => {
-  try {
-    const payload = z.object({ endpoint: z.string().url().max(2_000) }).parse(req.body);
-    await prisma.pushSubscription.deleteMany({
-      where: {
-        endpoint: payload.endpoint,
-        userId: req.user!.id
-      }
-    });
-    return res.status(204).send();
-  } catch (error) {
-    return next(error);
-  }
-});
-
 router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
@@ -5345,14 +5303,29 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "order.status_update",
+      action:
+        order.serviceType === ServiceType.DELIVERY
+          ? payload.status === OrderStatus.CONFIRMED
+            ? "delivery.accepted"
+            : payload.status === OrderStatus.DELIVERED
+              ? "delivery.delivered"
+              : payload.status === OrderStatus.CANCELLED
+                ? "delivery.cancelled"
+                : "delivery.status_updated"
+          : "order.status_update",
       entityType: "order",
       entityId: order.id,
-      payload
+      payload: { ...payload, orderNumber: order.orderNumber, branchId: order.branchId }
     });
 
-    if (order.serviceType === ServiceType.DELIVERY && payload.status !== OrderStatus.PENDING) {
-      void clearStaffDeliveryPush(order.id).catch((pushError) => console.error("Failed to clear delivery push notification", pushError));
+    if (order.serviceType === ServiceType.DELIVERY) {
+      publishDeliveryOrderEvent({
+        branchId: order.branchId,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        channel: order.channel,
+        kind: "UPDATED"
+      });
     }
 
     return res.json({ order });
@@ -5364,10 +5337,12 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 router.patch("/orders/:id/dispatch", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
-    const { order, whatsappUrl } = await dispatchDeliveryOrder({
+    const payload = z.object({ riderId: z.string().cuid() }).parse(req.body);
+    const { order, whatsappUrl, resentToRider } = await dispatchDeliveryOrder({
       orderId: req.params.id,
       branchId: branchContext.branchId,
-      actorId: req.user!.id
+      actorId: req.user!.id,
+      riderId: payload.riderId
     });
 
     if (order.customerId) {
@@ -5384,13 +5359,169 @@ router.patch("/orders/:id/dispatch", async (req, res, next) => {
 
     await writeAuditLog({
       actorId: req.user!.id,
-      action: "delivery.dispatch",
+      action: "delivery.whatsapp_opened",
       entityType: "order",
       entityId: order.id,
-      payload: { orderNumber: order.orderNumber, riderName: order.riderName }
+      payload: {
+        orderNumber: order.orderNumber,
+        branchId: order.branchId,
+        riderName: order.riderName,
+        riderPhone: order.riderPhone,
+        message: resentToRider ? "WhatsApp delivery update opened for the selected rider." : "WhatsApp delivery message opened for the selected rider.",
+        resentToRider
+      }
     });
 
-    return res.json({ order, whatsappUrl });
+    publishDeliveryOrderEvent({
+      branchId: order.branchId,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      channel: order.channel,
+      kind: "UPDATED"
+    });
+
+    return res.json({ order, whatsappUrl, resentToRider });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/delivery-events", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+
+    res.status(200);
+    res.set({
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no"
+    });
+    res.flushHeaders();
+    res.write(`event: ready\ndata: ${JSON.stringify({ branchId: branchContext.branchId })}\n\n`);
+
+    const unsubscribe = subscribeToDeliveryOrderEvents((event) => {
+      if (event.branchId !== branchContext.branchId) return;
+      res.write(`event: delivery-order\ndata: ${JSON.stringify(event)}\n\n`);
+    });
+    const heartbeat = setInterval(() => res.write(": keepalive\n\n"), 25_000);
+
+    req.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      res.end();
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/delivery-riders", async (_req, res, next) => {
+  try {
+    const riders = await prisma.deliveryRider.findMany({ orderBy: [{ isActive: "desc" }, { name: "asc" }] });
+    return res.json({ riders: riders.map(serializeDeliveryRider) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/delivery-riders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const payload = deliveryRiderWriteSchema.parse(req.body);
+    const rider = await prisma.deliveryRider.create({
+      data: {
+        name: payload.name,
+        phone: normalizePakistanMobile(payload.phone),
+        isActive: payload.isActive ?? true
+      }
+    });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.rider_created",
+      entityType: "delivery_rider",
+      entityId: rider.id,
+      payload: { name: rider.name, phone: rider.phone }
+    });
+    return res.status(201).json({ rider: serializeDeliveryRider(rider) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/delivery-riders/:id", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const payload = deliveryRiderPatchSchema.parse(req.body);
+    const riderId = z.string().cuid().parse(req.params.id);
+    const rider = await prisma.deliveryRider.update({
+      where: { id: riderId },
+      data: {
+        ...(payload.name !== undefined ? { name: payload.name } : {}),
+        ...(payload.phone !== undefined ? { phone: normalizePakistanMobile(payload.phone) } : {}),
+        ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {})
+      }
+    });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: rider.isActive ? "delivery.rider_updated" : "delivery.rider_deactivated",
+      entityType: "delivery_rider",
+      entityId: rider.id,
+      payload: { name: rider.name, phone: rider.phone, isActive: rider.isActive }
+    });
+    return res.json({ rider: serializeDeliveryRider(rider) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/delivery-riders/:id", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const riderId = z.string().cuid().parse(req.params.id);
+    const rider = await prisma.deliveryRider.update({ where: { id: riderId }, data: { isActive: false } });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.rider_deactivated",
+      entityType: "delivery_rider",
+      entityId: rider.id,
+      payload: { name: rider.name, phone: rider.phone }
+    });
+    return res.json({ deleted: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/delivery-logs", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50) }).parse(req.query);
+    const auditLogs = await prisma.auditLog.findMany({
+      where: { entityType: "order", action: { startsWith: "delivery." } },
+      include: { actor: { select: { name: true, username: true } } },
+      orderBy: { createdAt: "desc" },
+      take: Math.min(query.limit * 5, 500)
+    });
+    const orderIds = [...new Set(auditLogs.map((log) => log.entityId))];
+    const orders = orderIds.length
+      ? await prisma.order.findMany({ where: { id: { in: orderIds }, branchId: branchContext.branchId }, select: { id: true, orderNumber: true } })
+      : [];
+    const ordersById = new Map(orders.map((order) => [order.id, order]));
+
+    return res.json({
+      logs: auditLogs
+        .filter((log) => ordersById.has(log.entityId))
+        .slice(0, query.limit)
+        .map((log) => {
+          const payload = log.payload && typeof log.payload === "object" && !Array.isArray(log.payload) ? log.payload as Record<string, unknown> : {};
+          return {
+            id: log.id,
+            action: log.action,
+            orderNumber: typeof payload.orderNumber === "string" ? payload.orderNumber : ordersById.get(log.entityId)?.orderNumber ?? "Order",
+            riderName: typeof payload.riderName === "string" ? payload.riderName : null,
+            actorName: log.actor?.name ?? log.actor?.username ?? "Website customer",
+            createdAt: log.createdAt.toISOString()
+          };
+        })
+    });
   } catch (error) {
     return next(error);
   }
@@ -6847,6 +6978,74 @@ router.put("/settings/:key", async (req, res, next) => {
     });
 
     return res.json({ setting });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/customer-reviews", async (_req, res, next) => {
+  try {
+    const reviews = await prisma.customerReview.findMany({
+      orderBy: [{ isApproved: "asc" }, { createdAt: "desc" }],
+      take: 100
+    });
+    return res.json({
+      reviews: reviews.map((review) => ({
+        id: review.id,
+        authorName: review.authorName,
+        rating: review.rating,
+        body: review.body,
+        isApproved: review.isApproved,
+        createdAt: review.createdAt.toISOString()
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/customer-reviews/:id", async (req, res, next) => {
+  try {
+    const reviewId = z.string().cuid().parse(req.params.id);
+    const payload = z.object({ isApproved: z.boolean() }).parse(req.body);
+    const review = await prisma.customerReview.update({
+      where: { id: reviewId },
+      data: { isApproved: payload.isApproved }
+    });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: payload.isApproved ? "customer_review.approved" : "customer_review.hidden",
+      entityType: "customer_review",
+      entityId: review.id,
+      payload: { authorName: review.authorName, rating: review.rating }
+    });
+    return res.json({
+      review: {
+        id: review.id,
+        authorName: review.authorName,
+        rating: review.rating,
+        body: review.body,
+        isApproved: review.isApproved,
+        createdAt: review.createdAt.toISOString()
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/customer-reviews/:id", async (req, res, next) => {
+  try {
+    const reviewId = z.string().cuid().parse(req.params.id);
+    const review = await prisma.customerReview.delete({ where: { id: reviewId } });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "customer_review.deleted",
+      entityType: "customer_review",
+      entityId: review.id,
+      payload: { authorName: review.authorName, rating: review.rating }
+    });
+    return res.status(204).send();
   } catch (error) {
     return next(error);
   }
