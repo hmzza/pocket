@@ -10,7 +10,6 @@ import authRoutes from "./routes/auth.js";
 import catalogRoutes from "./routes/catalog.js";
 import customerRoutes from "./routes/customer.js";
 import adminRoutes from "./routes/admin.js";
-import deliveryRoutes from "./routes/delivery.js";
 import opsRoutes from "./routes/ops.js";
 import posRoutes from "./routes/pos.js";
 import { csrfGuard } from "./middleware/security.js";
@@ -67,9 +66,6 @@ export function createApp() {
   app.use("/api/auth", authRoutes);
   app.use("/api", catalogRoutes);
   app.use("/api/customer", customerRoutes);
-  // Mounted before adminRoutes so the module owns its own paths; Express falls
-  // through to adminRoutes for everything else under /api/admin.
-  app.use("/api/admin", deliveryRoutes);
   app.use("/api/admin", adminRoutes);
   app.use("/api/ops", opsRoutes);
   app.use("/api/pos", posRoutes);
