@@ -27,12 +27,13 @@ export default function AdminLoginPage() {
       });
 
       if (!response.ok) {
-        throw new Error("Invalid credentials");
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.message ?? "Login failed.");
       }
 
       window.location.replace("/admin");
-    } catch {
-      setError("Login failed. Check the username and password.");
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "Login failed. Check the username and password.");
     } finally {
       setLoading(false);
     }
