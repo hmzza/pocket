@@ -13,6 +13,7 @@ import { syncMealPairingOptions } from "../lib/meal-options.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
 import { readIndependencePromotion } from "../lib/promotions.js";
+import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
 
 const router = Router();
 
@@ -79,14 +80,25 @@ const cartItemSchema = z.discriminatedUnion("type", [
   })
 ]);
 
+const deliveryDetailsSchema = z.object({
+  sector: z.enum(DELIVERY_AREA_KEYS as [string, ...string[]]),
+  subsector: z.string().min(5).max(10),
+  city: z.literal(DELIVERY_CITY),
+  addressLine1: z.string().min(5).max(180),
+  addressLine2: z.string().max(120).optional(),
+  addressInstructions: z.string().max(240).optional(),
+  orderInstructions: z.string().max(240).optional()
+});
+
 const checkoutSchema = z
   .object({
     branchId: z.string().cuid().optional(),
-    serviceType: z.enum(["INSHOP", "TAKEAWAY", "FOODPANDA"]),
-    paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT"]),
+    serviceType: z.enum(["INSHOP", "TAKEAWAY", "FOODPANDA", "DELIVERY"]),
+    paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT", "CASH_ON_DELIVERY"]),
     customerName: z.string().max(80).optional(),
     customerPhone: z.string().max(20).optional(),
     foodpandaOrderNumber: z.string().max(40).optional(),
+    delivery: deliveryDetailsSchema.optional(),
     placedAt: z.string().datetime().optional(),
     discountType: z.enum(["NONE", "PERCENTAGE", "FIXED"]).default("NONE"),
     discountValue: z.number().min(0).max(100_000).default(0),
@@ -108,6 +120,23 @@ const checkoutSchema = z
         message: "Foodpanda payout can only be used for Foodpanda orders."
       });
     }
+
+    if (value.serviceType === "DELIVERY") {
+      if (!value.delivery) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["delivery"], message: "Delivery details are required for a delivery order." });
+      } else if (!isDeliverySubsector(value.delivery.sector, value.delivery.subsector)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["delivery", "subsector"], message: "Choose a valid sub-sector for the selected sector." });
+      }
+      if (!value.customerName?.trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customerName"], message: "Customer name is required for delivery." });
+      }
+      if (!value.customerPhone?.trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customerPhone"], message: "WhatsApp number is required for delivery." });
+      }
+      if (value.paymentMethod !== "CASH_ON_DELIVERY") {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["paymentMethod"], message: "Delivery orders use Cash on Delivery." });
+      }
+    }
   });
 
 type CheckoutPayload = z.infer<typeof checkoutSchema>;
@@ -115,6 +144,12 @@ type ResolvedCheckoutPayload = CheckoutPayload & { branchId: string };
 
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
+}
+
+function normalizePakistanWhatsAppNumber(value: string) {
+  const digits = normalizePhone(value);
+  const national = digits.startsWith("0092") ? digits.slice(4) : digits.startsWith("92") ? digits.slice(2) : digits.startsWith("0") ? digits.slice(1) : digits;
+  return /^3\d{9}$/.test(national) ? `+92${national}` : null;
 }
 
 function buildDigitalReceiptUrl(order: { id: string; orderNumber: string }) {
@@ -699,6 +734,15 @@ router.post("/checkout", async (req, res, next) => {
     const parsedPayload = checkoutSchema.parse(req.body);
     const branchContext = await resolveBranchContext(req);
     const payload: ResolvedCheckoutPayload = { ...parsedPayload, branchId: branchContext.branchId };
+    const delivery = payload.serviceType === "DELIVERY" ? payload.delivery : undefined;
+    const deliveryArea = delivery ? getDeliveryArea(delivery.sector) : null;
+    if (delivery && !deliveryArea) {
+      return res.status(400).json({ message: "Choose a supported delivery sector." });
+    }
+    const deliveryPhone = delivery ? normalizePakistanWhatsAppNumber(payload.customerPhone ?? "") : null;
+    if (delivery && !deliveryPhone) {
+      return res.status(400).json({ message: "Enter a valid Pakistani WhatsApp number, for example 0300 1234567." });
+    }
     const paymentMethod =
       payload.serviceType === "FOODPANDA"
         ? PaymentMethod.FOODPANDA_PAYOUT
@@ -713,33 +757,47 @@ router.post("/checkout", async (req, res, next) => {
 
     const { orderNumber, result: order } = await withGeneratedOrderNumber((orderNumber) =>
       prisma.$transaction(async (transaction) => {
+        const address = delivery
+          ? await transaction.address.create({
+              data: {
+                label: "Delivery",
+                addressLine1: delivery.addressLine1.trim(),
+                addressLine2: delivery.addressLine2?.trim() || null,
+                city: DELIVERY_CITY,
+                instructions: delivery.addressInstructions?.trim() || null
+              }
+            })
+          : null;
         const createdOrder = await transaction.order.create({
           data: {
             orderNumber,
             branchId: payload.branchId,
             customerName: payload.customerName?.trim() || null,
-            customerPhone: payload.customerPhone?.trim() || null,
+            customerPhone: deliveryPhone ?? (payload.customerPhone?.trim() || null),
             foodpandaOrderNumber: payload.serviceType === "FOODPANDA" ? payload.foodpandaOrderNumber?.trim() || null : null,
             channel: OrderChannel.POS,
             serviceType: payload.serviceType as ServiceType,
-            status: "CONFIRMED",
+            status: delivery ? OrderStatus.PENDING : OrderStatus.CONFIRMED,
             paymentMethod,
-            paymentStatus: PaymentStatus.UNSET,
+            paymentStatus: delivery ? PaymentStatus.PENDING : PaymentStatus.UNSET,
             cashierId: req.user!.id,
+            addressId: address?.id,
             placedAt: payload.placedAt ? new Date(payload.placedAt) : undefined,
             subtotal: orderPayload.subtotal,
             taxRate: 0,
             taxAmount: 0,
-            deliveryFee: 0,
+            deliveryFee: deliveryArea?.fee ?? 0,
             discountAmount: orderPayload.discountAmount,
             manualDiscountType: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
             manualDiscountValue: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
             promotionName: orderPayload.promotionName,
             promotionDiscountAmount: orderPayload.promotionDiscountAmount,
-            cashReceivedAmount: orderPayload.paidAmount,
+            cashReceivedAmount: delivery ? null : orderPayload.paidAmount,
             changeDueAmount: orderPayload.changeDueAmount,
-            totalAmount: orderPayload.totalAmount,
-            deliveryInstructions: null,
+            totalAmount: Number((orderPayload.totalAmount + (deliveryArea?.fee ?? 0)).toFixed(2)),
+            deliveryInstructions: delivery?.orderInstructions?.trim() || null,
+            deliverySector: delivery?.sector ?? null,
+            deliverySubsector: delivery?.subsector ?? null,
             items: {
               create: buildOrderItemCreateData(orderPayload.normalizedItems)
             }

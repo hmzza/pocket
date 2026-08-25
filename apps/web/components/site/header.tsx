@@ -41,19 +41,19 @@ export function Header() {
 
         <nav className="ml-auto hidden items-center gap-4 md:flex">
           {links.map((link) => (
-            <a key={link.href} href={link.href} className="text-[13px] font-medium text-pocket-navy transition hover:text-pocket-orange">
+            <Link key={link.href} href={link.href} className="text-[13px] font-medium text-pocket-navy transition hover:text-pocket-orange">
               {link.label}
-            </a>
+            </Link>
           ))}
         </nav>
 
         <div className="flex items-center gap-2">
-          <a href="/search" className="hidden md:inline-flex">
+          <Link href="/search" className="hidden md:inline-flex">
             <Button variant="ghost" size="sm" className="h-8 w-8 px-0">
               <Search className="h-3.5 w-3.5" />
             </Button>
-          </a>
-          <a href="/cart" className="relative inline-flex">
+          </Link>
+          <Link href="/cart" className="relative inline-flex">
             <Button variant="ghost" size="sm" className="h-8 w-8 px-0">
               <ShoppingBag className="h-3.5 w-3.5" />
             </Button>
@@ -62,7 +62,7 @@ export function Header() {
                 {cartCount}
               </span>
             ) : null}
-          </a>
+          </Link>
           <Button variant="ghost" size="sm" className="h-8 w-8 px-0 md:hidden" onClick={() => setOpen((value) => !value)}>
             <Menu className="h-3.5 w-3.5" />
           </Button>
@@ -72,9 +72,9 @@ export function Header() {
       <div className={cn("border-t border-pocket-navy/10 bg-white md:hidden", open ? "block" : "hidden")}>
         <div className="space-y-1.5 px-4 py-3">
           {links.map((link) => (
-            <a key={link.href} href={link.href} className="block rounded-md px-3 py-1.5 text-sm font-semibold text-pocket-navy hover:bg-pocket-cream" onClick={() => setOpen(false)}>
+            <Link key={link.href} href={link.href} className="block rounded-md px-3 py-1.5 text-sm font-semibold text-pocket-navy hover:bg-pocket-cream" onClick={() => setOpen(false)}>
               {link.label}
-            </a>
+            </Link>
           ))}
         </div>
       </div>

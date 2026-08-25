@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
+import { PendingDeliveryAlert } from "@/components/admin/pending-delivery-alert";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ const links: Array<{
   { href: "/admin/users", label: "Users", icon: Users, permissionKey: "USERS" },
   { href: "/admin/inventory", label: "Inventory", icon: Package2, permissionKey: "INVENTORY" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart, permissionKey: "ORDERS" },
+  { href: "/admin/delivery", label: "Delivery", icon: Bike, permissionKey: "ORDERS" },
   { href: "/admin/customers", label: "Customers", icon: Users, permissionKey: "CUSTOMERS" },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt, permissionKey: "EXPENSES" },
   { href: "/admin/capital", label: "Capital", icon: HandCoins, permissionKey: "CAPITAL" },
@@ -175,6 +177,7 @@ export function AdminShell({ title, description, children }: { title: string; de
           </div>
           {session ? <BranchSwitcher user={session.user} /> : null}
         </div>
+        {session && (session.user.role === "SUPER_ADMIN" || session.user.permissions.includes("ORDERS")) ? <PendingDeliveryAlert /> : null}
         {children}
       </div>
     </div>

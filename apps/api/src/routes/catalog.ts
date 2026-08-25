@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { DiscountType, OrderChannel, PaymentMethod, PaymentStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { DiscountType, OrderChannel, OrderStatus, PaymentMethod, PaymentStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
@@ -9,10 +9,25 @@ import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { verifyReceiptToken } from "../lib/receipt-token.js";
+import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
+import { notifyStaffAboutNewDelivery } from "../lib/delivery-push.js";
 
 const router = Router();
 const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
 const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
+
+function normalizePakistanWhatsAppNumber(value: string) {
+  const digits = value.replace(/\D/g, "");
+  const national = digits.startsWith("0092")
+    ? digits.slice(4)
+    : digits.startsWith("92")
+      ? digits.slice(2)
+      : digits.startsWith("0")
+        ? digits.slice(1)
+        : digits;
+
+  return /^3\d{9}$/.test(national) ? `+92${national}` : null;
+}
 
 const productInclude = {
   category: true,
@@ -377,17 +392,18 @@ router.post("/checkout", async (req, res, next) => {
     const payload = z
       .object({
         name: z.string().min(2).max(80),
-        phone: z.string().min(8).max(20),
-        email: z.string().email(),
+        phone: z.string().min(8).max(24),
         branchSlug: z.string(),
-        paymentMethod: z.nativeEnum(PaymentMethod),
+        paymentMethod: z.literal(PaymentMethod.CASH_ON_DELIVERY),
+        deliverySector: z.enum(DELIVERY_AREA_KEYS as [string, ...string[]]),
+        deliverySubsector: z.string().min(5).max(10),
         couponCode: z.string().optional(),
         deliveryInstructions: z.string().max(240).optional(),
         address: z.object({
           label: z.string().optional(),
           addressLine1: z.string().min(5),
           addressLine2: z.string().optional(),
-          city: z.string().min(2),
+          city: z.literal(DELIVERY_CITY),
           instructions: z.string().optional()
         }),
         items: z
@@ -402,10 +418,28 @@ router.post("/checkout", async (req, res, next) => {
       })
       .parse(req.body);
 
-    const branch = await prisma.branch.findUniqueOrThrow({ where: { slug: payload.branchSlug } });
+    const customerPhone = normalizePakistanWhatsAppNumber(payload.phone);
+    if (!customerPhone) {
+      return res.status(400).json({ message: "Enter a valid Pakistani WhatsApp number, for example 0300 1234567." });
+    }
+
+    const deliveryArea = getDeliveryArea(payload.deliverySector);
+    if (!deliveryArea) {
+      return res.status(400).json({ message: "We currently deliver only to the listed sectors." });
+    }
+    if (!isDeliverySubsector(payload.deliverySector, payload.deliverySubsector)) {
+      return res.status(400).json({ message: "Choose a valid sub-sector for your selected delivery sector." });
+    }
+
+    const branch = await prisma.branch.findFirst({ where: { slug: payload.branchSlug, isActive: true } });
+    if (!branch) {
+      return res.status(404).json({ message: "Pocket G-11 is unavailable right now." });
+    }
+
+    const requestedProductIds = [...new Set(payload.items.map((item) => item.productId))];
     const products = await prisma.product.findMany({
       where: {
-        id: { in: payload.items.map((item) => item.productId) },
+        id: { in: requestedProductIds },
         isActive: true
       },
       include: {
@@ -424,7 +458,7 @@ router.post("/checkout", async (req, res, next) => {
       }
     });
 
-    if (products.length !== payload.items.length) {
+    if (products.length !== requestedProductIds.length) {
       return res.status(400).json({ message: "One or more items are unavailable." });
     }
 
@@ -433,6 +467,9 @@ router.post("/checkout", async (req, res, next) => {
       const product = productMap.get(item.productId);
       if (!product) {
         throw new Error("One or more items are unavailable.");
+      }
+      if (product.branchPricing[0] && !product.branchPricing[0].isAvailable) {
+        throw Object.assign(new Error(`${product.name} is unavailable from Pocket G-11.`), { statusCode: 400 });
       }
 
       const selectedAddOnIds = [...new Set(item.selectedAddOnIds)];
@@ -470,7 +507,7 @@ router.post("/checkout", async (req, res, next) => {
     let discountAmount = 0;
     if (payload.couponCode) {
       const coupon = await prisma.coupon.findUnique({ where: { code: payload.couponCode.toUpperCase() } });
-      if (coupon && coupon.isActive && (!coupon.expiresAt || coupon.expiresAt > new Date())) {
+      if (coupon && coupon.isActive && (!coupon.expiresAt || coupon.expiresAt > new Date()) && (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit)) {
         if (!coupon.minOrderValue || subtotal >= Number(coupon.minOrderValue)) {
           couponId = coupon.id;
           discountAmount =
@@ -481,14 +518,14 @@ router.post("/checkout", async (req, res, next) => {
       }
     }
 
-    const taxAmount = Number((subtotal * 0.12).toFixed(2));
-    const deliveryFee = Number(branch.deliveryFee);
+    const taxAmount = 0;
+    const deliveryFee = deliveryArea.fee;
     const totalAmount = Math.max(0, subtotal + taxAmount + deliveryFee - discountAmount);
 
     const role = await prisma.role.findUniqueOrThrow({ where: { code: RoleCode.CUSTOMER } });
     const existingCustomer = await prisma.user.findFirst({
       where: {
-        OR: [{ email: payload.email }, { phone: payload.phone }]
+        phone: customerPhone
       },
       include: { role: true }
     });
@@ -502,13 +539,14 @@ router.post("/checkout", async (req, res, next) => {
       customerId = existingCustomer.id;
     } else {
       const guestPasswordHash = await bcrypt.hash(`guest-${Date.now()}-${Math.random().toString(36).slice(2)}`, 12);
+      const guestEmail = `delivery-${customerPhone.replace(/\D/g, "")}@guest.pocket.local`;
       const customer = await prisma.user.create({
         data: {
           roleId: role.id,
           name: payload.name,
-          username: buildUniqueUsername(payload.email),
-          email: payload.email,
-          phone: payload.phone,
+          username: buildUniqueUsername(guestEmail),
+          email: guestEmail,
+          phone: customerPhone,
           passwordHash: guestPasswordHash
         }
       });
@@ -541,18 +579,21 @@ router.post("/checkout", async (req, res, next) => {
             couponId,
             channel: OrderChannel.ONLINE,
             serviceType: ServiceType.DELIVERY,
+            status: OrderStatus.PENDING,
             customerName: payload.name,
-            customerPhone: payload.phone,
+            customerPhone,
             paymentMethod: payload.paymentMethod,
             paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
             subtotal,
-            taxRate: 12,
+            taxRate: 0,
             taxAmount,
             deliveryFee,
             discountAmount,
             totalAmount,
             expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
             deliveryInstructions: payload.deliveryInstructions,
+            deliverySector: payload.deliverySector,
+            deliverySubsector: payload.deliverySubsector,
             items: {
               create: normalizedItems.map((item) => {
                 return {
@@ -623,6 +664,15 @@ router.post("/checkout", async (req, res, next) => {
       entityId: order.id,
       payload: { orderNumber, guest: true }
     });
+
+    // Push delivery alerts after the transaction commits; a failed device
+    // notification must never block or roll back a customer's order.
+    void notifyStaffAboutNewDelivery({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      branchName: branch.name,
+      customerName: order.customerName
+    }).catch((pushError) => console.error("Failed to queue delivery push notification", pushError));
 
     return res.status(201).json({ order });
   } catch (error) {

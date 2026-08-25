@@ -180,9 +180,19 @@ export async function fetchPosOrders(params?: { scope?: "active" | "watch_later"
       cashierName: order.cashierName ?? null,
       placedAt: order.placedAt,
       deliveryInstructions: order.deliveryInstructions ?? undefined,
+      deliverySector: order.deliverySector ?? null,
+      deliverySubsector: order.deliverySubsector ?? null,
+      riderName: order.riderName ?? null,
+      riderPhone: order.riderPhone ?? null,
+      riderAssignedAt: order.riderAssignedAt ?? null,
+      acceptedByName: order.acceptedByName ?? null,
+      acceptedAt: order.acceptedAt ?? null,
+      dispatchedByName: order.dispatchedByName ?? null,
+      dispatchedAt: order.dispatchedAt ?? null,
       address: order.address
         ? {
             addressLine1: order.address.addressLine1,
+            addressLine2: order.address.addressLine2 ?? undefined,
             city: order.address.city,
             instructions: order.address.instructions ?? undefined
           }
@@ -214,6 +224,12 @@ export async function updatePosOrderStatus(orderId: string, status: string) {
   return posFetch(`/api/ops/orders/${orderId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status })
+  });
+}
+
+export async function dispatchPosDeliveryOrder(orderId: string) {
+  return posFetch<{ order: { id: string; status: string; riderName?: string | null }; whatsappUrl: string }>(`/api/ops/orders/${orderId}/dispatch`, {
+    method: "PATCH"
   });
 }
 

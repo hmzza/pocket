@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { InventoryTransactionType, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { InventoryTransactionType, OrderChannel, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -16,6 +16,8 @@ import { syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
 import { readIndependencePromotion, readPromotionStats, saveIndependencePromotion } from "../lib/promotions.js";
+import { dispatchDeliveryOrder } from "../lib/delivery.js";
+import { clearStaffDeliveryPush, getDeliveryPushConfiguration } from "../lib/delivery-push.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -996,9 +998,13 @@ async function recalculateInventoryBalances(branchInventoryId: string) {
   });
 }
 
-function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda"): Prisma.OrderWhereInput {
+function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda" | "delivery"): Prisma.OrderWhereInput {
   if (segment === "foodpanda") {
     return { serviceType: ServiceType.FOODPANDA };
+  }
+
+  if (segment === "delivery") {
+    return { serviceType: ServiceType.DELIVERY };
   }
 
   if (segment === "inshop") {
@@ -1050,11 +1056,23 @@ function serializeOrderForOperations(order: any) {
     manualDiscountValue: order.manualDiscountValue,
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
+    cashierUsername: order.cashier?.username ?? null,
+    cashierName: order.cashier?.name ?? null,
     placedAt: order.placedAt,
     deliveryInstructions: order.deliveryInstructions,
+    deliverySector: order.deliverySector ?? null,
+    deliverySubsector: order.deliverySubsector ?? null,
+    riderName: order.riderName ?? null,
+    riderPhone: order.riderPhone ?? null,
+    riderAssignedAt: order.riderAssignedAt ?? null,
+    acceptedByName: order.acceptedBy?.name ?? order.acceptedBy?.username ?? null,
+    acceptedAt: order.acceptedAt ?? null,
+    dispatchedByName: order.dispatchedBy?.name ?? order.dispatchedBy?.username ?? null,
+    dispatchedAt: order.dispatchedAt ?? null,
     address: order.address
       ? {
           addressLine1: order.address.addressLine1,
+          addressLine2: order.address.addressLine2,
           city: order.address.city,
           instructions: order.address.instructions
         }
@@ -5015,7 +5033,7 @@ router.get("/orders", async (req, res, next) => {
         preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
         start: z.string().datetime().optional(),
         end: z.string().datetime().optional(),
-        segment: z.enum(["all", "inshop", "foodpanda"]).default("all")
+        segment: z.enum(["all", "inshop", "foodpanda", "delivery"]).default("all")
       })
       .superRefine((value, context) => {
         if (value.preset === "custom" && (!value.start || !value.end)) {
@@ -5028,7 +5046,11 @@ router.get("/orders", async (req, res, next) => {
       })
       .parse(req.query);
 
-    const reportRange = buildDashboardRange(query);
+    const reportRange = buildDashboardRange({
+      ...query,
+      // Delivery is an operations-only segment; it uses the same date presets as dashboard segments.
+      segment: query.segment === "delivery" ? "all" : query.segment
+    });
     const rangeStart = reportRange.start;
     const rangeEnd = reportRange.end;
 
@@ -5061,6 +5083,9 @@ router.get("/orders", async (req, res, next) => {
           }
         },
         branch: true,
+        cashier: { select: { username: true, name: true } },
+        acceptedBy: { select: { username: true, name: true } },
+        dispatchedBy: { select: { username: true, name: true } },
         address: true,
         items: {
           include: {
@@ -5073,6 +5098,88 @@ router.get("/orders", async (req, res, next) => {
     });
 
     return res.json({ orders: orders.map(serializeOrderForOperations) });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+// Lightweight alert feed used by the admin shell. It intentionally contains
+// only customer-created delivery orders that still need a staff action.
+router.get("/orders/pending-delivery-alerts", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const orders = await prisma.order.findMany({
+      where: {
+        branchId: branchContext.branchId,
+        channel: OrderChannel.ONLINE,
+        serviceType: ServiceType.DELIVERY,
+        status: OrderStatus.PENDING
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        customerName: true,
+        deliverySubsector: true,
+        deliverySector: true,
+        placedAt: true
+      },
+      orderBy: { placedAt: "asc" }
+    });
+
+    return res.json({ orders });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/orders/push-config", (_req, res) => {
+  return res.json(getDeliveryPushConfiguration());
+});
+
+const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url().max(2_000),
+  keys: z.object({
+    p256dh: z.string().min(1).max(1_000),
+    auth: z.string().min(1).max(1_000)
+  })
+});
+
+router.post("/orders/push-subscriptions", async (req, res, next) => {
+  try {
+    const payload = pushSubscriptionSchema.parse(req.body);
+    const subscription = await prisma.pushSubscription.upsert({
+      where: { endpoint: payload.endpoint },
+      update: {
+        userId: req.user!.id,
+        p256dh: payload.keys.p256dh,
+        auth: payload.keys.auth,
+        userAgent: req.get("user-agent")?.slice(0, 500) ?? null
+      },
+      create: {
+        userId: req.user!.id,
+        endpoint: payload.endpoint,
+        p256dh: payload.keys.p256dh,
+        auth: payload.keys.auth,
+        userAgent: req.get("user-agent")?.slice(0, 500) ?? null
+      }
+    });
+
+    return res.status(201).json({ subscription: { id: subscription.id } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/orders/push-subscriptions", async (req, res, next) => {
+  try {
+    const payload = z.object({ endpoint: z.string().url().max(2_000) }).parse(req.body);
+    await prisma.pushSubscription.deleteMany({
+      where: {
+        endpoint: payload.endpoint,
+        userId: req.user!.id
+      }
+    });
+    return res.status(204).send();
   } catch (error) {
     return next(error);
   }
@@ -5217,7 +5324,12 @@ router.patch("/orders/:id/status", async (req, res, next) => {
 
       return transaction.order.update({
         where: { id: req.params.id },
-        data: { status: payload.status }
+        data: {
+          status: payload.status,
+          ...(currentOrder.serviceType === ServiceType.DELIVERY && currentOrder.status === OrderStatus.PENDING && payload.status === OrderStatus.CONFIRMED
+            ? { acceptedById: req.user!.id, acceptedAt: new Date() }
+            : {})
+        }
       });
     }, INVENTORY_TRANSACTION_OPTIONS);
 
@@ -5239,7 +5351,46 @@ router.patch("/orders/:id/status", async (req, res, next) => {
       payload
     });
 
+    if (order.serviceType === ServiceType.DELIVERY && payload.status !== OrderStatus.PENDING) {
+      void clearStaffDeliveryPush(order.id).catch((pushError) => console.error("Failed to clear delivery push notification", pushError));
+    }
+
     return res.json({ order });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/orders/:id/dispatch", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const { order, whatsappUrl } = await dispatchDeliveryOrder({
+      orderId: req.params.id,
+      branchId: branchContext.branchId,
+      actorId: req.user!.id
+    });
+
+    if (order.customerId) {
+      await prisma.notification.create({
+        data: {
+          userId: order.customerId,
+          type: "ORDER",
+          title: "Order is on the way",
+          message: `${order.orderNumber} has been assigned to the delivery rider.`,
+          metadata: { orderNumber: order.orderNumber, status: order.status, rider: order.riderName }
+        }
+      });
+    }
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.dispatch",
+      entityType: "order",
+      entityId: order.id,
+      payload: { orderNumber: order.orderNumber, riderName: order.riderName }
+    });
+
+    return res.json({ order, whatsappUrl });
   } catch (error) {
     return next(error);
   }

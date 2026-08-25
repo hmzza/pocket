@@ -112,9 +112,12 @@ model User {
   addresses             Address[]
   orders                Order[]
   cashierOrders         Order[]                @relation("CashierOrder")
+  acceptedDeliveryOrders Order[]               @relation("DeliveryAcceptedBy")
+  dispatchedDeliveryOrders Order[]             @relation("DeliveryDispatchedBy")
   reviews               Review[]
   favorites             Favorite[]
   notifications         Notification[]
+  pushSubscriptions     PushSubscription[]
   auditLogs             AuditLog[]
   cart                  ShoppingCart?
   inventoryTransactions InventoryTransaction[] @relation("InventoryActor")
@@ -342,7 +345,7 @@ model BranchProduct {
 
 model Address {
   id           String   @id @default(cuid())
-  userId       String
+  userId       String?
   label        String?
   addressLine1 String
   addressLine2 String?
@@ -351,7 +354,7 @@ model Address {
   isDefault    Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   orders       Order[]
 }
 
@@ -426,10 +429,21 @@ model Order {
   totalAmount          Decimal       @db.Decimal(10, 2)
   expectedDeliveryAt   DateTime?
   deliveryInstructions String?
+  deliverySector       String?
+  deliverySubsector    String?
+  riderName            String?
+  riderPhone           String?
+  riderAssignedAt      DateTime?
+  acceptedById         String?
+  acceptedAt           DateTime?
+  dispatchedById       String?
+  dispatchedAt         DateTime?
   placedAt             DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
   customer             User?         @relation(fields: [customerId], references: [id])
   cashier              User?         @relation("CashierOrder", fields: [cashierId], references: [id])
+  acceptedBy           User?         @relation("DeliveryAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+  dispatchedBy         User?         @relation("DeliveryDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
   branch               Branch        @relation(fields: [branchId], references: [id])
   address              Address?      @relation(fields: [addressId], references: [id])
   coupon               Coupon?       @relation(fields: [couponId], references: [id])
@@ -438,6 +452,7 @@ model Order {
   @@index([branchId, placedAt])
   @@index([branchId, status, placedAt])
   @@index([branchId, paymentStatus])
+  @@index([branchId, serviceType, status, placedAt])
 }
 
 model OrderItem {
@@ -512,6 +527,20 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime         @default(now())
   user      User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Supplier {

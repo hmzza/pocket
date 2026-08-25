@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, CheckCircle2, Clock3, ListChecks, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { BadgeDollarSign, Bike, CheckCircle2, Clock3, ListChecks, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   bulkUpdatePosOrderStatus,
   deletePosOrder,
+  dispatchPosDeliveryOrder,
   fetchPosOrders,
   fetchPosSession,
   updatePosOrderPaymentStatus,
@@ -123,7 +124,10 @@ function CompactOrderCard({
   exiting,
   onEdit,
   onDelete,
-  onDetails
+  onDetails,
+  onDispatchDelivery,
+  riderPickerOrderId,
+  onToggleRiderPicker
 }: {
   order: AdminOrder;
   embedded?: boolean;
@@ -133,13 +137,17 @@ function CompactOrderCard({
   onEdit: (order: AdminOrder) => void;
   onDelete: (order: AdminOrder) => void;
   onDetails: (order: AdminOrder) => void;
-  onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
+  onDispatchDelivery: (order: AdminOrder) => void;
+  riderPickerOrderId: string;
+  onToggleRiderPicker: (orderId: string) => void;
+  onChangeStatus: (order: AdminOrder, status: "CONFIRMED" | "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
   onTogglePaymentStatus: (order: AdminOrder) => void;
 }) {
   const isTerminal = order.status === "DELIVERED" || order.status === "CANCELLED";
   const isWatchLater = order.status === "WATCH_LATER";
   const isPaid = order.paymentStatus === "PAID";
   const isUnpaid = order.paymentStatus === "PENDING";
+  const isDelivery = order.serviceType === "DELIVERY";
 
   return (
     <Card
@@ -176,7 +184,7 @@ function CompactOrderCard({
           <p className={embedded ? "text-[11px] font-semibold leading-tight text-slate-900" : "text-[13px] font-semibold leading-tight text-slate-900"}>{order.customerName}</p>
           {order.customerPhone ? <p className={embedded ? "text-[9px] text-slate-500" : "text-[10px] text-slate-500"}>{order.customerPhone}</p> : null}
           <p className={embedded ? "mt-0.5 text-[9px] text-slate-500" : "mt-0.5 text-[10px] text-slate-500"}>{order.branch}</p>
-          <p className={embedded ? "mt-0.5 text-[9px] font-medium text-slate-500" : "mt-0.5 text-[10px] font-medium text-slate-500"}>POS: {order.cashierUsername ?? order.cashierName ?? "Unknown"}</p>
+          <p className={embedded ? "mt-0.5 text-[9px] font-medium text-slate-500" : "mt-0.5 text-[10px] font-medium text-slate-500"}>{order.channel === "POS" ? `Placed by: ${order.cashierUsername ?? order.cashierName ?? "staff"}` : "Placed via: website customer"}</p>
           {order.foodpandaOrderNumber ? (
             <p className={embedded ? "mt-1 inline-flex rounded-full bg-orange-50 px-2.5 py-0.5 text-[11px] font-black tracking-[0.14em] text-orange-700" : "mt-1 inline-flex rounded-full bg-orange-50 px-3 py-0.5 text-[13px] font-black tracking-[0.14em] text-orange-700"}>
               FP: {order.foodpandaOrderNumber}
@@ -212,6 +220,10 @@ function CompactOrderCard({
           <span className="font-semibold text-orange-700">Note:</span> {order.deliveryInstructions}
         </div>
       ) : null}
+      {isDelivery && order.deliverySector ? (
+        <p className={embedded ? "mt-1 text-[9px] font-semibold text-violet-700" : "mt-1 text-[10px] font-semibold text-violet-700"}>Delivery: {order.deliverySubsector ?? order.deliverySector}</p>
+      ) : null}
+      {isDelivery && (order.acceptedByName || order.dispatchedByName) ? <p className={embedded ? "mt-0.5 text-[9px] text-slate-500" : "mt-0.5 text-[10px] text-slate-500"}>{[order.acceptedByName ? `Accepted: ${order.acceptedByName}` : null, order.dispatchedByName ? `Dispatched: ${order.dispatchedByName}` : null].filter(Boolean).join(" · ")}</p> : null}
 
       <div className={embedded ? "mt-1 rounded-lg bg-slate-50 px-1.5 py-1 text-[9px] text-slate-700" : "mt-1 rounded-lg bg-slate-50 px-2 py-1.5 text-[10px] text-slate-700"}>
         <p className="font-semibold text-slate-900">Items</p>
@@ -239,6 +251,59 @@ function CompactOrderCard({
 
       <div className={embedded ? "mt-auto pt-1.5" : "mt-auto pt-2"}>
         {!isTerminal ? (
+          isDelivery ? (
+            <div className="flex flex-wrap items-center justify-end gap-1">
+              {order.status === "PENDING" ? (
+                <OrderActionButton
+                  title="Accept delivery order"
+                  label="Accept delivery order"
+                  className="border-sky-600 bg-sky-600 text-white hover:bg-sky-700"
+                  icon={<CheckCircle2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                  disabled={busy}
+                  onClick={() => onChangeStatus(order, "CONFIRMED")}
+                />
+              ) : null}
+              {order.status === "CONFIRMED" ? (
+                <OrderActionButton
+                  title="Assign rider"
+                  label="Assign rider"
+                  className="border-violet-600 bg-violet-600 text-white hover:bg-violet-700"
+                  icon={<Bike className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                  disabled={busy}
+                  onClick={() => onToggleRiderPicker(order.id)}
+                />
+              ) : null}
+              {order.status === "OUT_FOR_DELIVERY" ? (
+                <OrderActionButton
+                  title="Mark delivery complete"
+                  label="Mark delivery complete"
+                  className="border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
+                  icon={<CheckCircle2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                  disabled={busy}
+                  onClick={() => onChangeStatus(order, "DELIVERED")}
+                />
+              ) : null}
+              {riderPickerOrderId === order.id ? (
+                <button type="button" className="h-10 rounded-full border border-violet-300 bg-violet-50 px-3 text-[11px] font-bold text-violet-800 hover:bg-violet-100" disabled={busy} onClick={() => onDispatchDelivery(order)}>Zeeshan · WhatsApp</button>
+              ) : null}
+              <OrderActionButton
+                title="Cancel order"
+                label="Cancel"
+                className="border-red-500 bg-red-500 text-white hover:bg-red-600"
+                icon={<Trash2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                disabled={busy}
+                onClick={() => onChangeStatus(order, "CANCELLED")}
+              />
+              <OrderActionButton
+                title={isUnpaid ? "Mark paid" : "Mark unpaid"}
+                label={isUnpaid ? "Mark paid" : "Mark unpaid"}
+                className="border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
+                icon={<BadgeDollarSign className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                disabled={busy}
+                onClick={() => onTogglePaymentStatus(order)}
+              />
+            </div>
+          ) : (
           <div className={embedded ? "flex items-center justify-end gap-1" : "flex items-center justify-end gap-1"}>
             <OrderActionButton
               title="Edit order"
@@ -281,6 +346,7 @@ function CompactOrderCard({
               onClick={() => onTogglePaymentStatus(order)}
             />
           </div>
+          )
         ) : (
           <p className="text-right text-[11px] text-slate-500">Completed orders are read-only.</p>
         )}
@@ -298,6 +364,9 @@ function OrderSection({
   onEdit,
   onDelete,
   onDetails,
+  onDispatchDelivery,
+  riderPickerOrderId,
+  onToggleRiderPicker,
   embedded,
   busy,
   mutedOrderId,
@@ -311,11 +380,14 @@ function OrderSection({
   mutedOrderId: string;
   exitingOrderIds: string[];
   emptyText: string;
-  onChangeStatus: (order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
+  onChangeStatus: (order: AdminOrder, status: "CONFIRMED" | "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
   onTogglePaymentStatus: (order: AdminOrder) => void;
   onEdit: (order: AdminOrder) => void;
   onDelete: (order: AdminOrder) => void;
   onDetails: (order: AdminOrder) => void;
+  onDispatchDelivery: (order: AdminOrder) => void;
+  riderPickerOrderId: string;
+  onToggleRiderPicker: (orderId: string) => void;
   embedded?: boolean;
 }) {
   return (
@@ -340,6 +412,9 @@ function OrderSection({
               onEdit={onEdit}
               onDelete={onDelete}
               onDetails={onDetails}
+              onDispatchDelivery={onDispatchDelivery}
+              riderPickerOrderId={riderPickerOrderId}
+              onToggleRiderPicker={onToggleRiderPicker}
               busy={busy && order.id === mutedOrderId}
               muted={busy && order.id !== mutedOrderId}
               exiting={exitingOrderIds.includes(order.id)}
@@ -385,6 +460,7 @@ function PosOrderQueueView({
   const [notice, setNotice] = useState("");
   const [updatingOrderId, setUpdatingOrderId] = useState("");
   const [exitingOrderIds, setExitingOrderIds] = useState<string[]>([]);
+  const [riderPickerOrderId, setRiderPickerOrderId] = useState("");
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, AdminOrder["status"]>>({});
   const [pendingPaymentStatuses, setPendingPaymentStatuses] = useState<Record<string, AdminOrder["paymentStatus"]>>({});
   const [refreshTimer, setRefreshTimer] = useState<number | null>(null);
@@ -564,7 +640,7 @@ function PosOrderQueueView({
     };
   }, [orders, pendingStatuses, pendingPaymentStatuses, exitingOrderIds]);
 
-  async function changeStatus(order: AdminOrder, status: "DELIVERED" | "CANCELLED" | "WATCH_LATER") {
+  async function changeStatus(order: AdminOrder, status: "CONFIRMED" | "DELIVERED" | "CANCELLED" | "WATCH_LATER") {
     setUpdatingOrderId(order.id);
     setError("");
     setNotice("");
@@ -602,6 +678,30 @@ function PosOrderQueueView({
     }
   }
 
+  async function dispatchDelivery(order: AdminOrder) {
+    const whatsappWindow = window.open("", "_blank");
+    setUpdatingOrderId(order.id);
+    setError("");
+    setNotice("");
+    try {
+      const result = await dispatchPosDeliveryOrder(order.id);
+      if (whatsappWindow) {
+        whatsappWindow.location.assign(result.whatsappUrl);
+      } else {
+        window.location.assign(result.whatsappUrl);
+      }
+      setPendingStatuses((current) => ({ ...current, [order.id]: "OUT_FOR_DELIVERY" }));
+      setRiderPickerOrderId("");
+      setNotice(`${order.orderNumber} dispatched to Zeeshan.`);
+      broadcastQueueRefresh();
+      scheduleRefresh(scope);
+    } catch (dispatchError) {
+      whatsappWindow?.close();
+      setError(dispatchError instanceof Error ? dispatchError.message : "Failed to assign the delivery rider.");
+      setUpdatingOrderId("");
+    }
+  }
+
   async function togglePaymentStatus(order: AdminOrder) {
     const nextStatus = order.paymentStatus === "PAID" ? "PENDING" : "PAID";
     const resolvedNextStatus = order.paymentStatus === "UNSET" ? "PENDING" : nextStatus;
@@ -634,7 +734,7 @@ function PosOrderQueueView({
   }
 
   async function markAllCompleted() {
-    const activeOrderIds = derived.activeOrders.map((order) => order.id);
+    const activeOrderIds = derived.activeOrders.filter((order) => order.serviceType !== "DELIVERY").map((order) => order.id);
     if (!activeOrderIds.length) return;
 
     setUpdatingOrderId("__bulk__");
@@ -728,7 +828,7 @@ function PosOrderQueueView({
     <div className={embedded ? "flex h-full min-h-0 flex-col gap-2 overflow-y-auto pr-1" : "space-y-2.5"}>
       <div className={embedded ? "flex items-start justify-between gap-2 rounded-3xl border border-white/10 bg-white/90 p-2 text-slate-900 shadow-sm" : "flex flex-col gap-2 rounded-3xl border border-white/10 bg-white/90 p-2.5 text-slate-900 shadow-sm lg:flex-row lg:items-center lg:justify-between"}>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-600">Counter Orders</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-orange-600">Orders & delivery</p>
           <h2 className={embedded ? "mt-0.5 text-[1.2rem] font-black leading-none" : "mt-0.5 text-[1.55rem] font-black leading-none"}>Queue Board</h2>
           <p className={embedded ? "mt-1 text-[10px] text-slate-500" : "mt-1 text-[11px] text-slate-500"}>
             {todayOnly ? `${derived.todayOrders.length} orders in this business day.` : `${derived.queuedCount} active orders today, ${derived.watchLaterOrders.length} watch later, ${derived.deliveredOrders.length} completed.`}
@@ -841,6 +941,9 @@ function PosOrderQueueView({
             onEdit={openEdit}
             onDelete={deleteOrder}
             onDetails={openDetails}
+            onDispatchDelivery={dispatchDelivery}
+            riderPickerOrderId={riderPickerOrderId}
+            onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No orders have been punched in this business day."
           />
         ) : null}
@@ -858,6 +961,9 @@ function PosOrderQueueView({
             onEdit={openEdit}
             onDelete={deleteOrder}
             onDetails={openDetails}
+            onDispatchDelivery={dispatchDelivery}
+            riderPickerOrderId={riderPickerOrderId}
+            onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No active orders match the current filter."
           />
         ) : null}
@@ -876,6 +982,9 @@ function PosOrderQueueView({
             onEdit={openEdit}
             onDelete={deleteOrder}
             onDetails={openDetails}
+            onDispatchDelivery={dispatchDelivery}
+            riderPickerOrderId={riderPickerOrderId}
+            onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No watch later orders yet."
           />
         ) : null}
@@ -894,6 +1003,9 @@ function PosOrderQueueView({
             onEdit={openEdit}
             onDelete={deleteOrder}
             onDetails={openDetails}
+            onDispatchDelivery={dispatchDelivery}
+            riderPickerOrderId={riderPickerOrderId}
+            onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No completed orders match the current filter."
           />
         ) : null}
@@ -911,6 +1023,9 @@ function PosOrderQueueView({
             onEdit={openEdit}
             onDelete={deleteOrder}
             onDetails={openDetails}
+            onDispatchDelivery={dispatchDelivery}
+            riderPickerOrderId={riderPickerOrderId}
+            onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No unpaid orders match the current filter."
           />
         ) : null}

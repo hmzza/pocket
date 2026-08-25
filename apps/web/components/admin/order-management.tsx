@@ -87,6 +87,7 @@ function OrderDetails({ order }: { order: AdminOrder }) {
             Foodpanda order: {order.foodpandaOrderNumber ?? "null"}
           </p>
           <p className="mt-2 text-sm text-pocket-navy/60">Channel: {order.channel.replaceAll("_", " ")}</p>
+          <p className="text-sm text-pocket-navy/60">Placed by: {order.channel === "POS" ? order.cashierName ?? order.cashierUsername ?? "staff account" : "Website customer"}</p>
           <p className="text-sm text-pocket-navy/60">Service: {formatServiceType(order.serviceType)}</p>
           <p className="text-sm text-pocket-navy/60">Paid: {formatCurrency(order.paidAmount)}</p>
           <p className="text-sm text-pocket-navy/60">Change: {formatCurrency(order.changeDueAmount)}</p>
@@ -103,6 +104,9 @@ function OrderDetails({ order }: { order: AdminOrder }) {
             <p className="mt-2 text-sm text-pocket-navy/60">No address attached.</p>
           )}
           {order.deliveryInstructions ? <p className="mt-2 text-sm text-pocket-navy/60">Order note: {order.deliveryInstructions}</p> : null}
+          {order.deliverySubsector ?? order.deliverySector ? <p className="mt-2 text-sm text-pocket-navy/60">Sector: {order.deliverySubsector ?? order.deliverySector}</p> : null}
+          {order.acceptedByName ? <p className="text-sm text-pocket-navy/60">Accepted by: {order.acceptedByName}</p> : null}
+          {order.dispatchedByName ? <p className="text-sm text-pocket-navy/60">Dispatched by: {order.dispatchedByName}</p> : null}
         </div>
       </div>
 
@@ -360,6 +364,7 @@ export function OrderManagement() {
                     <p className="font-bold text-pocket-navy">{order.orderNumber}</p>
                     <p className="text-pocket-navy/60">{order.branch}</p>
                     <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-pocket-orange">{order.channel.replaceAll("_", " ")}</p>
+                    <p className="mt-1 text-xs text-pocket-navy/55">{order.channel === "POS" ? `Placed by ${order.cashierName ?? order.cashierUsername ?? "staff"}` : "Placed via website"}</p>
                     <p className="mt-1 text-xs font-medium uppercase tracking-wide text-pocket-navy/40">
                       {new Intl.DateTimeFormat("en-PK", {
                         timeZone: "Asia/Karachi",
@@ -400,9 +405,9 @@ export function OrderManagement() {
                       size="sm"
                       variant="ghost"
                       className="h-8 w-8 px-0"
-                      disabled={order.channel !== "POS"}
+                      disabled={order.channel !== "POS" || order.serviceType === "DELIVERY"}
                       onClick={() => router.push(`/pos?orderNumber=${encodeURIComponent(order.orderNumber)}`)}
-                      title={order.channel !== "POS" ? "Only POS orders can be edited" : "Edit order"}
+                      title={order.channel !== "POS" ? "Only POS orders can be edited" : order.serviceType === "DELIVERY" ? "Edit delivery details from the delivery workflow" : "Edit order"}
                     >
                       <PencilLine className="h-4 w-4" />
                       <span className="sr-only">Edit order</span>

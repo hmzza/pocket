@@ -119,7 +119,7 @@ export type TrackedOrder = {
 };
 
 export type AdminRangePreset = "today" | "7d" | "30d" | "month" | "year" | "custom";
-export type AdminOrderSegment = "all" | "inshop" | "foodpanda";
+export type AdminOrderSegment = "all" | "inshop" | "foodpanda" | "delivery";
 
 export type DashboardData = {
   range: {
@@ -783,8 +783,18 @@ export type AdminOrder = {
   cashierName?: string | null;
   placedAt: string;
   deliveryInstructions?: string;
+  deliverySector?: string | null;
+  deliverySubsector?: string | null;
+  riderName?: string | null;
+  riderPhone?: string | null;
+  riderAssignedAt?: string | null;
+  acceptedByName?: string | null;
+  acceptedAt?: string | null;
+  dispatchedByName?: string | null;
+  dispatchedAt?: string | null;
   address?: {
     addressLine1: string;
+    addressLine2?: string;
     city: string;
     instructions?: string;
   };

@@ -8,6 +8,8 @@ import { applyOrderInventory } from "../lib/inventory.js";
 import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
+import { dispatchDeliveryOrder } from "../lib/delivery.js";
+import { clearStaffDeliveryPush } from "../lib/delivery-push.js";
 
 const router = Router();
 
@@ -54,9 +56,19 @@ function serializeOrder(order: any) {
     cashierName: order.cashier?.name ?? null,
     placedAt: order.placedAt,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
+    deliverySector: order.deliverySector ?? undefined,
+    deliverySubsector: order.deliverySubsector ?? undefined,
+    riderName: order.riderName ?? undefined,
+    riderPhone: order.riderPhone ?? undefined,
+    riderAssignedAt: order.riderAssignedAt ?? undefined,
+    acceptedByName: order.acceptedBy?.name ?? order.acceptedBy?.username ?? null,
+    acceptedAt: order.acceptedAt ?? null,
+    dispatchedByName: order.dispatchedBy?.name ?? order.dispatchedBy?.username ?? null,
+    dispatchedAt: order.dispatchedAt ?? null,
     address: order.address
       ? {
           addressLine1: order.address.addressLine1,
+          addressLine2: order.address.addressLine2 ?? undefined,
           city: order.address.city,
           instructions: order.address.instructions ?? undefined
         }
@@ -136,7 +148,9 @@ router.get("/orders", async (req, res, next) => {
         },
         branch: { select: { name: true } },
         cashier: { select: { username: true, name: true } },
-        address: { select: { addressLine1: true, city: true, instructions: true } },
+        acceptedBy: { select: { username: true, name: true } },
+        dispatchedBy: { select: { username: true, name: true } },
+        address: { select: { addressLine1: true, addressLine2: true, city: true, instructions: true } },
         items: {
           select: {
             id: true,
@@ -169,7 +183,15 @@ router.patch("/orders/:id/status", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const order = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
-        where: { id: req.params.id }
+        where: { id: req.params.id },
+        include: {
+          items: {
+            include: {
+              addOns: true,
+              bundleComponents: true
+            }
+          }
+        }
       });
 
       if (!currentOrder) {
@@ -183,11 +205,28 @@ router.patch("/orders/:id/status", async (req, res, next) => {
         throw Object.assign(new Error("Terminal order statuses cannot be changed."), { statusCode: 409 });
       }
 
+      if (currentOrder.status !== OrderStatus.CANCELLED && payload.status === OrderStatus.CANCELLED) {
+        await applyOrderInventory({
+          transaction,
+          branchId: currentOrder.branchId,
+          orderId: currentOrder.id,
+          actorId: req.user!.id,
+          items: currentOrder.items,
+          mode: "return",
+          serviceType: currentOrder.serviceType
+        });
+      }
+
       return transaction.order.update({
         where: { id: req.params.id },
-        data: { status: payload.status }
+        data: {
+          status: payload.status,
+          ...(currentOrder.serviceType === "DELIVERY" && currentOrder.status === OrderStatus.PENDING && payload.status === OrderStatus.CONFIRMED
+            ? { acceptedById: req.user!.id, acceptedAt: new Date() }
+            : {})
+        }
       });
-    });
+    }, INVENTORY_TRANSACTION_OPTIONS);
 
     if (order.customerId) {
       await prisma.notification.create({
@@ -208,6 +247,10 @@ router.patch("/orders/:id/status", async (req, res, next) => {
       entityId: order.id,
       payload
     });
+
+    if (order.serviceType === "DELIVERY" && payload.status !== OrderStatus.PENDING) {
+      void clearStaffDeliveryPush(order.id).catch((pushError) => console.error("Failed to clear delivery push notification", pushError));
+    }
 
     return res.json({ order });
   } catch (error) {
@@ -240,6 +283,41 @@ router.patch("/orders/:id/payment-status", async (req, res, next) => {
     });
 
     return res.json({ order });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/orders/:id/dispatch", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const { order, whatsappUrl } = await dispatchDeliveryOrder({
+      orderId: req.params.id,
+      branchId: branchContext.branchId,
+      actorId: req.user!.id
+    });
+
+    if (order.customerId) {
+      await prisma.notification.create({
+        data: {
+          userId: order.customerId,
+          type: "ORDER",
+          title: "Order is on the way",
+          message: `${order.orderNumber} has been assigned to the delivery rider.`,
+          metadata: { orderNumber: order.orderNumber, status: order.status, rider: order.riderName }
+        }
+      });
+    }
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "delivery.dispatch",
+      entityType: "order",
+      entityId: order.id,
+      payload: { orderNumber: order.orderNumber, riderName: order.riderName }
+    });
+
+    return res.json({ order, whatsappUrl });
   } catch (error) {
     return next(error);
   }
