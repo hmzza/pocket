@@ -48,15 +48,19 @@ export function Header() {
             ))}
           </nav>
 
-          <Link href="/search" className="hidden md:inline-flex">
-            <Button variant="ghost" size="sm" className="h-8 w-8 px-0">
-              <Search className="h-3.5 w-3.5" />
-            </Button>
+          <Link
+            href="/search"
+            aria-label="Search"
+            className="hidden h-8 w-8 items-center justify-center rounded-md text-pocket-navy transition-colors hover:bg-pocket-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pocket-orange focus-visible:ring-offset-2 md:inline-flex"
+          >
+            <Search className="h-3.5 w-3.5" />
           </Link>
-          <Link href="/cart" className="relative inline-flex">
-            <Button variant="ghost" size="sm" className="h-8 w-8 px-0">
-              <ShoppingBag className="h-3.5 w-3.5" />
-            </Button>
+          <Link
+            href="/cart"
+            aria-label={`View cart${cartCount ? `, ${cartCount} item${cartCount === 1 ? "" : "s"}` : ""}`}
+            className="relative inline-flex h-8 w-8 items-center justify-center rounded-md text-pocket-navy transition-colors hover:bg-pocket-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pocket-orange focus-visible:ring-offset-2"
+          >
+            <ShoppingBag className="h-3.5 w-3.5" />
             {cartCount > 0 ? (
               <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-pocket-orange px-1 text-[9px] font-bold text-white">
                 {cartCount}
