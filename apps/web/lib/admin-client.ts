@@ -421,7 +421,7 @@ export async function fetchAdminOrders(params?: {
   return orders;
 }
 
-export async function updateAdminDeliveryStatus(orderId: string, status: "CONFIRMED" | "DELIVERED" | "CANCELLED") {
+export async function updateAdminDeliveryStatus(orderId: string, status: "CONFIRMED" | "READY" | "DELIVERED" | "CANCELLED") {
   return adminFetch<{ order: { id: string; status: string } }>(`/api/admin/orders/${orderId}/status`, {
     method: "PATCH",
     body: JSON.stringify({ status })

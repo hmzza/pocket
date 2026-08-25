@@ -151,7 +151,7 @@ function CompactOrderCard({
   const isPaid = order.paymentStatus === "PAID";
   const isUnpaid = order.paymentStatus === "PENDING";
   const isDelivery = order.serviceType === "DELIVERY";
-  const canSendDeliveryUpdate = order.status === "CONFIRMED" || order.status === "OUT_FOR_DELIVERY";
+  const canSendDeliveryUpdate = order.status === "CONFIRMED" || order.status === "READY" || order.status === "OUT_FOR_DELIVERY";
   const labelText = isDelivery ? "text-blue-100" : "text-orange-600";
   const primaryText = isDelivery ? "text-white" : "text-slate-900";
   const mutedText = isDelivery ? "text-blue-100" : "text-slate-500";

@@ -86,8 +86,12 @@ export async function dispatchDeliveryOrder(input: { orderId: string; branchId: 
     if (currentOrder.serviceType !== ServiceType.DELIVERY) {
       throw Object.assign(new Error("Only delivery orders can be assigned to a rider."), { statusCode: 400 });
     }
-    if (currentOrder.status !== OrderStatus.CONFIRMED && currentOrder.status !== OrderStatus.OUT_FOR_DELIVERY) {
-      throw Object.assign(new Error("Accept this order before assigning it to a rider."), { statusCode: 409 });
+    if (
+      currentOrder.status !== OrderStatus.CONFIRMED &&
+      currentOrder.status !== OrderStatus.READY &&
+      currentOrder.status !== OrderStatus.OUT_FOR_DELIVERY
+    ) {
+      throw Object.assign(new Error("Accept or prepare this order before assigning it to a rider."), { statusCode: 409 });
     }
 
     const rider = await transaction.deliveryRider.findFirst({
@@ -101,7 +105,7 @@ export async function dispatchDeliveryOrder(input: { orderId: string; branchId: 
     const order = await transaction.order.update({
       where: { id: currentOrder.id },
       data: {
-        status: currentOrder.status === OrderStatus.CONFIRMED ? OrderStatus.OUT_FOR_DELIVERY : currentOrder.status,
+        status: currentOrder.status === OrderStatus.OUT_FOR_DELIVERY ? currentOrder.status : OrderStatus.OUT_FOR_DELIVERY,
         riderName: rider.name,
         riderPhone: rider.phone,
         riderAssignedAt: new Date(),
