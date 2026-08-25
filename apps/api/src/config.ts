@@ -4,12 +4,14 @@ import dotenv from "dotenv";
 import { z } from "zod";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+const defaultTrustProxyHops = process.env.NODE_ENV === "production" ? 1 : 0;
 
 dotenv.config({ path: path.resolve(currentDirectory, "../../../.env") });
 dotenv.config();
 
 const envSchema = z.object({
   API_PORT: z.coerce.number().default(4000),
+  TRUST_PROXY: z.coerce.number().int().min(0).max(3).default(defaultTrustProxyHops),
   DATABASE_URL: z.string().min(1),
   WEB_URL: z.string().url().default("http://localhost:3000"),
   WEB_ORIGINS: z.string().optional(),

@@ -23,6 +23,11 @@ export function createApp() {
   const app = express();
   const allowedOrigins = new Set(env.WEB_ORIGINS);
 
+  // The public site proxies /api requests through Next.js in production. Trust
+  // that immediate proxy so the limiter uses the visitor's forwarded address,
+  // rather than treating every customer and staff member as one local address.
+  app.set("trust proxy", env.TRUST_PROXY);
+
   app.use(
     cors({
       origin: (origin, callback) => {
@@ -43,9 +48,13 @@ export function createApp() {
   app.use(
     rateLimit({
       windowMs: 15 * 60 * 1000,
-      max: 500,
+      limit: 3_000,
       standardHeaders: true,
-      legacyHeaders: false
+      legacyHeaders: false,
+      // Sign-in requests have their own failed-attempt limiter below. Keeping
+      // them out of this broad API limit prevents normal staff sign-ins from
+      // being blocked by high public storefront traffic.
+      skip: (req) => req.path.startsWith("/api/auth/")
     })
   );
   app.use(morgan("dev"));

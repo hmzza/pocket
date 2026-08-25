@@ -1,4 +1,5 @@
 import { Router, type Response } from "express";
+import rateLimit from "express-rate-limit";
 import { RoleCode } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
@@ -9,6 +10,17 @@ import { getAccessibleBranchesForUser } from "../lib/branch-context.js";
 import { getEffectivePermissionKeys, PERMISSION_DEFINITIONS } from "../lib/permissions.js";
 
 const router = Router();
+
+const signInRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Valid logins never consume a failed-attempt slot. This retains brute-force
+  // protection without locking normal staff out after routine use.
+  skipSuccessfulRequests: true,
+  message: { message: "Too many unsuccessful sign-in attempts. Please wait 15 minutes, then try again." }
+});
 
 const registerSchema = z.object({
   name: z.string().min(2).max(80),
@@ -144,7 +156,7 @@ async function buildAuthResponse(user: AuthenticatedUser) {
   };
 }
 
-router.post("/login", async (req, res, next) => {
+router.post("/login", signInRateLimit, async (req, res, next) => {
   try {
     const payload = loginSchema.parse(req.body);
     const user = await authenticateCredentialsByEmail(payload.email, payload.password);
@@ -164,7 +176,7 @@ router.post("/login", async (req, res, next) => {
   }
 });
 
-router.post("/admin-login", async (req, res, next) => {
+router.post("/admin-login", signInRateLimit, async (req, res, next) => {
   try {
     const payload = staffLoginSchema.parse(req.body);
     const user = await authenticateCredentialsByUsername(payload.username, payload.password);
@@ -185,7 +197,7 @@ router.post("/admin-login", async (req, res, next) => {
   }
 });
 
-router.post("/pos-login", async (req, res, next) => {
+router.post("/pos-login", signInRateLimit, async (req, res, next) => {
   try {
     const payload = staffLoginSchema.parse(req.body);
     const user = await authenticateCredentialsByUsername(payload.username, payload.password);
