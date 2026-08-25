@@ -23,13 +23,22 @@ cd "$REPO_DIR"
 PREV_SHA="$(git rev-parse HEAD)"
 echo "==> Deploying $APP ($WORKSPACE) to $SHA   (previous: $PREV_SHA)"
 
-# Defense-in-depth: refuse to deploy if the required env file is missing/invalid,
-# so a bad env can never take a healthy app down. (The workflow writes these.)
+# Deployment secrets live outside the Git checkout. This prevents `git reset --hard`
+# from deleting them when an environment file changes from tracked to ignored.
 if [ "$APP" = "pocket-api" ]; then
-  { [ -s .env ] && grep -q '^DATABASE_URL=' .env; } || { echo "FATAL: /home/ubuntu/pocket/.env missing or has no DATABASE_URL — aborting, app left running"; exit 1; }
+  ENV_SOURCE="/home/ubuntu/.pocket-api.env"
+  ENV_TARGET=".env"
+  ENV_REQUIRED_KEY='^DATABASE_URL='
 else
-  { [ -s apps/web/.env.production ] && grep -q 'NEXT_PUBLIC_API_URL=' apps/web/.env.production; } || { echo "FATAL: apps/web/.env.production missing or has no NEXT_PUBLIC_API_URL — aborting"; exit 1; }
+  ENV_SOURCE="/home/ubuntu/.pocket-web.env"
+  ENV_TARGET="apps/web/.env.production"
+  ENV_REQUIRED_KEY='^NEXT_PUBLIC_API_URL='
 fi
+
+restore_env() {
+  { [ -s "$ENV_SOURCE" ] && grep -q "$ENV_REQUIRED_KEY" "$ENV_SOURCE"; } || { echo "FATAL: $ENV_SOURCE is missing or has no required environment value — aborting, app left running"; exit 1; }
+  install -m 600 "$ENV_SOURCE" "$ENV_TARGET"
+}
 
 reload_app() {
   if [ -f ecosystem.config.js ]; then
@@ -42,13 +51,14 @@ reload_app() {
 }
 
 build_and_reload() {
-  npm ci --no-audit --no-fund
+  restore_env
+  npm ci --no-audit --no-fund || return 1
   if [ "$APP" = "pocket-api" ]; then
-    npx prisma generate
-    npx prisma migrate deploy
+    npx prisma generate || return 1
+    npx prisma migrate deploy || return 1
   fi
-  npm run build --workspace "$WORKSPACE"
-  reload_app
+  npm run build --workspace "$WORKSPACE" || return 1
+  reload_app || return 1
 }
 
 health_check() {
@@ -62,6 +72,7 @@ health_check() {
 
 git fetch --all --prune --quiet
 git reset --hard "$SHA"
+restore_env
 
 if build_and_reload && health_check; then
   echo "==> $APP deployed successfully at $SHA"
@@ -71,6 +82,7 @@ fi
 echo "!!! Health check FAILED — rolling CODE back to $PREV_SHA"
 echo "!!! WARNING: any DB migration that already applied is NOT reverted; review manually."
 git reset --hard "$PREV_SHA"
+restore_env
 build_and_reload
 health_check && echo "==> Rolled back to $PREV_SHA" || echo "!!! Rollback health check also failing — manual intervention needed"
 exit 1

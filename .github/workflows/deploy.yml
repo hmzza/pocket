@@ -52,16 +52,16 @@ jobs:
           install -m600 /dev/null ~/.ssh/id_deploy
           printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
           printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-      - name: Sync .env from secret
+      - name: Sync backend environment from secret
         env:
           API_ENV: ${{ secrets.API_ENV }}
         run: |
-          # Guard: never overwrite the live .env with an empty/invalid secret.
+          # Keep deploy secrets outside the Git checkout, which is reset during deploys.
           if [ -z "$API_ENV" ] || ! printf '%s' "$API_ENV" | grep -q '^DATABASE_URL='; then
-            echo "::error::API_ENV secret is empty or missing DATABASE_URL — aborting (server .env left untouched)"
+            echo "::error::API_ENV secret is empty or missing DATABASE_URL — aborting"
             exit 1
           fi
-          printf '%s' "$API_ENV" | ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}" 'cat > /home/ubuntu/pocket/.env'
+          printf '%s' "$API_ENV" | ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}" 'umask 077; cat > /home/ubuntu/.pocket-api.env'
       - name: Deploy
         run: ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}" 'bash -s -- pocket-api @pocket/api ${{ github.sha }}' < scripts/deploy.sh
 
@@ -78,15 +78,15 @@ jobs:
           install -m600 /dev/null ~/.ssh/id_deploy
           printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_deploy
           printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-      - name: Sync .env from secret
+      - name: Sync frontend environment from secret
         env:
           WEB_ENV: ${{ secrets.WEB_ENV }}
         run: |
-          # Guard: never overwrite the live env with an empty/invalid secret.
+          # Keep deploy secrets outside the Git checkout, which is reset during deploys.
           if [ -z "$WEB_ENV" ] || ! printf '%s' "$WEB_ENV" | grep -q 'NEXT_PUBLIC_API_URL='; then
-            echo "::error::WEB_ENV secret is empty or missing NEXT_PUBLIC_API_URL — aborting (server env left untouched)"
+            echo "::error::WEB_ENV secret is empty or missing NEXT_PUBLIC_API_URL — aborting"
             exit 1
           fi
-          printf '%s' "$WEB_ENV" | ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}" 'cat > /home/ubuntu/pocket/apps/web/.env.production'
+          printf '%s' "$WEB_ENV" | ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}" 'umask 077; cat > /home/ubuntu/.pocket-web.env'
       - name: Deploy
         run: ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}" 'bash -s -- pocket-web @pocket/web ${{ github.sha }}' < scripts/deploy.sh
