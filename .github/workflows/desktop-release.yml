@@ -91,6 +91,7 @@ jobs:
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: desktop-v${{ inputs.version || github.run_number }}
           RELEASE_TITLE: Pocket Desktop ${{ inputs.version || github.run_number }}
         run: |
