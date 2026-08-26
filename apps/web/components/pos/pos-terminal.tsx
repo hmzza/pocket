@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { PosOrderQueue } from "@/components/pos/order-queue";
 import { PosToolbar } from "@/components/pos/pos-toolbar";
+import { DesktopPrinterSettings } from "@/components/pos/desktop-printer-settings";
 import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
@@ -882,8 +883,17 @@ export function PosTerminal() {
     setError("");
   }
 
-  function printReceipt(copy: "all" | "chef" | "store" | "store-chef" = "all") {
+  async function printReceipt(copy: "all" | "chef" | "store" | "store-chef" = "all") {
     if (!lastReceiptOrderId) {
+      return;
+    }
+
+    if (window.pocketDesktop) {
+      try {
+        await window.pocketDesktop.printReceipt({ orderId: lastReceiptOrderId, copy });
+      } catch (printError) {
+        setError(printError instanceof Error ? printError.message : "Unable to print the receipt.");
+      }
       return;
     }
 
@@ -1242,13 +1252,13 @@ export function PosTerminal() {
 
             {lastReceiptOrderId && (orderCompleted || editingCompletedOrder) ? (
               <div className="mt-2 grid grid-cols-2 gap-1.5">
-                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => printReceipt("store-chef")} type="button">
+                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => void printReceipt("store-chef")} type="button">
                   Print Receipt
                 </Button>
-                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => printReceipt("chef")} type="button">
+                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => void printReceipt("chef")} type="button">
                   Print Chef
                 </Button>
-                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => printReceipt("store")} type="button">
+                <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={() => void printReceipt("store")} type="button">
                   Print Store
                 </Button>
                 <Button className={splitView ? "h-7 rounded-2xl text-[10px]" : "h-8 rounded-2xl text-[11px]"} variant="outline" onClick={sendReceipt} type="button">
@@ -1445,6 +1455,7 @@ export function PosTerminal() {
           </Card>
         </div>
       ) : null}
+      <DesktopPrinterSettings />
     </div>
   );
 }

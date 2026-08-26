@@ -277,6 +277,7 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
   const [order, setOrder] = useState<PosReceiptOrder | null>(null);
   const [error, setError] = useState("");
   const autoPrint = searchParams.get("autoPrint") === "1";
+  const desktopPrint = searchParams.get("desktopPrint") === "1";
   const printedRef = useRef(false);
   const mode = (searchParams.get("copy") as ReceiptMode | null) ?? "customer";
 
@@ -345,8 +346,30 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
   const copy = mode === "store" ? "store" : "customer";
   const copyLabel = copy === "store" ? "Store Copy" : "Customer Copy";
 
+  async function printReceipt() {
+    try {
+      if (window.pocketDesktop) {
+        await window.pocketDesktop.printCurrentReceipt();
+      } else {
+        window.print();
+      }
+    } catch (printError) {
+      setError(printError instanceof Error ? printError.message : "Unable to print the receipt.");
+    }
+  }
+
   useEffect(() => {
-    if (!autoPrint || !order || !receiptMeta || printedRef.current) {
+    if (!desktopPrint || !order || !receiptMeta || printedRef.current) {
+      return;
+    }
+
+    printedRef.current = true;
+    const timer = window.setTimeout(() => window.pocketDesktop?.receiptReady(), 100);
+    return () => window.clearTimeout(timer);
+  }, [desktopPrint, order, receiptMeta]);
+
+  useEffect(() => {
+    if (desktopPrint || !autoPrint || !order || !receiptMeta || printedRef.current) {
       return;
     }
 
@@ -364,7 +387,7 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [autoPrint, copy, isBundle, isChef, isStoreChef, order, orderId, receiptMeta]);
+  }, [autoPrint, copy, desktopPrint, isBundle, isChef, isStoreChef, order, orderId, receiptMeta]);
 
   if (error) {
     return <div className="mx-auto max-w-sm px-4 py-10 text-sm text-red-600">{error}</div>;
@@ -380,7 +403,7 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
         <div className="mb-3 flex justify-end gap-2 print:hidden">
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => void printReceipt()}
             className="rounded-md border border-black/20 bg-white px-3 py-2 text-xs font-semibold text-black"
           >
             Print

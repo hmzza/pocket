@@ -1,0 +1,94 @@
+name: Desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (for example 1.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows installers
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:build:pos
+      - run: npm run desktop:build:admin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            apps/desktop/release/pos/*.exe
+            apps/desktop/release/admin/*.exe
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS installers
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:build:pos:mac
+      - run: npm run desktop:build:admin:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-installers
+          path: |
+            apps/desktop/release/pos/*.dmg
+            apps/desktop/release/admin/*.dmg
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux installers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run desktop:build:pos:linux
+      - run: npm run desktop:build:admin:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-installers
+          path: |
+            apps/desktop/release/pos/*.AppImage
+            apps/desktop/release/admin/*.AppImage
+          if-no-files-found: error
+
+  publish:
+    name: Publish installers
+    needs: [build-windows, build-macos, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: desktop-v${{ inputs.version }}
+          RELEASE_TITLE: Pocket Desktop ${{ inputs.version }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* --title "$RELEASE_TITLE" --generate-notes --target "$GITHUB_SHA"
+          fi

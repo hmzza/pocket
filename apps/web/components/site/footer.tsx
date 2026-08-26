@@ -18,6 +18,7 @@ export function Footer() {
           <div className="flex flex-col gap-2 text-sm">
             <a href="/menu">Menu</a>
             <a href="/cart">Cart</a>
+            <a href="/desktop">Desktop Apps</a>
             <a href="/admin/login">Admin Login</a>
           </div>
         </div>

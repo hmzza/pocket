@@ -11,7 +11,8 @@ import { usePublicBranch } from "@/components/site/public-branch-provider";
 
 const links = [
   { href: "/", label: "Home" },
-  { href: "/menu", label: "Menu" }
+  { href: "/menu", label: "Menu" },
+  { href: "/desktop", label: "Desktop Apps" }
 ];
 
 export function Header() {
