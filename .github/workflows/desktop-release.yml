@@ -43,8 +43,8 @@ jobs:
           path: |
             apps/desktop/release/pos/*.exe
             apps/desktop/release/admin/*.exe
-            apps/desktop/release/pos/*.yml
-            apps/desktop/release/admin/*.yml
+            apps/desktop/release/pos/pos.yml
+            apps/desktop/release/admin/admin.yml
           if-no-files-found: error
 
   build-macos:
@@ -70,8 +70,8 @@ jobs:
             apps/desktop/release/admin/*.dmg
             apps/desktop/release/pos/*.zip
             apps/desktop/release/admin/*.zip
-            apps/desktop/release/pos/*.yml
-            apps/desktop/release/admin/*.yml
+            apps/desktop/release/pos/pos-mac.yml
+            apps/desktop/release/admin/admin-mac.yml
           if-no-files-found: error
 
   build-linux:
@@ -95,8 +95,8 @@ jobs:
           path: |
             apps/desktop/release/pos/*.AppImage
             apps/desktop/release/admin/*.AppImage
-            apps/desktop/release/pos/*.yml
-            apps/desktop/release/admin/*.yml
+            apps/desktop/release/pos/pos-linux.yml
+            apps/desktop/release/admin/admin-linux.yml
           if-no-files-found: error
 
   publish:
