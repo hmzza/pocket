@@ -12,6 +12,7 @@ import { useStore } from "@/components/store/store-provider";
 import { branch } from "@/lib/mock-data";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
+import { usePublicBranch } from "@/components/site/public-branch-provider";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 
@@ -27,6 +28,7 @@ const deliveryAreas = [
 
 export default function CheckoutPage() {
   const { cart, getCartProducts, clearCart } = useStore();
+  const { selectedBranch } = usePublicBranch();
   const { products, loading: catalogLoading, error: catalogError } = useLiveProducts();
   const [confirmedOrderNumber, setConfirmedOrderNumber] = useState("");
   const [confirmedTotal, setConfirmedTotal] = useState(0);
@@ -41,7 +43,6 @@ export default function CheckoutPage() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [addressLine1, setAddressLine1] = useState("");
-  const [addressLine2, setAddressLine2] = useState("");
   const [addressNotes, setAddressNotes] = useState("");
   const [deliveryInstructions, setDeliveryInstructions] = useState("");
 
@@ -70,7 +71,7 @@ export default function CheckoutPage() {
     setCouponLoading(true);
     setCouponMessage("");
     try {
-      const nextCoupon = await validateCouponCode(couponCode, subtotal);
+      const nextCoupon = await validateCouponCode(couponCode, subtotal, selectedBranch?.slug);
       setCouponCode(nextCoupon.code);
       setCouponDiscount(nextCoupon.discount);
       setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");
@@ -92,6 +93,10 @@ export default function CheckoutPage() {
       setError("Choose your delivery sector first. We only deliver to the sectors shown above.");
       return;
     }
+    if (!selectedBranch) {
+      setError("Choose an available branch before placing the order.");
+      return;
+    }
     if (!deliverySubsector) {
       setError("Choose your sub-sector before placing the order.");
       return;
@@ -105,7 +110,7 @@ export default function CheckoutPage() {
     try {
       let activeCouponCode: string | undefined;
       if (couponCode.trim()) {
-        const nextCoupon = await validateCouponCode(couponCode, subtotal);
+        const nextCoupon = await validateCouponCode(couponCode, subtotal, selectedBranch.slug);
         setCouponCode(nextCoupon.code);
         setCouponDiscount(nextCoupon.discount);
         setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");
@@ -117,11 +122,11 @@ export default function CheckoutPage() {
 
       const response = await fetch(`${API_URL}/api/checkout`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
         body: JSON.stringify({
           name: customerName.trim(),
           phone: customerPhone.trim(),
-          branchSlug: branch.slug,
+          branchSlug: selectedBranch.slug,
           paymentMethod: "CASH_ON_DELIVERY",
           deliverySector: selectedArea.sector,
           deliverySubsector,
@@ -130,7 +135,6 @@ export default function CheckoutPage() {
           address: {
             label: "Delivery",
             addressLine1: addressLine1.trim(),
-            addressLine2: addressLine2.trim() || undefined,
             city: "Islamabad",
             instructions: addressNotes.trim() || undefined
           },
@@ -190,7 +194,7 @@ export default function CheckoutPage() {
         <div className="space-y-6">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{selectedArea ? "Delivery checkout" : "Step 1 of 2"}</p>
-            <h1 className="text-4xl font-black text-pocket-navy">{selectedArea ? "A few details, then we&apos;ll take it from here." : "Which sector are you in?"}</h1>
+            <h1 className="text-4xl font-black text-pocket-navy">{selectedArea ? "A few details, then we'll take it from here." : "Which sector are you in?"}</h1>
           </div>
           {!selectedArea ? (
             <Card className="p-5">
@@ -217,8 +221,7 @@ export default function CheckoutPage() {
                   <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sub-sector</span><select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm" value={deliverySubsector} onChange={(event) => setDeliverySubsector(event.target.value)} required><option value="">Choose {selectedArea.sector} sub-sector</option>{deliverySubsectors.map((subsector) => <option key={subsector} value={subsector}>{subsector}</option>)}</select></label>
                   <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Full name" required />
                   <label className="relative"><MessageCircle className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-emerald-600" /><Input className="pl-9" type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="WhatsApp number (03xx xxxxxxx)" required /></label>
-                  <div className="md:col-span-2"><Input value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} placeholder="House / building, street and area" required /></div>
-                  <div className="md:col-span-2"><Input value={addressLine2} onChange={(event) => setAddressLine2(event.target.value)} placeholder="Landmark, floor or apartment (optional)" /></div>
+                  <div className="md:col-span-2"><Input value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} placeholder="House/building, floor, street and area" required /></div>
                   <div className="md:col-span-2"><Textarea value={addressNotes} onChange={(event) => setAddressNotes(event.target.value)} placeholder="Helpful location instructions (optional)" /></div>
                 </div>
               </Card>

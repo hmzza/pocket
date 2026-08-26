@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ChevronDown, Gift } from "lucide-react";
-import { fetchAdminIndependencePromotion, updateAdminIndependencePromotion } from "@/lib/admin-client";
+import { createAdminCoupon, fetchAdminCoupons, fetchAdminIndependencePromotion, updateAdminCoupon, updateAdminIndependencePromotion } from "@/lib/admin-client";
 import { Card } from "@/components/ui/card";
-import type { AdminPromotionData, PosPromotion, PromotionStats } from "@/lib/types";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import type { AdminCoupon, AdminPromotionData, PosPromotion, PromotionStats } from "@/lib/types";
 import { formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 
 const ranges = [
@@ -109,8 +111,99 @@ export function PromotionManagement() {
 
         {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={changeRange} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
       </Card>
+      <CouponManagement />
     </div>
   );
+}
+
+function CouponManagement() {
+  const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [code, setCode] = useState("");
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState<AdminCoupon["type"]>("PERCENTAGE");
+  const [value, setValue] = useState("");
+  const [minimum, setMinimum] = useState("");
+  const [usageLimit, setUsageLimit] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+
+  useEffect(() => {
+    void fetchAdminCoupons()
+      .then(setCoupons)
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load coupons."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      setSaving(true);
+      setError("");
+      const coupon = await createAdminCoupon({
+        code: code.trim().toUpperCase(),
+        title: title.trim(),
+        type,
+        value: Number(value),
+        ...(minimum ? { minOrderValue: Number(minimum) } : {}),
+        ...(usageLimit ? { usageLimit: Number(usageLimit) } : {}),
+        ...(expiresAt ? { expiresAt: new Date(expiresAt).toISOString() } : {}),
+        isActive: true
+      });
+      setCoupons((current) => [coupon, ...current]);
+      setCode("");
+      setTitle("");
+      setValue("");
+      setMinimum("");
+      setUsageLimit("");
+      setExpiresAt("");
+      setMessage("Coupon created for the selected branch.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not create coupon.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function toggle(coupon: AdminCoupon) {
+    try {
+      setError("");
+      const updated = await updateAdminCoupon(coupon.id, !coupon.isActive);
+      setCoupons((current) => current.map((entry) => entry.id === updated.id ? updated : entry));
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "Could not update coupon.");
+    }
+  }
+
+  return <Card className="p-5">
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Coupons</p>
+      <h2 className="mt-1 text-2xl font-black text-pocket-navy">Branch coupons</h2>
+      <p className="mt-2 text-sm text-pocket-navy/65">Coupons are created for the selected branch. Codes can be reused at another branch.</p>
+    </div>
+    {error ? <p className="mt-4 whitespace-pre-line text-sm font-semibold text-red-700">{error}</p> : null}
+    {message ? <p className="mt-4 text-sm font-semibold text-emerald-700">{message}</p> : null}
+    <form onSubmit={submit} className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Input value={code} onChange={(event) => setCode(event.target.value)} placeholder="Code" minLength={3} required />
+      <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Title" minLength={3} required />
+      <select value={type} onChange={(event) => setType(event.target.value as AdminCoupon["type"])} className="h-10 rounded-md border border-pocket-navy/15 bg-white px-3 text-sm text-pocket-navy"><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed amount</option></select>
+      <Input value={value} onChange={(event) => setValue(event.target.value)} type="number" min="0.01" step="0.01" placeholder="Value" required />
+      <Input value={minimum} onChange={(event) => setMinimum(event.target.value)} type="number" min="0" step="0.01" placeholder="Minimum order (optional)" />
+      <Input value={usageLimit} onChange={(event) => setUsageLimit(event.target.value)} type="number" min="1" step="1" placeholder="Usage limit (optional)" />
+      <Input value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} type="datetime-local" aria-label="Expiry (optional)" />
+      <Button type="submit" disabled={saving}>{saving ? "Adding..." : "Add coupon"}</Button>
+    </form>
+    <div className="mt-6 space-y-2">
+      {loading ? <p className="text-sm text-pocket-navy/60">Loading coupons...</p> : null}
+      {!loading && !coupons.length ? <p className="text-sm text-pocket-navy/60">No coupons for this branch yet.</p> : null}
+      {coupons.map((coupon) => <div key={coupon.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-pocket-navy/10 bg-pocket-cream/50 p-3">
+        <div className="min-w-0"><p className="font-black text-pocket-navy">{coupon.code} <span className="font-normal text-pocket-navy/60">{coupon.title}</span></p><p className="text-xs text-pocket-navy/60">{coupon.type === "PERCENTAGE" ? `${coupon.value}% off` : `Rs ${coupon.value} off`} · Used {coupon.usedCount}{coupon.usageLimit ? ` / ${coupon.usageLimit}` : ""}{coupon.expiresAt ? ` · Expires ${new Date(coupon.expiresAt).toLocaleDateString("en-PK")}` : ""}</p></div>
+        <button type="button" onClick={() => void toggle(coupon)} className={`rounded-full px-3 py-1.5 text-xs font-bold ${coupon.isActive ? "bg-emerald-100 text-emerald-800" : "bg-pocket-navy/10 text-pocket-navy/70"}`}>{coupon.isActive ? "Active" : "Inactive"}</button>
+      </div>)}
+    </div>
+  </Card>;
 }
 
 function PromotionStatsPanel({ stats, range, customDate, statsLoading, statsError, onRangeChange, onDateChange, onApplyCustom }: {

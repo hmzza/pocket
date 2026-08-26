@@ -217,6 +217,7 @@ model Branch {
   loans          Loan[]
   loanRepayments LoanRepayment[]
   investmentPayments InvestmentPayment[]
+  coupons          Coupon[]
   userAccesses   UserBranchAccess[]
 }
 
@@ -394,7 +395,8 @@ model CartItem {
 
 model Coupon {
   id            String       @id @default(cuid())
-  code          String       @unique
+  branchId      String
+  code          String
   title         String
   description   String?
   type          DiscountType
@@ -406,7 +408,11 @@ model Coupon {
   isActive      Boolean      @default(true)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
+  branch        Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
   orders        Order[]
+
+  @@unique([branchId, code])
+  @@index([branchId, isActive])
 }
 
 model Order {

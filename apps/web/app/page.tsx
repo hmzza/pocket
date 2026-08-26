@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getHomeData } from "@/lib/api";
 
-export default async function HomePage() {
-  const data = await getHomeData();
+export default async function HomePage({ searchParams }: { searchParams: { branch?: string } }) {
+  const data = await getHomeData(searchParams.branch);
+  const branchQuery = data.branch?.slug ? `?branch=${encodeURIComponent(data.branch.slug)}` : "";
   const testimonials = [...data.customerReviews, ...data.testimonials].slice(0, 6);
 
   return (
@@ -24,13 +25,13 @@ export default async function HomePage() {
               <p className="max-w-xl text-base leading-7 text-pocket-navy/75 md:text-lg">{data.hero.description}</p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Link href="/menu">
+              <Link href={`/menu${branchQuery}`}>
                 <Button size="lg">
                   Order Now
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
-              <Link href="/menu">
+              <Link href={`/menu${branchQuery}`}>
                 <Button variant="outline" size="lg">
                   View Menu
                 </Button>
@@ -43,7 +44,7 @@ export default async function HomePage() {
               </div>
               <div className="rounded-lg border border-pocket-navy/10 bg-white p-4">
                 <Truck className="h-5 w-5 text-pocket-orange" />
-                <p className="mt-3 text-sm font-bold text-pocket-navy">Direct delivery from G-11 Markaz</p>
+                <p className="mt-3 text-sm font-bold text-pocket-navy">Direct delivery from {data.branch.name}</p>
               </div>
               <div className="rounded-lg border border-pocket-navy/10 bg-white p-4">
                 <ShieldCheck className="h-5 w-5 text-pocket-orange" />
@@ -60,7 +61,7 @@ export default async function HomePage() {
           <SectionHeading eyebrow="Featured" title="Pocket's front line" description="Top sellers built for fast decisions and repeat orders." />
           <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
             {data.featured.map((product) => (
-              <ProductCard key={product.id} product={product} />
+              <ProductCard key={product.id} product={product} branchSlug={data.branch.slug} />
             ))}
           </div>
         </div>
@@ -85,7 +86,7 @@ export default async function HomePage() {
           <SectionHeading eyebrow="Best Sellers" title="Most ordered right now" description="Menu leaders across shawarma, fries, shakes, and drinks." />
           <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
             {data.bestSellers.map((product) => (
-              <ProductCard key={product.id} product={product} />
+              <ProductCard key={product.id} product={product} branchSlug={data.branch.slug} />
             ))}
           </div>
         </div>

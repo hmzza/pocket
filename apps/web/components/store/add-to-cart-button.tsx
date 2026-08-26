@@ -70,8 +70,8 @@ export function AddToCartButton({ product }: { product: Product }) {
       </Button>
 
       {dialogOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4">
-          <Card className="w-full max-w-2xl rounded-3xl border-pocket-navy/10 p-6">
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/70 p-4">
+          <Card className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl border-pocket-navy/10 p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{product.category.name}</p>

@@ -6879,22 +6879,43 @@ const couponSchema = z.object({
   isActive: z.boolean().default(true)
 });
 
-router.get("/coupons", async (_req, res) => {
-  const coupons = await prisma.coupon.findMany({ orderBy: { createdAt: "desc" } });
-  return res.json({ coupons });
+router.get("/coupons", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const coupons = await prisma.coupon.findMany({ where: { branchId: branchContext.branchId }, orderBy: { createdAt: "desc" } });
+    return res.json({ coupons });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.post("/coupons", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const payload = couponSchema.parse(req.body);
     const coupon = await prisma.coupon.create({
       data: {
         ...payload,
+        branchId: branchContext.branchId,
         code: payload.code.toUpperCase(),
         expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : undefined
       }
     });
     return res.status(201).json({ coupon });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/coupons/:id", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ isActive: z.boolean() }).parse(req.body);
+    const current = await prisma.coupon.findFirst({ where: { id: req.params.id, branchId: branchContext.branchId } });
+    if (!current) return res.status(404).json({ message: "Coupon not found for the selected branch." });
+    const coupon = await prisma.coupon.update({ where: { id: current.id }, data: payload });
+    await writeAuditLog({ actorId: req.user!.id, action: "coupon.status_update", entityType: "coupon", entityId: coupon.id, payload });
+    return res.json({ coupon });
   } catch (error) {
     return next(error);
   }

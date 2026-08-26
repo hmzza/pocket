@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/card";
 import type { Product } from "@/lib/types";
 import { formatCompactCurrency } from "@/lib/utils";
 
-export function SearchExplorer({ products }: { products: Product[] }) {
+export function SearchExplorer({ products, branchSlug }: { products: Product[]; branchSlug?: string }) {
   const [query, setQuery] = useState("");
   const results = useMemo(() => {
     if (!query) return products.slice(0, 6);
@@ -27,7 +27,7 @@ export function SearchExplorer({ products }: { products: Product[] }) {
 
       <div className="grid gap-4">
         {results.map((product) => (
-          <Link key={product.id} href={`/menu/${product.slug}`}>
+          <Link key={product.id} href={`/menu/${product.slug}${branchSlug ? `?branch=${encodeURIComponent(branchSlug)}` : ""}`}>
             <Card className="flex items-center justify-between gap-4 p-4 transition hover:border-pocket-orange/50">
               <div>
                 <p className="text-base font-bold text-pocket-navy">{product.name}</p>

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import type { Category, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export function MenuBrowser({ products, categories }: { products: Product[]; categories: Category[] }) {
+export function MenuBrowser({ products, categories, branchSlug }: { products: Product[]; categories: Category[]; branchSlug?: string }) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
 
@@ -54,7 +54,7 @@ export function MenuBrowser({ products, categories }: { products: Product[]; cat
 
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((product) => (
-          <ProductCard key={product.id} product={product} />
+          <ProductCard key={product.id} product={product} branchSlug={branchSlug} />
         ))}
       </div>
     </div>

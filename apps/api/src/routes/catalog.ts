@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { DiscountType, OrderChannel, OrderStatus, PaymentMethod, PaymentStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -11,11 +11,38 @@ import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { verifyReceiptToken } from "../lib/receipt-token.js";
 import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
+import rateLimit from "express-rate-limit";
+import { publicBranchPricingInclude, publicProductWhere, PUBLIC_HIDDEN_CATEGORY_SLUGS, resolvePublicBranch } from "../lib/public-catalog.js";
 
 const router = Router();
-const PUBLIC_HIDDEN_CATEGORY_SLUGS = ["add-ons"];
 const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
 const reviewSubmissionCooldowns = new Map<string, number>();
+const inFlightCheckoutKeys = new Set<string>();
+
+const publicCheckoutLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const phone = req.body && typeof req.body === "object" && typeof (req.body as Record<string, unknown>).phone === "string"
+      ? String((req.body as Record<string, unknown>).phone).replace(/\D/g, "")
+      : "";
+    return phone || req.ip || "unknown";
+  }
+});
+
+const checkoutIdempotency = (req: Request, res: Response, next: NextFunction) => {
+  const requestKey = typeof req.get("Idempotency-Key") === "string" ? req.get("Idempotency-Key")!.trim() : "";
+  if (!requestKey) return next();
+  const key = `${req.ip}:${requestKey}`;
+  if (inFlightCheckoutKeys.has(key)) {
+    return res.status(409).json({ message: "This order is already being submitted. Please wait for the first attempt to finish." });
+  }
+  inFlightCheckoutKeys.add(key);
+  res.on("finish", () => inFlightCheckoutKeys.delete(key));
+  return next();
+};
 
 function normalizePakistanWhatsAppNumber(value: string) {
   const digits = value.replace(/\D/g, "");
@@ -52,37 +79,41 @@ const productInclude = {
   }
 };
 
-router.get("/content/home", async (_req, res) => {
-  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, branch, contact, customerReviews] = await Promise.all([
+router.get("/content/home", async (req, res) => {
+  const requestedBranchSlug = typeof req.query.branchSlug === "string" ? req.query.branchSlug : undefined;
+  const branch = await resolvePublicBranch(requestedBranchSlug);
+  if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
+  const branchId = branch.id;
+  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, contact, customerReviews] = await Promise.all([
     prisma.cmsContent.findUnique({ where: { key: "homepage.hero" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.why-pocket" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.testimonials" } }),
     prisma.setting.findUnique({ where: { key: "homepage.slider" } }),
     prisma.product.findMany({
-      where: { featured: true, isActive: true, category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } } },
+      where: { ...publicProductWhere(branchId), featured: true },
       include: {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
-        branchPricing: true
+        branchPricing: publicBranchPricingInclude(branchId)
       },
       take: 4
     }),
     prisma.product.findMany({
-      where: { bestSeller: true, isActive: true, category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } } },
+      where: { ...publicProductWhere(branchId), bestSeller: true },
       include: {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
-        branchPricing: true
+        branchPricing: publicBranchPricingInclude(branchId)
       },
       take: 4
     }),
     prisma.category.findMany({
-      where: { isActive: true, slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } },
+      where: {
+        isActive: true,
+        slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS },
+        products: { some: publicProductWhere(branchId) }
+      },
       orderBy: { sortOrder: "asc" }
-    }),
-    prisma.branch.findFirst({
-      where: { isActive: true },
-      include: { hours: { orderBy: { dayOfWeek: "asc" } } }
     }),
     prisma.setting.findUnique({ where: { key: "store.contact" } }),
     prisma.customerReview.findMany({
@@ -142,9 +173,16 @@ router.post("/reviews", async (req, res, next) => {
   }
 });
 
-router.get("/categories", async (_req, res) => {
+router.get("/categories", async (req, res) => {
+  const branchSlug = typeof req.query.branchSlug === "string" ? req.query.branchSlug : undefined;
+  const branch = await resolvePublicBranch(branchSlug);
+  if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
   const categories = await prisma.category.findMany({
-    where: { isActive: true, slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } },
+    where: {
+      isActive: true,
+      slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS },
+      products: { some: publicProductWhere(branch.id) }
+    },
     orderBy: { sortOrder: "asc" }
   });
   return res.json({ categories });
@@ -161,10 +199,11 @@ router.get("/products", async (req, res, next) => {
     });
 
     const { category, search, featured, bestSeller, branchSlug } = querySchema.parse(req.query);
+    const branch = await resolvePublicBranch(branchSlug);
+    if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
     const where: Prisma.ProductWhereInput = {
-      isActive: true,
+      ...publicProductWhere(branch.id),
       AND: [
-        { category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } } },
         ...(category ? [{ category: { is: { slug: category } } }] : [])
       ],
       ...(search
@@ -193,12 +232,7 @@ router.get("/products", async (req, res, next) => {
             }
           }
         },
-        branchPricing: branchSlug
-          ? {
-              where: { branch: { is: { slug: branchSlug } } },
-              include: { branch: true }
-            }
-          : true
+        branchPricing: publicBranchPricingInclude(branch.id)
       },
       orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
     });
@@ -210,12 +244,18 @@ router.get("/products", async (req, res, next) => {
 });
 
 router.get("/products/:slug", async (req, res) => {
+  const branchSlug = typeof req.query.branchSlug === "string" ? req.query.branchSlug : undefined;
+  const branch = await resolvePublicBranch(branchSlug);
+  if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
   const product = await prisma.product.findUnique({
     where: { slug: req.params.slug },
-    include: productInclude
+    include: {
+      ...productInclude,
+      branchPricing: publicBranchPricingInclude(branch.id)
+    }
   });
 
-  if (!product) {
+  if (!product || !product.isActive || !product.category.isActive || PUBLIC_HIDDEN_CATEGORY_SLUGS.includes(product.category.slug as any) || !product.branchPricing[0]?.isAvailable) {
     return res.status(404).json({ message: "Product not found." });
   }
 
@@ -224,11 +264,13 @@ router.get("/products/:slug", async (req, res) => {
         categoryId: product.categoryId,
         id: { not: product.id },
         isActive: true,
-        category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } }
+        category: { is: { isActive: true, slug: { notIn: [...PUBLIC_HIDDEN_CATEGORY_SLUGS] } } },
+        branchPricing: { some: { branchId: branch.id, isAvailable: true } }
       },
     include: {
       category: true,
-      images: { orderBy: { sortOrder: "asc" } }
+      images: { orderBy: { sortOrder: "asc" } },
+      branchPricing: publicBranchPricingInclude(branch.id)
     },
     take: 4
   });
@@ -238,11 +280,12 @@ router.get("/products/:slug", async (req, res) => {
 
 router.get("/search", async (req, res, next) => {
   try {
-    const query = z.object({ q: z.string().min(1) }).parse(req.query);
+    const query = z.object({ q: z.string().min(1), branchSlug: z.string().optional() }).parse(req.query);
+    const branch = await resolvePublicBranch(query.branchSlug);
+    if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
     const products = await prisma.product.findMany({
       where: {
-        isActive: true,
-        category: { is: { slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS } } },
+        ...publicProductWhere(branch.id),
         OR: [
           { name: { contains: query.q, mode: "insensitive" } },
           { description: { contains: query.q, mode: "insensitive" } },
@@ -251,7 +294,8 @@ router.get("/search", async (req, res, next) => {
       },
       include: {
         category: true,
-        images: { orderBy: { sortOrder: "asc" } }
+        images: { orderBy: { sortOrder: "asc" } },
+        branchPricing: publicBranchPricingInclude(branch.id)
       },
       take: 8
     });
@@ -288,8 +332,9 @@ router.get("/settings", async (_req, res) => {
 
 router.post("/coupons/validate", async (req, res, next) => {
   try {
-    const payload = z.object({ code: z.string().min(3), subtotal: z.coerce.number().nonnegative() }).parse(req.body);
-    const coupon = await prisma.coupon.findUnique({ where: { code: payload.code.toUpperCase() } });
+    const payload = z.object({ code: z.string().min(3), subtotal: z.coerce.number().nonnegative(), branchSlug: z.string().min(1) }).parse(req.body);
+    const branch = await resolvePublicBranch(payload.branchSlug);
+    const coupon = branch ? await prisma.coupon.findUnique({ where: { branchId_code: { branchId: branch.id, code: payload.code.toUpperCase() } } }) : null;
 
     if (!coupon || !coupon.isActive || (coupon.expiresAt && coupon.expiresAt < new Date())) {
       return res.status(404).json({ message: "Coupon is invalid or expired." });
@@ -310,6 +355,7 @@ router.post("/coupons/validate", async (req, res, next) => {
 
     return res.json({
       valid: true,
+      title: coupon.title,
       discount: Math.min(payload.subtotal, Number(discount.toFixed(2)))
     });
   } catch (error) {
@@ -317,7 +363,7 @@ router.post("/coupons/validate", async (req, res, next) => {
   }
 });
 
-router.post("/track", async (req, res, next) => {
+router.post("/track", rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false }), async (req, res, next) => {
   let payload: { orderNumber: string; phone: string };
   try {
     payload = z
@@ -348,9 +394,9 @@ router.post("/track", async (req, res, next) => {
     return res.status(404).json({ message: "Order not found." });
   }
 
-  const normalizedInputPhone = payload.phone.replace(/\D/g, "");
-  const normalizedOrderPhone = (order.customerPhone ?? "").replace(/\D/g, "");
-  if (!normalizedOrderPhone || normalizedInputPhone.slice(-7) !== normalizedOrderPhone.slice(-7)) {
+  const normalizedInputPhone = normalizePakistanWhatsAppNumber(payload.phone);
+  const normalizedOrderPhone = order.customerPhone ? normalizePakistanWhatsAppNumber(order.customerPhone) : null;
+  if (!normalizedOrderPhone || normalizedInputPhone !== normalizedOrderPhone) {
     return res.status(404).json({ message: "Order not found." });
   }
 
@@ -421,34 +467,35 @@ router.get("/receipts/:orderNumber", async (req, res) => {
   }
 });
 
-router.post("/checkout", async (req, res, next) => {
+router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req, res, next) => {
   try {
     const payload = z
       .object({
         name: z.string().min(2).max(80),
         phone: z.string().min(8).max(24),
-        branchSlug: z.string(),
+        branchSlug: z.string().min(1).max(100),
         paymentMethod: z.literal(PaymentMethod.CASH_ON_DELIVERY),
         deliverySector: z.enum(DELIVERY_AREA_KEYS as [string, ...string[]]),
         deliverySubsector: z.string().min(5).max(10),
-        couponCode: z.string().optional(),
+        couponCode: z.string().trim().max(40).optional(),
         deliveryInstructions: z.string().max(240).optional(),
         address: z.object({
           label: z.string().optional(),
-          addressLine1: z.string().min(5),
-          addressLine2: z.string().optional(),
+          addressLine1: z.string().trim().min(5).max(240),
           city: z.literal(DELIVERY_CITY),
-          instructions: z.string().optional()
+          instructions: z.string().max(240).optional()
         }),
         items: z
           .array(
             z.object({
               productId: z.string().cuid(),
               quantity: z.number().int().min(1).max(20),
-              selectedAddOnIds: z.array(z.string().cuid()).default([])
+              selectedAddOnIds: z.array(z.string().cuid()).max(20).default([])
             })
           )
           .min(1)
+          .max(50)
+          .refine((items) => items.reduce((sum, item) => sum + item.quantity, 0) <= 100, "Maximum 100 items per order.")
       })
       .parse(req.body);
 
@@ -465,17 +512,14 @@ router.post("/checkout", async (req, res, next) => {
       return res.status(400).json({ message: "Choose a valid sub-sector for your selected delivery sector." });
     }
 
-    const branch = await prisma.branch.findFirst({ where: { slug: payload.branchSlug, isActive: true } });
+    const branch = await resolvePublicBranch(payload.branchSlug);
     if (!branch) {
       return res.status(404).json({ message: "Pocket G-11 is unavailable right now." });
     }
 
     const requestedProductIds = [...new Set(payload.items.map((item) => item.productId))];
     const products = await prisma.product.findMany({
-      where: {
-        id: { in: requestedProductIds },
-        isActive: true
-      },
+      where: { id: { in: requestedProductIds }, ...publicProductWhere(branch.id) },
       include: {
         addOnGroups: {
           orderBy: { sortOrder: "asc" },
@@ -502,8 +546,8 @@ router.post("/checkout", async (req, res, next) => {
       if (!product) {
         throw new Error("One or more items are unavailable.");
       }
-      if (product.branchPricing[0] && !product.branchPricing[0].isAvailable) {
-        throw Object.assign(new Error(`${product.name} is unavailable from Pocket G-11.`), { statusCode: 400 });
+      if (!product.branchPricing[0] || !product.branchPricing[0].isAvailable) {
+        throw Object.assign(new Error(`${product.name} is unavailable from the selected branch.`), { statusCode: 400 });
       }
 
       const selectedAddOnIds = [...new Set(item.selectedAddOnIds)];
@@ -524,7 +568,7 @@ router.post("/checkout", async (req, res, next) => {
         throw new Error(`${product.name}: invalid add-on selection.`);
       }
 
-      const basePrice = Number(product.branchPricing[0]?.price ?? product.basePrice);
+      const basePrice = Number(product.branchPricing[0].price);
       const unitPrice = basePrice + addOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
 
       return {
@@ -538,18 +582,25 @@ router.post("/checkout", async (req, res, next) => {
     const subtotal = normalizedItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 
     let couponId: string | undefined;
+    let couponUsageLimit: number | undefined;
     let discountAmount = 0;
     if (payload.couponCode) {
-      const coupon = await prisma.coupon.findUnique({ where: { code: payload.couponCode.toUpperCase() } });
-      if (coupon && coupon.isActive && (!coupon.expiresAt || coupon.expiresAt > new Date()) && (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit)) {
-        if (!coupon.minOrderValue || subtotal >= Number(coupon.minOrderValue)) {
-          couponId = coupon.id;
-          discountAmount =
-            coupon.type === DiscountType.PERCENTAGE
-              ? (subtotal * Number(coupon.value)) / 100
-              : Number(coupon.value);
-        }
+      const coupon = await prisma.coupon.findUnique({ where: { branchId_code: { branchId: branch.id, code: payload.couponCode.toUpperCase() } } });
+      if (!coupon || !coupon.isActive || (coupon.expiresAt && coupon.expiresAt <= new Date())) {
+        return res.status(400).json({ message: "Coupon is invalid or expired." });
       }
+      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+        return res.status(409).json({ message: "Coupon usage limit reached." });
+      }
+      if (coupon.minOrderValue && subtotal < Number(coupon.minOrderValue)) {
+        return res.status(409).json({ message: "Minimum order value not met." });
+      }
+      couponId = coupon.id;
+      couponUsageLimit = coupon.usageLimit ?? undefined;
+      const calculatedDiscount = coupon.type === DiscountType.PERCENTAGE
+        ? (subtotal * Number(coupon.value)) / 100
+        : Number(coupon.value);
+      discountAmount = Math.min(subtotal, Number(calculatedDiscount.toFixed(2)));
     }
 
     const taxAmount = 0;
@@ -596,7 +647,6 @@ router.post("/checkout", async (req, res, next) => {
         userId: customerId,
         label: payload.address.label,
         addressLine1: payload.address.addressLine1,
-        addressLine2: payload.address.addressLine2,
         city: payload.address.city,
         instructions: payload.address.instructions
       }
@@ -677,6 +727,19 @@ router.post("/checkout", async (req, res, next) => {
           mode: "consume",
           serviceType: ServiceType.DELIVERY
         });
+
+        if (couponId) {
+          const couponUpdate = await transaction.coupon.updateMany({
+            where: {
+              id: couponId,
+              ...(couponUsageLimit ? { usedCount: { lt: couponUsageLimit } } : {})
+            },
+            data: { usedCount: { increment: 1 } }
+          });
+          if (couponUpdate.count !== 1) {
+            throw Object.assign(new Error("Coupon usage limit reached."), { statusCode: 409 });
+          }
+        }
 
         await transaction.notification.create({
           data: {

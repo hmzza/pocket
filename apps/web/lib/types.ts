@@ -888,6 +888,21 @@ export type AdminPromotionData = {
   stats: { allTime: PromotionStats; period: PromotionStats };
 };
 
+export type AdminCoupon = {
+  id: string;
+  code: string;
+  title: string;
+  description?: string | null;
+  type: "FIXED" | "PERCENTAGE";
+  value: number;
+  minOrderValue?: number | null;
+  usageLimit?: number | null;
+  usedCount: number;
+  expiresAt?: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
+
 export type PosBranch = {
   id: string;
   slug: string;

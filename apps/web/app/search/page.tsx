@@ -5,8 +5,9 @@ export const metadata = {
   title: "Search"
 };
 
-export default async function SearchPage() {
-  const products = await getProducts();
+export default async function SearchPage({ searchParams }: { searchParams: { branch?: string } }) {
+  const branchSlug = searchParams.branch;
+  const products = await getProducts(branchSlug);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-12 md:px-6">
@@ -16,7 +17,7 @@ export default async function SearchPage() {
         <p className="text-sm text-pocket-navy/70">Search shawarma, fries, add-ons, chillers, shakes, or category keywords with immediate results.</p>
       </div>
       <div className="mt-8">
-        <SearchExplorer products={products} />
+        <SearchExplorer products={products} branchSlug={branchSlug} />
       </div>
     </div>
   );
