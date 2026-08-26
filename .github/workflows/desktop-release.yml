@@ -95,8 +95,14 @@ jobs:
           RELEASE_TAG: desktop-v${{ inputs.version || github.run_number }}
           RELEASE_TITLE: Pocket Desktop ${{ inputs.version || github.run_number }}
         run: |
+          mapfile -t INSTALLERS < <(find release-assets -type f -print)
+          if [ "${#INSTALLERS[@]}" -eq 0 ]; then
+            echo "::error::No installer files were downloaded"
+            exit 1
+          fi
+
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+            gh release upload "$RELEASE_TAG" "${INSTALLERS[@]}" --clobber
           else
-            gh release create "$RELEASE_TAG" release-assets/* --title "$RELEASE_TITLE" --generate-notes --target "$GITHUB_SHA"
+            gh release create "$RELEASE_TAG" "${INSTALLERS[@]}" --title "$RELEASE_TITLE" --generate-notes --target "$GITHUB_SHA"
           fi
