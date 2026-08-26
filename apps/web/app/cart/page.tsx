@@ -10,9 +10,11 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
+import { usePublicBranch } from "@/components/site/public-branch-provider";
 
 export default function CartPage() {
   const { cart, getCartProducts, updateCartItem, updateQuantity } = useStore();
+  const { selectedBranch } = usePublicBranch();
   const { products, loading, error: catalogError } = useLiveProducts();
   const [coupon, setCoupon] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
@@ -60,7 +62,7 @@ export default function CartPage() {
 
     async function refreshCoupon() {
       try {
-        const nextCoupon = await validateCouponCode(coupon, subtotal);
+        const nextCoupon = await validateCouponCode(coupon, subtotal, selectedBranch?.slug);
         if (!cancelled) {
           setCoupon(nextCoupon.code);
           setCouponDiscount(nextCoupon.discount);
@@ -81,7 +83,7 @@ export default function CartPage() {
     return () => {
       cancelled = true;
     };
-  }, [coupon, couponDiscount, subtotal]);
+  }, [coupon, couponDiscount, selectedBranch?.slug, subtotal]);
 
   async function applyCoupon() {
     if (!coupon.trim()) {
@@ -94,7 +96,7 @@ export default function CartPage() {
     setCouponLoading(true);
     setCouponMessage("");
     try {
-      const nextCoupon = await validateCouponCode(coupon, subtotal);
+      const nextCoupon = await validateCouponCode(coupon, subtotal, selectedBranch?.slug);
       setCoupon(nextCoupon.code);
       setCouponDiscount(nextCoupon.discount);
       setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");

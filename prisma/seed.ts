@@ -1123,7 +1123,7 @@ async function main() {
   }
 
   await prisma.coupon.upsert({
-    where: { code: "POCKET10" },
+    where: { branchId_code: { branchId: branch.id, code: "POCKET10" } },
     update: {
       title: "Pocket launch offer",
       type: DiscountType.PERCENTAGE,
@@ -1132,6 +1132,7 @@ async function main() {
       expiresAt: new Date("2026-12-31T23:59:59Z")
     },
     create: {
+      branchId: branch.id,
       code: "POCKET10",
       title: "Pocket launch offer",
       description: "10% off for opening-week orders",
@@ -1169,7 +1170,7 @@ async function main() {
 
   const classicPocketOrder = classicPocket;
   const customerAddress = await prisma.address.findFirstOrThrow({ where: { userId: customer.id, isDefault: true } });
-  const launchCoupon = await prisma.coupon.findUniqueOrThrow({ where: { code: "POCKET10" } });
+  const launchCoupon = await prisma.coupon.findUniqueOrThrow({ where: { branchId_code: { branchId: branch.id, code: "POCKET10" } } });
 
   if (classicPocketOrder) {
     await prisma.order.upsert({

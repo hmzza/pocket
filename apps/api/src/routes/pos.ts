@@ -294,7 +294,8 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     prisma.product.findMany({
       where: {
         id: { in: productIds },
-        isActive: true
+        isActive: true,
+        branchPricing: { some: { branchId: payload.branchId, isAvailable: true } }
       },
       include: {
         ...posProductInclude,
@@ -599,6 +600,7 @@ router.get("/catalog", async (req, res, next) => {
 
     const where: Prisma.ProductWhereInput = {
       isActive: true,
+      branchPricing: { some: { branchId, isAvailable: true } },
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.search
         ? {

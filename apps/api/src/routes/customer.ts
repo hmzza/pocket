@@ -343,7 +343,7 @@ router.post("/checkout", async (req, res, next) => {
     let couponId: string | undefined;
     let discountAmount = 0;
     if (payload.couponCode) {
-      const coupon = await prisma.coupon.findUnique({ where: { code: payload.couponCode.toUpperCase() } });
+      const coupon = await prisma.coupon.findFirst({ where: { code: payload.couponCode.toUpperCase(), branchId: branch.id } });
       if (coupon && coupon.isActive && (!coupon.expiresAt || coupon.expiresAt > new Date())) {
         if (!coupon.minOrderValue || subtotal >= Number(coupon.minOrderValue)) {
           couponId = coupon.id;

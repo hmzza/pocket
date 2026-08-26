@@ -1,7 +1,8 @@
-import { branch, categories, dashboardData, homeContent, mockCustomers, products, trackedOrders } from "./mock-data";
+import { branch, dashboardData, homeContent, mockCustomers, products, trackedOrders } from "./mock-data";
 import { API_URL, normalizeProducts } from "./catalog";
 import { resolvePocketImagePath } from "./image-paths";
 import type { DashboardData, Product, TrackedOrder } from "./types";
+import { cookies } from "next/headers";
 
 type FetchJsonInit = RequestInit & {
   next?: {
@@ -26,6 +27,10 @@ async function fetchJson<T>(path: string, init?: FetchJsonInit): Promise<T | nul
   }
 }
 
+export function getPublicBranchSlug() {
+  return cookies().get("pocket_public_branch")?.value;
+}
+
 function normalizeLocalProduct(product: Product): Product {
   return {
     ...product,
@@ -48,8 +53,9 @@ function normalizeHeroImages(images: Array<{ url: string; alt: string }> | undef
   );
 }
 
-export async function getHomeData() {
-  const data = await fetchJson<any>("/api/content/home", { next: { revalidate: 0 } });
+export async function getHomeData(branchSlug = getPublicBranchSlug()) {
+  const query = branchSlug ? `?branchSlug=${encodeURIComponent(branchSlug)}` : "";
+  const data = await fetchJson<any>(`/api/content/home${query}`, { next: { revalidate: 0 } });
   if (!data) {
     return {
       hero: homeContent.hero,
@@ -58,9 +64,9 @@ export async function getHomeData() {
       whyPocket: homeContent.whyPocket,
       testimonials: homeContent.testimonials,
       customerReviews: [],
-      featured: products.filter((product) => product.featured).slice(0, 4).map(normalizeLocalProduct),
-      bestSellers: products.filter((product) => product.bestSeller).slice(0, 4).map(normalizeLocalProduct),
-      categories,
+      featured: [],
+      bestSellers: [],
+      categories: [],
       branch,
       contact: {
         value: {
@@ -86,7 +92,7 @@ export async function getHomeData() {
     heroSliderIntervalMs: Number(data.heroSliderIntervalMs ?? homeContent.heroSliderIntervalMs ?? 4500),
     featured: normalizeProducts(data.featured),
     bestSellers: normalizeProducts(data.bestSellers),
-    categories: data.categories ?? categories,
+    categories: data.categories ?? [],
     branch: data.branch
       ? {
           id: data.branch.id,
@@ -108,24 +114,23 @@ export async function getHomeData() {
   };
 }
 
-export async function getProducts() {
-  const data = await fetchJson<any>("/api/products");
-  return data ? normalizeProducts(data.products) : products.map(normalizeLocalProduct);
+export async function getProducts(branchSlug = getPublicBranchSlug()) {
+  const query = branchSlug ? `?branchSlug=${encodeURIComponent(branchSlug)}` : "";
+  const data = await fetchJson<any>(`/api/products${query}`, { next: { revalidate: 0 } });
+  return data ? normalizeProducts(data.products) : [];
 }
 
-export async function getProductBySlug(slug: string) {
-  const data = await fetchJson<any>(`/api/products/${slug}`);
+export async function getCategories(branchSlug = getPublicBranchSlug()) {
+  const query = branchSlug ? `?branchSlug=${encodeURIComponent(branchSlug)}` : "";
+  const data = await fetchJson<any>(`/api/categories${query}`, { next: { revalidate: 0 } });
+  return data?.categories ?? [];
+}
+
+export async function getProductBySlug(slug: string, branchSlug = getPublicBranchSlug()) {
+  const query = branchSlug ? `?branchSlug=${encodeURIComponent(branchSlug)}` : "";
+  const data = await fetchJson<any>(`/api/products/${slug}${query}`, { next: { revalidate: 0 } });
   if (!data) {
-    const product = (products.find((entry) => entry.slug === slug) ?? null);
-    return product
-      ? {
-          product: normalizeLocalProduct(product),
-          related: products
-            .filter((entry) => entry.category.slug === product.category.slug && entry.slug !== slug)
-            .slice(0, 4)
-            .map(normalizeLocalProduct)
-        }
-      : null;
+    return null;
   }
 
   const normalized = normalizeProducts([data.product])[0]!;

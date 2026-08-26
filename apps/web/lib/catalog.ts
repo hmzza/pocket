@@ -1,5 +1,5 @@
-import { categories } from "./mock-data";
 import { resolvePocketImagePath } from "./image-paths";
+import { categories } from "./mock-data";
 import type { Product } from "./types";
 
 export const API_URL =
@@ -11,7 +11,15 @@ export function normalizeProducts(items: any[] | undefined): Product[] {
   if (!items?.length) return [];
 
   return items.map((item) => {
-    const category = categories.find((entry) => entry.slug === item.category?.slug) ?? categories[0]!;
+    const category = item.category
+      ? {
+          id: item.category.id,
+          slug: item.category.slug,
+          name: item.category.name,
+          description: item.category.description ?? undefined,
+          imageUrl: resolvePocketImagePath(item.category.imageUrl ?? "/images/classic-shawarma.png")
+        }
+      : categories[0]!;
 
     return {
       id: item.id,

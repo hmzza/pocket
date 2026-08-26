@@ -65,7 +65,7 @@ export function resolveAdminPermission(path: string): PermissionKey | null {
     ["/api/admin/investments", "CAPITAL"],
     ["/api/admin/vendors", "INVENTORY"],
     ["/api/admin/dashboard", "OVERVIEW"],
-    ["/api/admin/coupons", "PRODUCTS"]
+    ["/api/admin/coupons", "PROMOTIONS"]
   ];
 
   return matches.find(([prefix]) => path === prefix || path.startsWith(`${prefix}/`))?.[1] ?? null;

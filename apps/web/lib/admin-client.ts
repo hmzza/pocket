@@ -29,7 +29,8 @@ import type {
   Category,
   DashboardData,
   AdminPromotionData,
-  PosPromotion
+  PosPromotion,
+  AdminCoupon
 } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile, preparePocketImageUpload, readFileAsDataUrl } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
@@ -517,6 +518,27 @@ export async function updateAdminIndependencePromotion(isActive: boolean) {
     body: JSON.stringify({ isActive })
   });
   return data.promotion;
+}
+
+export async function fetchAdminCoupons() {
+  const data = await adminFetch<{ coupons: AdminCoupon[] }>("/api/admin/coupons");
+  return data.coupons;
+}
+
+export async function createAdminCoupon(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ coupon: AdminCoupon }>("/api/admin/coupons", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.coupon;
+}
+
+export async function updateAdminCoupon(couponId: string, isActive: boolean) {
+  const data = await adminFetch<{ coupon: AdminCoupon }>(`/api/admin/coupons/${couponId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive })
+  });
+  return data.coupon;
 }
 
 export async function fetchAdminBranches() {

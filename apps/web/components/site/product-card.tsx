@@ -7,13 +7,14 @@ import { Card } from "@/components/ui/card";
 import { averageRating, formatCompactCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
-export function ProductCard({ product }: { product: Product }) {
+export function ProductCard({ product, branchSlug }: { product: Product; branchSlug?: string }) {
   const rating = averageRating(product.reviews.map((review) => review.rating));
   const thumbnail = product.gallery[0] ?? product.imageUrl;
+  const productHref = `/menu/${product.slug}${branchSlug ? `?branch=${encodeURIComponent(branchSlug)}` : ""}`;
 
   return (
     <Card className="flex h-full flex-col overflow-hidden">
-      <Link href={`/menu/${product.slug}`} className="relative block aspect-[4/3] overflow-hidden bg-pocket-cream">
+      <Link href={productHref} className="relative block aspect-[4/3] overflow-hidden bg-pocket-cream">
         <Image src={thumbnail} alt={product.name} fill className="object-contain p-3" sizes="(max-width: 768px) 100vw, 33vw" />
       </Link>
       <div className="flex flex-1 flex-col gap-4 p-5">
@@ -23,7 +24,7 @@ export function ProductCard({ product }: { product: Product }) {
               {product.bestSeller ? <Badge>Best Seller</Badge> : null}
               {product.featured ? <Badge className="bg-pocket-navy text-pocket-cream">Featured</Badge> : null}
             </div>
-            <Link href={`/menu/${product.slug}`} className="text-xl font-black text-pocket-navy">
+            <Link href={productHref} className="text-xl font-black text-pocket-navy">
               {product.name}
             </Link>
             <p className="text-sm leading-6 text-pocket-navy/70">{product.description}</p>

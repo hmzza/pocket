@@ -9,8 +9,8 @@ import { Card } from "@/components/ui/card";
 import { getProductBySlug } from "@/lib/api";
 import { formatCompactCurrency } from "@/lib/utils";
 
-export async function generateMetadata({ params }: { params: { slug: string } }) {
-  const data = await getProductBySlug(params.slug);
+export async function generateMetadata({ params, searchParams }: { params: { slug: string }; searchParams: { branch?: string } }) {
+  const data = await getProductBySlug(params.slug, searchParams.branch);
   if (!data) return {};
   return {
     title: data.product.name,
@@ -18,14 +18,15 @@ export async function generateMetadata({ params }: { params: { slug: string } })
   };
 }
 
-export default async function ProductPage({ params }: { params: { slug: string } }) {
-  const data = await getProductBySlug(params.slug);
+export default async function ProductPage({ params, searchParams }: { params: { slug: string }; searchParams: { branch?: string } }) {
+  const data = await getProductBySlug(params.slug, searchParams.branch);
   if (!data) notFound();
 
   const { product, related } = data;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
+      <Link href={`/menu${searchParams.branch ? `?branch=${encodeURIComponent(searchParams.branch)}` : ""}`} className="mb-6 inline-flex text-sm font-bold text-pocket-orange">Back to menu</Link>
       <RecentlyViewedTracker productId={product.id} />
       <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
@@ -92,13 +93,13 @@ export default async function ProductPage({ params }: { params: { slug: string }
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Related</p>
               <h2 className="text-3xl font-black text-pocket-navy">Frequently bought together</h2>
             </div>
-            <Link href="/menu" className="text-sm font-semibold text-pocket-orange">
+            <Link href={`/menu${searchParams.branch ? `?branch=${encodeURIComponent(searchParams.branch)}` : ""}`} className="text-sm font-semibold text-pocket-orange">
               Browse full menu
             </Link>
           </div>
           <div className="grid gap-6 md:grid-cols-2">
             {related.map((item) => (
-              <ProductCard key={item.id} product={item} />
+              <ProductCard key={item.id} product={item} branchSlug={searchParams.branch} />
             ))}
           </div>
         </div>

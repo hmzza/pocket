@@ -27,11 +27,14 @@ export function calculateOrderTotals(subtotal: number, delivery: number, discoun
   };
 }
 
-export async function validateCouponCode(code: string, subtotal: number): Promise<CouponValidationResult> {
+export async function validateCouponCode(code: string, subtotal: number, branchSlug?: string): Promise<CouponValidationResult> {
   const normalizedCode = code.trim().toUpperCase();
 
   if (!normalizedCode) {
     throw new Error("Enter a coupon code.");
+  }
+  if (!branchSlug) {
+    throw new Error("Choose a branch before applying a coupon.");
   }
 
   const response = await fetch(`${API_URL}/api/coupons/validate`, {
@@ -41,7 +44,8 @@ export async function validateCouponCode(code: string, subtotal: number): Promis
     },
     body: JSON.stringify({
       code: normalizedCode,
-      subtotal
+      subtotal,
+      branchSlug
     })
   });
 
