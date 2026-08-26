@@ -11,6 +11,8 @@ declare global {
       setPrinter: (printerName: string) => Promise<{ selectedPrinter: string }>;
       printReceipt: (request: { orderId: string; copy: "all" | "chef" | "store" | "store-chef" }) => Promise<{ success: true }>;
       printCurrentReceipt: () => Promise<{ success: true }>;
+      startDeliveryAlarm: () => Promise<{ playing: boolean }>;
+      stopDeliveryAlarm: () => Promise<{ playing: boolean }>;
       receiptReady: () => void;
     };
   }

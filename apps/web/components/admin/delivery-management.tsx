@@ -98,6 +98,7 @@ export function DeliveryManagement() {
   const [alertsPreferred, setAlertsPreferred] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("default");
   const [installPromptAvailable, setInstallPromptAvailable] = useState(false);
+  const [nativeDesktopAlerts, setNativeDesktopAlerts] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const alarmNodesRef = useRef<AlarmNodes | null>(null);
   const soundEnabledRef = useRef(false);
@@ -204,6 +205,7 @@ export function DeliveryManagement() {
     const enabled = window.localStorage.getItem(DELIVERY_ALERTS_PREFERENCE_KEY) === "true";
     setAlertsPreferred(enabled);
     setNotificationPermission("Notification" in window ? Notification.permission : "unsupported");
+    setNativeDesktopAlerts(Boolean(window.pocketDesktop));
   }, []);
 
   useEffect(() => {
@@ -229,12 +231,32 @@ export function DeliveryManagement() {
   );
 
   useEffect(() => {
+    if (window.pocketDesktop) {
+      stopAlarm();
+      return;
+    }
     if (soundEnabled && pendingCustomerOrders.length) {
       startAlarm();
       return;
     }
     stopAlarm();
   }, [pendingCustomerOrders.length, soundEnabled, startAlarm, stopAlarm]);
+
+  useEffect(() => {
+    const desktop = window.pocketDesktop;
+    if (!desktop) return;
+    if (pendingCustomerOrders.length) {
+      void desktop.startDeliveryAlarm();
+      return;
+    }
+    void desktop.stopDeliveryAlarm();
+  }, [pendingCustomerOrders.length]);
+
+  useEffect(() => {
+    return () => {
+      void window.pocketDesktop?.stopDeliveryAlarm();
+    };
+  }, []);
 
   const showNewOrderNotification = useCallback((newOrders: AdminOrder[]) => {
     if (!newOrders.length || notificationPermission !== "granted" || !("Notification" in window)) return;
@@ -310,6 +332,7 @@ export function DeliveryManagement() {
   }
 
   useEffect(() => {
+    if (window.pocketDesktop) return;
     if (!alertsPreferred || soundEnabled) return;
     void activateSound(true);
     const unlockOnInteraction = () => void activateSound();
@@ -449,10 +472,8 @@ export function DeliveryManagement() {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-          <Button type="button" size="sm" variant={soundEnabled ? "outline" : "default"} onClick={() => void enableDeliveryAlerts()}><Volume2 className="h-4 w-4" />{soundEnabled ? "Delivery alerts enabled" : alertsPreferred ? "Enable delivery sound" : "Enable delivery alerts"}</Button>
-          {installPromptAvailable ? <Button type="button" size="sm" variant="outline" onClick={() => void installDeliveryApp()}>Install delivery app</Button> : null}
-          {notificationPermission === "denied" ? <span className="text-xs font-medium text-amber-700">Chrome notifications are blocked for this site.</span> : null}
-          {pendingCustomerOrders.length ? <span className="inline-flex items-center gap-1 text-sm font-bold text-red-700"><BellRing className="h-4 w-4 animate-pulse" />Ringtone playing for {pendingCustomerOrders.length} new customer order{pendingCustomerOrders.length === 1 ? "" : "s"}</span> : <span className="text-xs font-medium text-pocket-navy/60">New customer orders trigger a repeating ringtone and Chrome notification while this Delivery tab remains open, including in the background.</span>}
+          {nativeDesktopAlerts ? <span className="inline-flex items-center gap-2 rounded-md bg-emerald-100 px-2.5 py-1.5 text-sm font-bold text-emerald-800"><Volume2 className="h-4 w-4" />Desktop delivery alerts are always enabled</span> : <><Button type="button" size="sm" variant={soundEnabled ? "outline" : "default"} onClick={() => void enableDeliveryAlerts()}><Volume2 className="h-4 w-4" />{soundEnabled ? "Delivery alerts enabled" : alertsPreferred ? "Enable delivery sound" : "Enable delivery alerts"}</Button>{installPromptAvailable ? <Button type="button" size="sm" variant="outline" onClick={() => void installDeliveryApp()}>Install delivery app</Button> : null}{notificationPermission === "denied" ? <span className="text-xs font-medium text-amber-700">Chrome notifications are blocked for this site.</span> : null}</>}
+          {pendingCustomerOrders.length ? <span className="inline-flex items-center gap-1 text-sm font-bold text-red-700"><BellRing className="h-4 w-4 animate-pulse" />Ringtone playing for {pendingCustomerOrders.length} new customer order{pendingCustomerOrders.length === 1 ? "" : "s"}</span> : <span className="text-xs font-medium text-pocket-navy/60">New customer orders trigger a repeating ringtone while this Delivery tab remains open, including in the background.</span>}
         </div>
 
         <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_170px]">

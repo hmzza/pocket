@@ -6,5 +6,7 @@ contextBridge.exposeInMainWorld("pocketDesktop", {
   setPrinter: (printerName) => ipcRenderer.invoke("desktop:set-printer", printerName),
   printReceipt: (request) => ipcRenderer.invoke("desktop:print-receipt", request),
   printCurrentReceipt: () => ipcRenderer.invoke("desktop:print-current-receipt"),
+  startDeliveryAlarm: () => ipcRenderer.invoke("desktop:start-delivery-alarm"),
+  stopDeliveryAlarm: () => ipcRenderer.invoke("desktop:stop-delivery-alarm"),
   receiptReady: () => ipcRenderer.send("desktop:receipt-ready")
 });

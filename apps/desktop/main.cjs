@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, session, shell } = require("electron");
+const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -9,6 +10,7 @@ const productName = desktopMode === "admin" ? "Pocket Admin" : "Pocket POS";
 const initialPath = desktopMode === "admin" ? "/admin" : "/pos";
 const partition = `persist:pocket-${desktopMode}`;
 const preloadPath = path.join(__dirname, "preload.cjs");
+let deliveryAlarmProcess = null;
 
 function getBaseUrl() {
   const value = process.env.POCKET_DESKTOP_URL ?? "https://pocketpakistan.com";
@@ -106,6 +108,51 @@ function printWebContents(webContents) {
   });
 }
 
+function stopNativeDeliveryAlarm() {
+  if (!deliveryAlarmProcess) return { playing: false };
+  deliveryAlarmProcess.kill();
+  deliveryAlarmProcess = null;
+  return { playing: false };
+}
+
+function startNativeDeliveryAlarm() {
+  if (deliveryAlarmProcess && deliveryAlarmProcess.exitCode === null) return { playing: true };
+
+  if (process.platform === "win32") {
+    deliveryAlarmProcess = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle",
+        "Hidden",
+        "-Command",
+        "while ($true) { [System.Media.SystemSounds]::Exclamation.Play(); Start-Sleep -Milliseconds 800; [System.Media.SystemSounds]::Exclamation.Play(); Start-Sleep -Seconds 2 }"
+      ],
+      { windowsHide: true, stdio: "ignore" }
+    );
+  } else if (process.platform === "darwin") {
+    deliveryAlarmProcess = spawn(
+      "/bin/sh",
+      ["-c", "while true; do /usr/bin/afplay /System/Library/Sounds/Glass.aiff; sleep 1; done"],
+      { stdio: "ignore" }
+    );
+  } else {
+    deliveryAlarmProcess = spawn(
+      "/bin/sh",
+      ["-c", "while true; do (paplay /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga || printf '\\a'); sleep 1; done"],
+      { stdio: "ignore" }
+    );
+  }
+
+  const alarmProcess = deliveryAlarmProcess;
+  alarmProcess.once("exit", () => {
+    if (deliveryAlarmProcess === alarmProcess) deliveryAlarmProcess = null;
+  });
+  deliveryAlarmProcess.unref();
+  return { playing: true };
+}
+
 function isValidReceiptRequest(value) {
   return Boolean(
     value &&
@@ -178,6 +225,8 @@ app.whenReady().then(() => {
 
   ipcMain.handle("desktop:print-receipt", (_event, request) => printReceipt(request));
   ipcMain.handle("desktop:print-current-receipt", (event) => printWebContents(event.sender));
+  ipcMain.handle("desktop:start-delivery-alarm", () => startNativeDeliveryAlarm());
+  ipcMain.handle("desktop:stop-delivery-alarm", () => stopNativeDeliveryAlarm());
 
   ipcMain.on("desktop:receipt-ready", (event) => {
     const job = pendingReceipts.get(event.sender.id);
@@ -201,5 +250,10 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  stopNativeDeliveryAlarm();
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  stopNativeDeliveryAlarm();
 });
