@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
+import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, MonitorDown, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
@@ -14,6 +14,7 @@ const links: Array<{
   label: string;
   icon: typeof LayoutDashboard;
   permissionKey: string;
+  superAdminOnly?: boolean;
 }> = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard, permissionKey: "OVERVIEW" },
   { href: "/admin/analytics", label: "Business Analytics", icon: BarChart3, permissionKey: "BUSINESS_ANALYTICS" },
@@ -23,6 +24,7 @@ const links: Array<{
   { href: "/admin/products", label: "Products", icon: Boxes, permissionKey: "PRODUCTS" },
   { href: "/admin/promotions", label: "Promotions", icon: Gift, permissionKey: "PROMOTIONS" },
   { href: "/admin/website", label: "Website Control", icon: SlidersHorizontal, permissionKey: "WEBSITE" },
+  { href: "/admin/desktop", label: "Desktop Apps", icon: MonitorDown, permissionKey: "OVERVIEW", superAdminOnly: true },
   { href: "/admin/users", label: "Users", icon: Users, permissionKey: "USERS" },
   { href: "/admin/inventory", label: "Inventory", icon: Package2, permissionKey: "INVENTORY" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart, permissionKey: "ORDERS" },
@@ -80,7 +82,7 @@ export function AdminShell({ title, description, children }: { title: string; de
 
   const isStaff = session?.user.role !== "SUPER_ADMIN";
   const activeLink = [...links].sort((first, second) => second.href.length - first.href.length).find((link) => pathname === link.href || pathname.startsWith(`${link.href}/`));
-  const restrictedForStaff = isStaff && (!activeLink || !session?.user.permissions.includes(activeLink.permissionKey));
+  const restrictedForStaff = isStaff && (!activeLink || activeLink.superAdminOnly || !session?.user.permissions.includes(activeLink.permissionKey));
 
   useEffect(() => {
     if (ready && restrictedForStaff && pathname === "/admin" && session?.user.permissions.length) {
@@ -94,7 +96,7 @@ export function AdminShell({ title, description, children }: { title: string; de
       return links;
     }
 
-    return links.filter((link) => session?.user.permissions.includes(link.permissionKey));
+    return links.filter((link) => !link.superAdminOnly && session?.user.permissions.includes(link.permissionKey));
   }, [isStaff, session?.user.permissions]);
 
   const username = session?.user.username?.trim() || session?.user.name?.trim() || "Admin";
