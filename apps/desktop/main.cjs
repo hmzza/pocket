@@ -1,5 +1,6 @@
-const { app, BrowserWindow, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
+const { autoUpdater } = require("electron-updater");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -115,6 +116,34 @@ function stopNativeDeliveryAlarm() {
   return { playing: false };
 }
 
+function configureAutoUpdates() {
+  if (!app.isPackaged) return;
+
+  autoUpdater.channel = desktopMode;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.on("error", (error) => {
+    // Updates are optional; a temporary network or release error must never interrupt POS work.
+    console.warn("Pocket desktop update check failed:", error.message);
+  });
+  autoUpdater.on("update-downloaded", async (updateInfo) => {
+    const { response } = await dialog.showMessageBox({
+      type: "info",
+      buttons: ["Restart and update", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      title: `${productName} update ready`,
+      message: `Version ${updateInfo.version} has downloaded.`,
+      detail: "Restart now to install the update, or choose Later to keep working."
+    });
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+
+  setTimeout(() => {
+    void autoUpdater.checkForUpdates().catch(() => null);
+  }, 8_000);
+}
+
 function startNativeDeliveryAlarm() {
   if (deliveryAlarmProcess && deliveryAlarmProcess.exitCode === null) return { playing: true };
 
@@ -201,6 +230,7 @@ app.whenReady().then(() => {
   app.setName(productName);
   configureSession();
   createWindow();
+  configureAutoUpdates();
 
   ipcMain.handle("desktop:get-app-info", () => ({ mode: desktopMode, productName, version: app.getVersion() }));
 

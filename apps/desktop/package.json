@@ -8,16 +8,19 @@
   "scripts": {
     "dev:pos": "cross-env POCKET_DESKTOP_MODE=pos electron .",
     "dev:admin": "cross-env POCKET_DESKTOP_MODE=admin electron .",
-    "build:pos": "cross-env POCKET_DESKTOP_MODE=pos electron-builder --win --config electron-builder.config.cjs",
-    "build:admin": "cross-env POCKET_DESKTOP_MODE=admin electron-builder --win --config electron-builder.config.cjs",
-    "build:pos:mac": "cross-env POCKET_DESKTOP_MODE=pos electron-builder --mac --universal --config electron-builder.config.cjs",
-    "build:admin:mac": "cross-env POCKET_DESKTOP_MODE=admin electron-builder --mac --universal --config electron-builder.config.cjs",
-    "build:pos:linux": "cross-env POCKET_DESKTOP_MODE=pos electron-builder --linux --config electron-builder.config.cjs",
-    "build:admin:linux": "cross-env POCKET_DESKTOP_MODE=admin electron-builder --linux --config electron-builder.config.cjs"
+    "build:pos": "cross-env POCKET_DESKTOP_MODE=pos electron-builder --win --publish never --config electron-builder.config.cjs",
+    "build:admin": "cross-env POCKET_DESKTOP_MODE=admin electron-builder --win --publish never --config electron-builder.config.cjs",
+    "build:pos:mac": "cross-env POCKET_DESKTOP_MODE=pos electron-builder --mac --universal --publish never --config electron-builder.config.cjs",
+    "build:admin:mac": "cross-env POCKET_DESKTOP_MODE=admin electron-builder --mac --universal --publish never --config electron-builder.config.cjs",
+    "build:pos:linux": "cross-env POCKET_DESKTOP_MODE=pos electron-builder --linux --publish never --config electron-builder.config.cjs",
+    "build:admin:linux": "cross-env POCKET_DESKTOP_MODE=admin electron-builder --linux --publish never --config electron-builder.config.cjs"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
     "electron": "44.0.0",
     "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

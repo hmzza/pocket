@@ -18,6 +18,9 @@ on:
 permissions:
   contents: write
 
+env:
+  DESKTOP_VERSION: ${{ inputs.version || format('1.0.{0}', github.run_number) }}
+
 jobs:
   build-windows:
     name: Build Windows installers
@@ -29,6 +32,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm pkg set version="$DESKTOP_VERSION" --workspace @pocket/desktop
       - run: npm run desktop:build:pos
       - run: npm run desktop:build:admin
       - uses: actions/upload-artifact@v4
@@ -37,6 +41,8 @@ jobs:
           path: |
             apps/desktop/release/pos/*.exe
             apps/desktop/release/admin/*.exe
+            apps/desktop/release/pos/*.yml
+            apps/desktop/release/admin/*.yml
           if-no-files-found: error
 
   build-macos:
@@ -49,6 +55,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm pkg set version="$DESKTOP_VERSION" --workspace @pocket/desktop
       - run: npm run desktop:build:pos:mac
       - run: npm run desktop:build:admin:mac
       - uses: actions/upload-artifact@v4
@@ -57,6 +64,10 @@ jobs:
           path: |
             apps/desktop/release/pos/*.dmg
             apps/desktop/release/admin/*.dmg
+            apps/desktop/release/pos/*.zip
+            apps/desktop/release/admin/*.zip
+            apps/desktop/release/pos/*.yml
+            apps/desktop/release/admin/*.yml
           if-no-files-found: error
 
   build-linux:
@@ -69,6 +80,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm pkg set version="$DESKTOP_VERSION" --workspace @pocket/desktop
       - run: npm run desktop:build:pos:linux
       - run: npm run desktop:build:admin:linux
       - uses: actions/upload-artifact@v4
@@ -77,6 +89,8 @@ jobs:
           path: |
             apps/desktop/release/pos/*.AppImage
             apps/desktop/release/admin/*.AppImage
+            apps/desktop/release/pos/*.yml
+            apps/desktop/release/admin/*.yml
           if-no-files-found: error
 
   publish:
@@ -92,8 +106,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: desktop-v${{ inputs.version || github.run_number }}
-          RELEASE_TITLE: Pocket Desktop ${{ inputs.version || github.run_number }}
+          RELEASE_TAG: desktop-v${{ inputs.version || format('1.0.{0}', github.run_number) }}
+          RELEASE_TITLE: Pocket Desktop ${{ inputs.version || format('1.0.{0}', github.run_number) }}
         run: |
           mapfile -t INSTALLERS < <(find release-assets -type f -print)
           if [ "${#INSTALLERS[@]}" -eq 0 ]; then

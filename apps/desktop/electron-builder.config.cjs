@@ -17,6 +17,11 @@ module.exports = {
     productName,
     pocketDesktopMode: mode
   },
+  publish: {
+    provider: "generic",
+    url: "https://github.com/hmzza/pocket/releases/latest/download",
+    channel: mode
+  },
   // Stable names let the website always link to the newest GitHub release.
   artifactName: `${productName.replaceAll(" ", "-")}-Setup.${"${ext}"}`,
   win: {
@@ -31,6 +36,10 @@ module.exports = {
     target: [
       {
         target: "dmg",
+        arch: ["universal"]
+      },
+      {
+        target: "zip",
         arch: ["universal"]
       }
     ]
