@@ -488,9 +488,12 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
         items: z
           .array(
             z.object({
-              productId: z.string().cuid(),
+              // Product and option IDs are opaque database strings. Legacy
+              // catalog rows use stable non-CUID IDs, which are still fully
+              // verified against the selected branch below.
+              productId: z.string().min(1).max(128),
               quantity: z.number().int().min(1).max(20),
-              selectedAddOnIds: z.array(z.string().cuid()).max(20).default([])
+              selectedAddOnIds: z.array(z.string().min(1).max(128)).max(20).default([])
             })
           )
           .min(1)

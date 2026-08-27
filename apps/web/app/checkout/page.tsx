@@ -149,7 +149,14 @@ export default function CheckoutPage() {
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         const fieldErrors = data?.issues?.fieldErrors ? Object.values(data.issues.fieldErrors).flat().filter(Boolean).join(" ") : "";
-        throw new Error(fieldErrors || data?.message || "Unable to place your delivery order.");
+        const validationDetails = Array.isArray(data?.details) ? data.details.filter(Boolean).join(" ") : "";
+        const validationIssues = Array.isArray(data?.issues)
+          ? data.issues.map((issue: { path?: Array<string | number>; message?: string }) => {
+              const path = issue.path?.length ? `${issue.path.join(".")}: ` : "";
+              return issue.message ? `${path}${issue.message}` : "";
+            }).filter(Boolean).join(" ")
+          : "";
+        throw new Error(validationDetails || validationIssues || fieldErrors || data?.message || "Unable to place your delivery order.");
       }
 
       setConfirmedOrderNumber(data.order.orderNumber);

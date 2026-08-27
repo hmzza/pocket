@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Minus, Plus, ShoppingBag } from "lucide-react";
+import { ShoppingBag } from "lucide-react";
 import { useStore } from "./store-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { cn, formatCompactCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
 export function AddToCartButton({ product, mealProduct }: { product: Product; mealProduct?: Product }) {
-  const { addToCart, cart, updateQuantity } = useStore();
+  const { addToCart } = useStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mealPromptOpen, setMealPromptOpen] = useState(false);
   const [configuredProduct, setConfiguredProduct] = useState<Product | null>(null);
@@ -18,7 +18,6 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
 
   const itemBeingConfigured = configuredProduct ?? product;
   const isShawarma = product.category.slug === "shawarma";
-  const plainCartEntry = cart.find((entry) => entry.productId === product.id && entry.selectedAddOnIds.length === 0);
   const configuredPrice = useMemo(() => {
     const extra = itemBeingConfigured.addOnGroups.reduce((sum, group) => {
       const optionIds = selectedOptions[group.id] ?? [];
@@ -79,25 +78,10 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
 
   return (
     <>
-      {plainCartEntry ? (
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {isShawarma ? <Button variant="outline" className="h-11" onClick={() => setMealPromptOpen(true)}>Make it a meal</Button> : null}
-          <div className="inline-flex h-11 items-center overflow-hidden rounded-md border border-pocket-orange bg-white text-pocket-navy shadow-sm">
-            <button type="button" aria-label={`Remove one ${product.name}`} onClick={() => updateQuantity(plainCartEntry.id, Math.max(0, plainCartEntry.quantity - 1))} className="grid h-full w-10 place-items-center text-pocket-orange transition hover:bg-pocket-orange/10">
-              <Minus className="h-4 w-4" />
-            </button>
-            <span className="grid h-full min-w-10 place-items-center border-x border-pocket-orange/20 px-2 text-sm font-black" aria-label={`${plainCartEntry.quantity} in cart`}>{plainCartEntry.quantity}</span>
-            <button type="button" aria-label={`Add one ${product.name}`} onClick={() => addToCart({ productId: product.id })} className="grid h-full w-10 place-items-center bg-pocket-orange text-white transition hover:bg-pocket-orange/90">
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      ) : (
-        <Button onClick={handleQuickAdd}>
-          <ShoppingBag className="h-4 w-4" />
-          {product.addOnGroups.length ? "Customize" : "Add to Cart"}
-        </Button>
-      )}
+      <Button onClick={handleQuickAdd}>
+        <ShoppingBag className="h-4 w-4" />
+        {product.addOnGroups.length ? "Customize" : "Add to Cart"}
+      </Button>
 
       {mealPromptOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4">
