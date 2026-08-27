@@ -142,8 +142,8 @@ WHERE product."slug" IN (
 )
   AND NOT EXISTS (
     SELECT 1
-    FROM "AddOnGroup" AS group
-    WHERE group."productId" = product."id" AND group."name" = 'Choose your meal pairing'
+    FROM "AddOnGroup" AS add_on_group
+    WHERE add_on_group."productId" = product."id" AND add_on_group."name" = 'Choose your meal pairing'
   );
 
 INSERT INTO "AddOnGroup" ("id", "productId", "name", "minSelect", "maxSelect", "isRequired", "sortOrder")
@@ -159,8 +159,8 @@ FROM "Product" AS product
 WHERE product."slug" = 'pocket-mai-rocket-make-it-a-meal'
   AND NOT EXISTS (
     SELECT 1
-    FROM "AddOnGroup" AS group
-    WHERE group."productId" = product."id" AND group."name" = 'Choose Sauce'
+    FROM "AddOnGroup" AS add_on_group
+    WHERE add_on_group."productId" = product."id" AND add_on_group."name" = 'Choose Sauce'
   );
 
 INSERT INTO "AddOnOption" ("id", "groupId", "name", "priceDelta", "isActive", "sortOrder")
