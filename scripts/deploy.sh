@@ -55,7 +55,15 @@ build_and_reload() {
   npm ci --no-audit --no-fund || return 1
   if [ "$APP" = "pocket-api" ]; then
     npx prisma generate || return 1
-    npx prisma migrate deploy || return 1
+    if ! npx prisma migrate deploy; then
+      # This migration's first published version had a PostgreSQL syntax error.
+      # PostgreSQL rolled its transaction back, but Prisma keeps the failed
+      # migration record and therefore blocks the corrected version. Resolve
+      # only this known, rolled-back attempt and retry; unrelated failures still
+      # stop the deployment.
+      npx prisma migrate resolve --rolled-back 20260827140000_restore_customer_meal_bundles || return 1
+      npx prisma migrate deploy || return 1
+    fi
   fi
   npm run build --workspace "$WORKSPACE" || return 1
   reload_app || return 1
