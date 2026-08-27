@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, MonitorDown, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
+import { DesktopDeliveryAlerts } from "@/components/admin/desktop-delivery-alerts";
 import { Button } from "@/components/ui/button";
 import { fetchAdminSession, logoutAdminSession } from "@/lib/admin-client";
 import { cn } from "@/lib/utils";
@@ -126,6 +127,7 @@ export function AdminShell({ title, description, children }: { title: string; de
 
   return (
     <div className="mx-auto grid w-full max-w-[1400px] gap-6 px-4 py-6 sm:px-6 sm:py-8 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8 lg:px-8 lg:py-10">
+      <DesktopDeliveryAlerts />
       <aside className="self-start rounded-xl border border-pocket-navy/10 bg-white p-4 shadow-panel lg:sticky lg:top-6">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">

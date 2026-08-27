@@ -104,6 +104,7 @@ export async function getHomeData(branchSlug = getPublicBranchSlug()) {
           deliveryFee: Number(data.branch.deliveryFee)
         }
       : branch,
+    deliveryEnabled: data.deliveryEnabled !== false,
     contact: data.contact ?? {
       value: {
         phone: branch.phone,

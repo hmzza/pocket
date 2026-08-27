@@ -16,8 +16,18 @@ import { publicBranchPricingInclude, publicProductWhere, PUBLIC_HIDDEN_CATEGORY_
 
 const router = Router();
 const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
+const DELIVERY_AVAILABILITY_SETTING_KEY = "store.delivery";
 const reviewSubmissionCooldowns = new Map<string, number>();
 const inFlightCheckoutKeys = new Set<string>();
+
+function isOnlineDeliveryEnabled(value: unknown) {
+  return !(
+    value &&
+    typeof value === "object" &&
+    "enabled" in value &&
+    (value as { enabled?: unknown }).enabled === false
+  );
+}
 
 const publicCheckoutLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -84,7 +94,7 @@ router.get("/content/home", async (req, res) => {
   const branch = await resolvePublicBranch(requestedBranchSlug);
   if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
   const branchId = branch.id;
-  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, contact, customerReviews] = await Promise.all([
+  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, contact, deliveryAvailability, customerReviews] = await Promise.all([
     prisma.cmsContent.findUnique({ where: { key: "homepage.hero" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.why-pocket" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.testimonials" } }),
@@ -116,6 +126,7 @@ router.get("/content/home", async (req, res) => {
       orderBy: { sortOrder: "asc" }
     }),
     prisma.setting.findUnique({ where: { key: "store.contact" } }),
+    prisma.setting.findUnique({ where: { key: DELIVERY_AVAILABILITY_SETTING_KEY } }),
     prisma.customerReview.findMany({
       where: { isApproved: true },
       orderBy: { createdAt: "desc" },
@@ -143,8 +154,19 @@ router.get("/content/home", async (req, res) => {
     categories,
     branch,
     contact,
+    deliveryEnabled: isOnlineDeliveryEnabled(deliveryAvailability?.value),
     customerReviews
   });
+});
+
+router.get("/storefront/status", async (_req, res, next) => {
+  try {
+    const deliveryAvailability = await prisma.setting.findUnique({ where: { key: DELIVERY_AVAILABILITY_SETTING_KEY } });
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ deliveryEnabled: isOnlineDeliveryEnabled(deliveryAvailability?.value) });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 router.post("/reviews", async (req, res, next) => {
@@ -518,6 +540,11 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
     const branch = await resolvePublicBranch(payload.branchSlug);
     if (!branch) {
       return res.status(404).json({ message: "Pocket G-11 is unavailable right now." });
+    }
+
+    const deliveryAvailability = await prisma.setting.findUnique({ where: { key: DELIVERY_AVAILABILITY_SETTING_KEY } });
+    if (!isOnlineDeliveryEnabled(deliveryAvailability?.value)) {
+      return res.status(503).json({ message: "Online deliveries are temporarily unavailable. Please check back shortly." });
     }
 
     const requestedProductIds = [...new Set(payload.items.map((item) => item.productId))];

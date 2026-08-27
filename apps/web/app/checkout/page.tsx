@@ -13,6 +13,7 @@ import { branch } from "@/lib/mock-data";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
+import { useDeliveryAvailability } from "@/components/site/use-delivery-availability";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 
@@ -29,6 +30,7 @@ const deliveryAreas = [
 export default function CheckoutPage() {
   const { cart, getCartProducts, clearCart } = useStore();
   const { selectedBranch } = usePublicBranch();
+  const { deliveryEnabled, loading: deliveryAvailabilityLoading } = useDeliveryAvailability();
   const { products, loading: catalogLoading, error: catalogError } = useLiveProducts();
   const [confirmedOrderNumber, setConfirmedOrderNumber] = useState("");
   const [confirmedTotal, setConfirmedTotal] = useState(0);
@@ -95,6 +97,10 @@ export default function CheckoutPage() {
     }
     if (!selectedBranch) {
       setError("Choose an available branch before placing the order.");
+      return;
+    }
+    if (!deliveryEnabled) {
+      setError("Online deliveries are temporarily unavailable. Please check back shortly.");
       return;
     }
     if (!deliverySubsector) {
@@ -186,6 +192,20 @@ export default function CheckoutPage() {
     );
   }
 
+  if (!deliveryAvailabilityLoading && !deliveryEnabled) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-14 md:px-6">
+        <Card className="border-pocket-orange/30 bg-pocket-cream p-7 text-center">
+          <MapPin className="mx-auto h-12 w-12 text-pocket-orange" />
+          <p className="mt-5 text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Delivery update</p>
+          <h1 className="mt-2 text-3xl font-black text-pocket-navy">Online deliveries are paused</h1>
+          <p className="mt-3 text-base text-pocket-navy/75">We are not taking delivery orders online right now. Please check back shortly.</p>
+          <Link href="/menu" className="mt-7 inline-flex"><Button variant="outline">Browse the menu</Button></Link>
+        </Card>
+      </div>
+    );
+  }
+
   function selectDeliverySector(sector: string) {
     setDeliverySector(sector);
     setDeliverySubsector("");
@@ -253,7 +273,7 @@ export default function CheckoutPage() {
           </div>
           <div className="mt-5"><label className="block text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">Coupon</label><div className="mt-2 flex gap-2"><Input value={couponCode} onChange={(event) => { setCouponCode(event.target.value); setCouponDiscount(0); setCouponMessage(""); }} placeholder="Coupon code" /><Button type="button" variant="outline" onClick={() => void applyCoupon()} disabled={!subtotal || couponLoading}>{couponLoading ? "Applying..." : "Apply"}</Button></div>{couponMessage ? <p className={`mt-2 text-sm ${couponDiscount ? "text-emerald-700" : "text-red-600"}`}>{couponMessage}</p> : null}</div>
           {error ? <p className="mt-4 text-sm font-medium text-red-600">{error}</p> : null}
-          <Button className="mt-6 w-full" disabled={!cartProducts.length || !selectedArea || loading || catalogLoading || Boolean(catalogError)}>{loading ? "Placing order..." : "Place delivery order"}</Button>
+          <Button className="mt-6 w-full" disabled={!cartProducts.length || !selectedArea || loading || catalogLoading || deliveryAvailabilityLoading || !deliveryEnabled || Boolean(catalogError)}>{loading ? "Placing order..." : "Place delivery order"}</Button>
         </Card> : null}
       </form>
     </div>

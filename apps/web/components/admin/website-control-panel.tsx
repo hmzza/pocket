@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Sparkles, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Sparkles, Truck, Upload } from "lucide-react";
 import { HeroSlider } from "@/components/site/hero-slider";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
@@ -62,12 +62,23 @@ function normalizeSetting(value: unknown): SliderSetting {
   };
 }
 
+function normalizeDeliveryEnabled(value: unknown) {
+  return !(
+    value &&
+    typeof value === "object" &&
+    "enabled" in value &&
+    (value as { enabled?: unknown }).enabled === false
+  );
+}
+
 export function WebsiteControlPanel() {
   const [images, setImages] = useState<SliderImage[]>(homeContent.heroImages.map((image) => createRow(image.url, image.alt)));
   const [savedImages, setSavedImages] = useState<SliderImage[]>(homeContent.heroImages.map((image) => createRow(image.url, image.alt)));
   const [intervalMs, setIntervalMs] = useState(String(homeContent.heroSliderIntervalMs));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deliveryEnabled, setDeliveryEnabled] = useState(true);
+  const [savingDelivery, setSavingDelivery] = useState(false);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -80,6 +91,7 @@ export function WebsiteControlPanel() {
       try {
         const settings = await fetchAdminSettings();
         const sliderSetting = settings.find((setting) => setting.key === "homepage.slider");
+        const deliverySetting = settings.find((setting) => setting.key === "store.delivery");
         const normalized = normalizeSetting(sliderSetting?.value);
 
         if (!cancelled) {
@@ -87,6 +99,7 @@ export function WebsiteControlPanel() {
           setImages(nextImages);
           setSavedImages(nextImages);
           setIntervalMs(String(normalized.intervalMs));
+          setDeliveryEnabled(normalizeDeliveryEnabled(deliverySetting?.value));
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -178,6 +191,22 @@ export function WebsiteControlPanel() {
     }
   }
 
+  async function toggleOnlineDelivery() {
+    const nextEnabled = !deliveryEnabled;
+    setSavingDelivery(true);
+    setError("");
+    try {
+      await updateAdminSetting("store.delivery", { enabled: nextEnabled });
+      setDeliveryEnabled(nextEnabled);
+      setNotice(nextEnabled ? "Online delivery is enabled." : "Online delivery is paused on the website.");
+      setTimeout(() => setNotice(""), 3500);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to update online delivery.");
+    } finally {
+      setSavingDelivery(false);
+    }
+  }
+
   function restoreDefaults() {
     setImages(homeContent.heroImages.map((image) => createRow(image.url, image.alt)));
     setIntervalMs(String(homeContent.heroSliderIntervalMs));
@@ -216,6 +245,23 @@ export function WebsiteControlPanel() {
             <span className="font-semibold text-white">Interval</span>
             {intervalMs} ms
           </span>
+        </div>
+      </Card>
+
+      <Card className={`border-2 p-5 ${deliveryEnabled ? "border-emerald-200 bg-emerald-50" : "border-pocket-orange/30 bg-pocket-orange/5"}`}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-3">
+            <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${deliveryEnabled ? "bg-emerald-100 text-emerald-700" : "bg-pocket-orange/15 text-pocket-orange"}`}>
+              <Truck className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-lg font-black text-pocket-navy">Online delivery</p>
+              <p className="mt-1 text-sm text-pocket-navy/70">{deliveryEnabled ? "Customers can place delivery orders from the website." : "Checkout is blocked and customers see a delivery-paused message."}</p>
+            </div>
+          </div>
+          <Button type="button" variant={deliveryEnabled ? "outline" : "default"} onClick={() => void toggleOnlineDelivery()} disabled={loading || savingDelivery} aria-pressed={deliveryEnabled}>
+            {savingDelivery ? "Saving..." : deliveryEnabled ? "Turn delivery off" : "Turn delivery on"}
+          </Button>
         </div>
       </Card>
 

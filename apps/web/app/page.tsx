@@ -3,6 +3,7 @@ import { ArrowRight, Clock3, ShieldCheck, Star, Truck } from "lucide-react";
 import { ProductCard } from "@/components/site/product-card";
 import { HeroSlider } from "@/components/site/hero-slider";
 import { ReviewPrompt } from "@/components/site/review-prompt";
+import { DeliveryUnavailableNotice } from "@/components/site/delivery-unavailable-notice";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ export default async function HomePage({ searchParams }: { searchParams: { branc
 
   return (
     <>
+      <DeliveryUnavailableNotice initialDeliveryEnabled={data.deliveryEnabled ?? true} />
       <section className="border-b border-pocket-navy/10 bg-[linear-gradient(180deg,_rgba(245,240,229,0.85),_rgba(255,252,247,1))]">
         <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 md:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:py-20">
           <div className="space-y-8">
