@@ -6,7 +6,8 @@ import { RecentlyViewedTracker } from "@/components/store/recently-viewed-tracke
 import { ProductCard } from "@/components/site/product-card";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { getProductBySlug } from "@/lib/api";
+import { getProductBySlug, getProducts } from "@/lib/api";
+import { getMealProductForShawarma, isMealProduct } from "@/lib/meal-products";
 import { formatCompactCurrency } from "@/lib/utils";
 
 export async function generateMetadata({ params, searchParams }: { params: { slug: string }; searchParams: { branch?: string } }) {
@@ -19,7 +20,7 @@ export async function generateMetadata({ params, searchParams }: { params: { slu
 }
 
 export default async function ProductPage({ params, searchParams }: { params: { slug: string }; searchParams: { branch?: string } }) {
-  const data = await getProductBySlug(params.slug, searchParams.branch);
+  const [data, products] = await Promise.all([getProductBySlug(params.slug, searchParams.branch), getProducts(searchParams.branch)]);
   if (!data) notFound();
 
   const { product, related } = data;
@@ -49,7 +50,7 @@ export default async function ProductPage({ params, searchParams }: { params: { 
             <div>
               <p className="min-w-0 break-words text-[clamp(1.5rem,5vw,2.25rem)] font-black leading-tight tracking-tight text-pocket-orange">{formatCompactCurrency(product.price)}</p>
             </div>
-            <AddToCartButton product={product} />
+            <AddToCartButton product={product} mealProduct={getMealProductForShawarma(product, products)} />
           </div>
 
           <Card className="p-5">
@@ -98,8 +99,8 @@ export default async function ProductPage({ params, searchParams }: { params: { 
             </Link>
           </div>
           <div className="grid gap-6 md:grid-cols-2">
-            {related.map((item) => (
-              <ProductCard key={item.id} product={item} branchSlug={searchParams.branch} />
+            {related.filter((item) => !isMealProduct(item)).map((item) => (
+              <ProductCard key={item.id} product={item} mealProduct={getMealProductForShawarma(item, products)} branchSlug={searchParams.branch} />
             ))}
           </div>
         </div>

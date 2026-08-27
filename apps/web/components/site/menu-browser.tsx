@@ -5,6 +5,7 @@ import { ProductCard } from "./product-card";
 import { Input } from "@/components/ui/input";
 import type { Category, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { getMealProductForShawarma, isMealProduct } from "@/lib/meal-products";
 
 export function MenuBrowser({ products, categories, branchSlug }: { products: Product[]; categories: Category[]; branchSlug?: string }) {
   const [query, setQuery] = useState("");
@@ -12,6 +13,7 @@ export function MenuBrowser({ products, categories, branchSlug }: { products: Pr
 
   const filtered = useMemo(() => {
     return products.filter((product) => {
+      if (isMealProduct(product)) return false;
       const matchesCategory = activeCategory === "all" || product.category.slug === activeCategory;
       const matchesQuery =
         query.length === 0 ||
@@ -36,7 +38,7 @@ export function MenuBrowser({ products, categories, branchSlug }: { products: Pr
           >
             All
           </button>
-          {categories.map((category) => (
+          {categories.filter((category) => category.slug !== "make-it-a-meal").map((category) => (
             <button
               key={category.id}
               type="button"
@@ -54,10 +56,9 @@ export function MenuBrowser({ products, categories, branchSlug }: { products: Pr
 
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {filtered.map((product) => (
-          <ProductCard key={product.id} product={product} branchSlug={branchSlug} />
+          <ProductCard key={product.id} product={product} mealProduct={getMealProductForShawarma(product, products)} branchSlug={branchSlug} />
         ))}
       </div>
     </div>
   );
 }
-

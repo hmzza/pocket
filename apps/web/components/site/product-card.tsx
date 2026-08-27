@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { averageRating, formatCompactCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
-export function ProductCard({ product, branchSlug }: { product: Product; branchSlug?: string }) {
+export function ProductCard({ product, mealProduct, branchSlug }: { product: Product; mealProduct?: Product; branchSlug?: string }) {
   const rating = averageRating(product.reviews.map((review) => review.rating));
   const thumbnail = product.gallery[0] ?? product.imageUrl;
   const productHref = `/menu/${product.slug}${branchSlug ? `?branch=${encodeURIComponent(branchSlug)}` : ""}`;
@@ -42,7 +42,7 @@ export function ProductCard({ product, branchSlug }: { product: Product; branchS
           <div>
             <p className="min-w-0 break-words text-[clamp(1rem,4vw,1.5rem)] font-black leading-tight tracking-tight text-pocket-navy">{formatCompactCurrency(product.price)}</p>
           </div>
-          <AddToCartButton product={product} />
+          <AddToCartButton product={product} mealProduct={mealProduct} />
         </div>
       </div>
     </Card>

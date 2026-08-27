@@ -8,14 +8,17 @@ import { Card } from "@/components/ui/card";
 import { cn, formatCompactCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
-export function AddToCartButton({ product }: { product: Product }) {
+export function AddToCartButton({ product, mealProduct }: { product: Product; mealProduct?: Product }) {
   const { addToCart } = useStore();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [mealPromptOpen, setMealPromptOpen] = useState(false);
+  const [configuredProduct, setConfiguredProduct] = useState<Product | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>({});
   const [error, setError] = useState("");
 
+  const itemBeingConfigured = configuredProduct ?? product;
   const configuredPrice = useMemo(() => {
-    const extra = product.addOnGroups.reduce((sum, group) => {
+    const extra = itemBeingConfigured.addOnGroups.reduce((sum, group) => {
       const optionIds = selectedOptions[group.id] ?? [];
       return (
         sum +
@@ -25,26 +28,35 @@ export function AddToCartButton({ product }: { product: Product }) {
       );
     }, 0);
 
-    return product.price + extra;
-  }, [product, selectedOptions]);
+    return itemBeingConfigured.price + extra;
+  }, [itemBeingConfigured, selectedOptions]);
 
-  function handleQuickAdd() {
-    if (!product.addOnGroups.length) {
-      addToCart({ productId: product.id });
+  function beginAdd(productToAdd: Product) {
+    if (!productToAdd.addOnGroups.length) {
+      addToCart({ productId: productToAdd.id });
       return;
     }
 
     setSelectedOptions(
       Object.fromEntries(
-        product.addOnGroups.map((group) => [group.id, group.options.slice(0, group.minSelect).map((option) => option.id)])
+        productToAdd.addOnGroups.map((group) => [group.id, group.options.slice(0, group.minSelect).map((option) => option.id)])
       )
     );
+    setConfiguredProduct(productToAdd);
     setError("");
     setDialogOpen(true);
   }
 
+  function handleQuickAdd() {
+    if (mealProduct) {
+      setMealPromptOpen(true);
+      return;
+    }
+    beginAdd(product);
+  }
+
   function confirmAddToCart() {
-    for (const group of product.addOnGroups) {
+    for (const group of itemBeingConfigured.addOnGroups) {
       const optionIds = selectedOptions[group.id] ?? [];
       if (optionIds.length < group.minSelect || optionIds.length > group.maxSelect) {
         setError(`${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
@@ -53,12 +65,13 @@ export function AddToCartButton({ product }: { product: Product }) {
     }
 
     const wasAdded = addToCart({
-      productId: product.id,
-      selectedAddOnIds: product.addOnGroups.flatMap((group) => selectedOptions[group.id] ?? [])
+      productId: itemBeingConfigured.id,
+      selectedAddOnIds: itemBeingConfigured.addOnGroups.flatMap((group) => selectedOptions[group.id] ?? [])
     });
 
     if (wasAdded) {
       setDialogOpen(false);
+      setConfiguredProduct(null);
     }
   }
 
@@ -69,22 +82,37 @@ export function AddToCartButton({ product }: { product: Product }) {
         {product.addOnGroups.length ? "Customize" : "Add to Cart"}
       </Button>
 
+      {mealPromptOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4">
+          <Card className="w-full max-w-md rounded-3xl border-pocket-navy/10 p-6 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Make it a meal</p>
+            <h3 className="mt-3 text-2xl font-black text-pocket-navy">Would you like to make your {product.name} a meal?</h3>
+            <p className="mt-3 text-sm leading-6 text-pocket-navy/70">Add fries and choose your drink or shake.</p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <Button variant="outline" onClick={() => { setMealPromptOpen(false); beginAdd(product); }}>No, just the shawarma</Button>
+              <Button onClick={() => { setMealPromptOpen(false); beginAdd(mealProduct!); }}>Yes, make it a meal</Button>
+            </div>
+            <button type="button" className="mt-4 text-sm font-semibold text-pocket-navy/60 hover:text-pocket-navy" onClick={() => setMealPromptOpen(false)}>Cancel</button>
+          </Card>
+        </div>
+      ) : null}
+
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/70 p-4">
           <Card className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl border-pocket-navy/10 p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{product.category.name}</p>
-                <h3 className="mt-2 text-2xl font-black text-pocket-navy">{product.name}</h3>
+                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{itemBeingConfigured.category.name}</p>
+                <h3 className="mt-2 text-2xl font-black text-pocket-navy">{itemBeingConfigured.name}</h3>
                 <p className="mt-2 break-words font-semibold text-pocket-orange">{formatCompactCurrency(configuredPrice)}</p>
               </div>
-              <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+              <Button variant="ghost" onClick={() => { setDialogOpen(false); setConfiguredProduct(null); }}>
                 Close
               </Button>
             </div>
 
             <div className="mt-6 space-y-5">
-              {product.addOnGroups.map((group) => (
+              {itemBeingConfigured.addOnGroups.map((group) => (
                 <div key={group.id}>
                   <div className="mb-3">
                     <p className="font-semibold text-pocket-navy">{group.name}</p>

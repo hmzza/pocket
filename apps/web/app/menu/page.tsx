@@ -15,7 +15,7 @@ export default async function MenuPage({ searchParams }: { searchParams: { branc
       <SectionHeading
         eyebrow="Menu"
         title="Built for fast browsing and faster ordering"
-        description="Browse shawarma, fries, meal deals, chillers, shakes, and soft drinks with real pricing, product imagery, and quick cart actions."
+        description="Browse shawarma, fries, chillers, shakes, and soft drinks with real pricing, product imagery, and quick cart actions."
       />
       <div className="mt-10">
         <MenuBrowser products={products} categories={categories} branchSlug={branchSlug} />
@@ -23,4 +23,3 @@ export default async function MenuPage({ searchParams }: { searchParams: { branc
     </div>
   );
 }
-

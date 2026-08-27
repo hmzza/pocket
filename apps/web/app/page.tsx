@@ -6,10 +6,11 @@ import { ReviewPrompt } from "@/components/site/review-prompt";
 import { SectionHeading } from "@/components/site/section-heading";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getHomeData } from "@/lib/api";
+import { getHomeData, getProducts } from "@/lib/api";
+import { getMealProductForShawarma, isMealProduct } from "@/lib/meal-products";
 
 export default async function HomePage({ searchParams }: { searchParams: { branch?: string } }) {
-  const data = await getHomeData(searchParams.branch);
+  const [data, products] = await Promise.all([getHomeData(searchParams.branch), getProducts(searchParams.branch)]);
   const branchQuery = data.branch?.slug ? `?branch=${encodeURIComponent(data.branch.slug)}` : "";
   const testimonials = [...data.customerReviews, ...data.testimonials].slice(0, 6);
 
@@ -60,8 +61,8 @@ export default async function HomePage({ searchParams }: { searchParams: { branc
         <div className="mx-auto max-w-7xl px-4 md:px-6">
           <SectionHeading eyebrow="Featured" title="Pocket's front line" description="Top sellers built for fast decisions and repeat orders." />
           <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-            {data.featured.map((product) => (
-              <ProductCard key={product.id} product={product} branchSlug={data.branch.slug} />
+            {data.featured.filter((product) => !isMealProduct(product)).map((product) => (
+              <ProductCard key={product.id} product={product} mealProduct={getMealProductForShawarma(product, products)} branchSlug={data.branch.slug} />
             ))}
           </div>
         </div>
@@ -85,8 +86,8 @@ export default async function HomePage({ searchParams }: { searchParams: { branc
         <div className="mx-auto max-w-7xl px-4 md:px-6">
           <SectionHeading eyebrow="Best Sellers" title="Most ordered right now" description="Menu leaders across shawarma, fries, shakes, and drinks." />
           <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-            {data.bestSellers.map((product) => (
-              <ProductCard key={product.id} product={product} branchSlug={data.branch.slug} />
+            {data.bestSellers.filter((product) => !isMealProduct(product)).map((product) => (
+              <ProductCard key={product.id} product={product} mealProduct={getMealProductForShawarma(product, products)} branchSlug={data.branch.slug} />
             ))}
           </div>
         </div>
