@@ -80,14 +80,17 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
   return (
     <>
       {plainCartEntry ? (
-        <div className="inline-flex h-11 items-center overflow-hidden rounded-md border border-pocket-orange bg-white text-pocket-navy shadow-sm">
-          <button type="button" aria-label={`Remove one ${product.name}`} onClick={() => updateQuantity(plainCartEntry.id, Math.max(0, plainCartEntry.quantity - 1))} className="grid h-full w-10 place-items-center text-pocket-orange transition hover:bg-pocket-orange/10">
-            <Minus className="h-4 w-4" />
-          </button>
-          <span className="grid h-full min-w-10 place-items-center border-x border-pocket-orange/20 px-2 text-sm font-black" aria-label={`${plainCartEntry.quantity} in cart`}>{plainCartEntry.quantity}</span>
-          <button type="button" aria-label={`Add one ${product.name}`} onClick={() => addToCart({ productId: product.id })} className="grid h-full w-10 place-items-center bg-pocket-orange text-white transition hover:bg-pocket-orange/90">
-            <Plus className="h-4 w-4" />
-          </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {isShawarma ? <Button variant="outline" className="h-11" onClick={() => setMealPromptOpen(true)}>Make it a meal</Button> : null}
+          <div className="inline-flex h-11 items-center overflow-hidden rounded-md border border-pocket-orange bg-white text-pocket-navy shadow-sm">
+            <button type="button" aria-label={`Remove one ${product.name}`} onClick={() => updateQuantity(plainCartEntry.id, Math.max(0, plainCartEntry.quantity - 1))} className="grid h-full w-10 place-items-center text-pocket-orange transition hover:bg-pocket-orange/10">
+              <Minus className="h-4 w-4" />
+            </button>
+            <span className="grid h-full min-w-10 place-items-center border-x border-pocket-orange/20 px-2 text-sm font-black" aria-label={`${plainCartEntry.quantity} in cart`}>{plainCartEntry.quantity}</span>
+            <button type="button" aria-label={`Add one ${product.name}`} onClick={() => addToCart({ productId: product.id })} className="grid h-full w-10 place-items-center bg-pocket-orange text-white transition hover:bg-pocket-orange/90">
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       ) : (
         <Button onClick={handleQuickAdd}>
