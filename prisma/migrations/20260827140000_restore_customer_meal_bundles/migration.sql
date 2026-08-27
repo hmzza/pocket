@@ -24,6 +24,42 @@ ON CONFLICT ("slug") DO UPDATE SET
   "imageUrl" = EXCLUDED."imageUrl",
   "updatedAt" = CURRENT_TIMESTAMP;
 
+-- Older production data already has these meal SKUs under legacy slugs. Reuse
+-- those rows so the unique SKU constraint cannot prevent the repair.
+UPDATE "Product" AS product
+SET
+  "categoryId" = category."id",
+  "slug" = CASE product."sku"
+    WHEN 'PKT-ML-001' THEN 'classic-pocket-make-it-a-meal'
+    WHEN 'PKT-ML-002' THEN 'spicy-pocket-make-it-a-meal'
+    WHEN 'PKT-ML-003' THEN 'pocket-mai-rocket-make-it-a-meal'
+  END,
+  "name" = CASE product."sku"
+    WHEN 'PKT-ML-001' THEN 'Classic Pocket - Make It A Meal'
+    WHEN 'PKT-ML-002' THEN 'Spicy Pocket - Make It A Meal'
+    WHEN 'PKT-ML-003' THEN 'Pocket Mai Rocket - Make It A Meal'
+  END,
+  "description" = CASE product."sku"
+    WHEN 'PKT-ML-001' THEN 'Classic Pocket bundled with fries and your drink pick.'
+    WHEN 'PKT-ML-002' THEN 'Spicy Pocket bundled with fries and your drink pick.'
+    WHEN 'PKT-ML-003' THEN 'Pocket Mai Rocket bundled with fries and your drink pick.'
+  END,
+  "isActive" = true,
+  "updatedAt" = CURRENT_TIMESTAMP
+FROM "Category" AS category
+WHERE category."slug" = 'make-it-a-meal'
+  AND product."sku" IN ('PKT-ML-001', 'PKT-ML-002', 'PKT-ML-003')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM "Product" AS canonical_product
+    WHERE canonical_product."slug" = CASE product."sku"
+      WHEN 'PKT-ML-001' THEN 'classic-pocket-make-it-a-meal'
+      WHEN 'PKT-ML-002' THEN 'spicy-pocket-make-it-a-meal'
+      WHEN 'PKT-ML-003' THEN 'pocket-mai-rocket-make-it-a-meal'
+    END
+      AND canonical_product."id" <> product."id"
+  );
+
 INSERT INTO "Product" (
   "id", "categoryId", "slug", "sku", "name", "description", "ingredients", "basePrice",
   "calories", "featured", "bestSeller", "isActive", "sortOrder", "stockStatus", "createdAt", "updatedAt"
@@ -82,7 +118,7 @@ FROM (
     )
 ) AS meal("id", "slug", "sku", "name", "description", "ingredients", "basePrice", "calories", "sortOrder")
 CROSS JOIN (SELECT "id" FROM "Category" WHERE "slug" = 'make-it-a-meal') AS category
-ON CONFLICT ("slug") DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 INSERT INTO "ProductImage" ("id", "productId", "url", "alt", "sortOrder", "createdAt")
 SELECT
