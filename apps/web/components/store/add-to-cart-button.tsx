@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ShoppingBag } from "lucide-react";
+import { Minus, Plus, ShoppingBag } from "lucide-react";
 import { useStore } from "./store-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { cn, formatCompactCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
 export function AddToCartButton({ product, mealProduct }: { product: Product; mealProduct?: Product }) {
-  const { addToCart } = useStore();
+  const { addToCart, cart, updateQuantity } = useStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [mealPromptOpen, setMealPromptOpen] = useState(false);
   const [configuredProduct, setConfiguredProduct] = useState<Product | null>(null);
@@ -17,6 +17,8 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
   const [error, setError] = useState("");
 
   const itemBeingConfigured = configuredProduct ?? product;
+  const isShawarma = product.category.slug === "shawarma";
+  const plainCartEntry = cart.find((entry) => entry.productId === product.id && entry.selectedAddOnIds.length === 0);
   const configuredPrice = useMemo(() => {
     const extra = itemBeingConfigured.addOnGroups.reduce((sum, group) => {
       const optionIds = selectedOptions[group.id] ?? [];
@@ -48,7 +50,7 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
   }
 
   function handleQuickAdd() {
-    if (mealProduct) {
+    if (isShawarma) {
       setMealPromptOpen(true);
       return;
     }
@@ -77,10 +79,22 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
 
   return (
     <>
-      <Button onClick={handleQuickAdd}>
-        <ShoppingBag className="h-4 w-4" />
-        {product.addOnGroups.length ? "Customize" : "Add to Cart"}
-      </Button>
+      {plainCartEntry ? (
+        <div className="inline-flex h-11 items-center overflow-hidden rounded-md border border-pocket-orange bg-white text-pocket-navy shadow-sm">
+          <button type="button" aria-label={`Remove one ${product.name}`} onClick={() => updateQuantity(plainCartEntry.id, Math.max(0, plainCartEntry.quantity - 1))} className="grid h-full w-10 place-items-center text-pocket-orange transition hover:bg-pocket-orange/10">
+            <Minus className="h-4 w-4" />
+          </button>
+          <span className="grid h-full min-w-10 place-items-center border-x border-pocket-orange/20 px-2 text-sm font-black" aria-label={`${plainCartEntry.quantity} in cart`}>{plainCartEntry.quantity}</span>
+          <button type="button" aria-label={`Add one ${product.name}`} onClick={() => addToCart({ productId: product.id })} className="grid h-full w-10 place-items-center bg-pocket-orange text-white transition hover:bg-pocket-orange/90">
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+      ) : (
+        <Button onClick={handleQuickAdd}>
+          <ShoppingBag className="h-4 w-4" />
+          {product.addOnGroups.length ? "Customize" : "Add to Cart"}
+        </Button>
+      )}
 
       {mealPromptOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4">
@@ -90,8 +104,9 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
             <p className="mt-3 text-sm leading-6 text-pocket-navy/70">Add fries and choose your drink or shake.</p>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <Button variant="outline" onClick={() => { setMealPromptOpen(false); beginAdd(product); }}>No, just the shawarma</Button>
-              <Button onClick={() => { setMealPromptOpen(false); beginAdd(mealProduct!); }}>Yes, make it a meal</Button>
+              <Button disabled={!mealProduct} onClick={() => { if (!mealProduct) return; setMealPromptOpen(false); beginAdd(mealProduct); }}>Yes, make it a meal</Button>
             </div>
+            {!mealProduct ? <p className="mt-3 text-sm font-medium text-red-600">This meal upgrade is not available right now.</p> : null}
             <button type="button" className="mt-4 text-sm font-semibold text-pocket-navy/60 hover:text-pocket-navy" onClick={() => setMealPromptOpen(false)}>Cancel</button>
           </Card>
         </div>
