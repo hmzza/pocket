@@ -6,11 +6,5 @@ export function isMealProduct(product: Product) {
 
 export function getMealProductForShawarma(product: Product, products: Product[]) {
   if (product.category.slug !== "shawarma") return undefined;
-  const exactMatch = products.find((candidate) => isMealProduct(candidate) && candidate.slug === `${product.slug}-make-it-a-meal`);
-  if (exactMatch) return exactMatch;
-
-  const normalizedName = product.name.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return products.find((candidate) =>
-    isMealProduct(candidate) && candidate.name.toLowerCase().replace(/[^a-z0-9]/g, "").startsWith(normalizedName)
-  );
+  return products.find((candidate) => candidate.category.slug === "make-it-a-meal" && candidate.slug === "make-it-a-meal");
 }

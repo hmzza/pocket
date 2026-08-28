@@ -452,20 +452,6 @@ async function main() {
 
   const categoryMap = Object.fromEntries(categories.map((category) => [category.slug, category]));
 
-  const mealSelectionOptions = [
-    { code: "pepsi", name: "Fries + Pepsi", priceDelta: 250 },
-    { code: "7up", name: "Fries + 7UP", priceDelta: 250 },
-    { code: "fanta", name: "Fries + Fanta", priceDelta: 250 },
-    { code: "chocolate", name: "Fries + Chocolate Shake", priceDelta: 450 },
-    { code: "vanilla", name: "Fries + Vanilla Shake", priceDelta: 450 },
-    { code: "mango", name: "Fries + Mango Shake", priceDelta: 450 },
-    { code: "oreo", name: "Fries + Oreo Shake", priceDelta: 450 },
-    { code: "strawberry", name: "Fries + Strawberry Shake", priceDelta: 450 },
-    { code: "kiwi", name: "Fries + Kiwi Passion", priceDelta: 550 },
-    { code: "cherry", name: "Fries + Strawberry Cherry", priceDelta: 550 },
-    { code: "watermelon", name: "Fries + Watermelon Guava", priceDelta: 550 }
-  ];
-
   const productSeeds = [
     {
       legacySlug: "pocket-chicken-shawarma",
@@ -604,51 +590,6 @@ async function main() {
       sortOrder: 4,
       nutritionInfo: nutrition(80, 4, 1, 6),
       images: [{ url: "/images/loaded-fries.png", alt: "Cheese", sortOrder: 1 }]
-    },
-    {
-      slug: "classic-pocket-make-it-a-meal",
-      sku: "PKT-ML-001",
-      name: "Classic Pocket - Make It A Meal",
-      description: "Classic Pocket bundled with fries and your drink pick.",
-      categorySlug: "make-it-a-meal",
-      ingredients: ["Chicken", "Classic shawarma sauce", "Iceberg", "Carrot", "Cucumber", "Cheese", "Fries", "Drink"],
-      basePrice: 450,
-      calories: 560,
-      featured: true,
-      bestSeller: false,
-      sortOrder: 1,
-      nutritionInfo: nutrition(560, 29, 41, 24),
-      images: [{ url: "/images/classic-shawarma.png", alt: "Classic Pocket meal", sortOrder: 1 }]
-    },
-    {
-      slug: "spicy-pocket-make-it-a-meal",
-      sku: "PKT-ML-002",
-      name: "Spicy Pocket - Make It A Meal",
-      description: "Spicy Pocket bundled with fries and your drink pick.",
-      categorySlug: "make-it-a-meal",
-      ingredients: ["Chicken", "Spicy jalapeno sauce", "Iceberg", "Carrot", "Cucumber", "Cheese", "Fries", "Drink"],
-      basePrice: 550,
-      calories: 590,
-      featured: true,
-      bestSeller: false,
-      sortOrder: 2,
-      nutritionInfo: nutrition(590, 30, 42, 27),
-      images: [{ url: "/images/spicy-shawarma.png", alt: "Spicy Pocket meal", sortOrder: 1 }]
-    },
-    {
-      slug: "pocket-mai-rocket-make-it-a-meal",
-      sku: "PKT-ML-003",
-      name: "Pocket Mai Rocket - Make It A Meal",
-      description: "Pocket Mai Rocket bundled with fries and your drink pick.",
-      categorySlug: "make-it-a-meal",
-      ingredients: ["Chicken", "Black olives", "Jalapeno", "Corn", "Mushrooms", "Cheese", "Fries", "Drink"],
-      basePrice: 750,
-      calories: 760,
-      featured: true,
-      bestSeller: false,
-      sortOrder: 3,
-      nutritionInfo: nutrition(760, 36, 45, 34),
-      images: [{ url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket Mai Rocket meal", sortOrder: 1 }]
     },
     {
       legacySlug: "coke",
@@ -889,7 +830,7 @@ async function main() {
         });
       }
 
-      if (seed.slug === "pocket-mai-rocket" || seed.slug === "pocket-mai-rocket-make-it-a-meal") {
+      if (seed.slug === "pocket-mai-rocket") {
         await createAddOnGroup({
           name: "Choose Sauce",
           minSelect: 1,
@@ -914,20 +855,6 @@ async function main() {
         });
       }
 
-      if (seed.slug.endsWith("make-it-a-meal")) {
-        await createAddOnGroup({
-          name: "Choose your meal pairing",
-          minSelect: 1,
-          maxSelect: 1,
-          isRequired: true,
-          sortOrder: seed.slug === "pocket-mai-rocket-make-it-a-meal" ? 2 : 1,
-          options: mealSelectionOptions.map((option, index) => ({
-            name: option.name,
-            priceDelta: option.priceDelta,
-            sortOrder: index + 1
-          }))
-        });
-      }
     }
 
     products.push(product);

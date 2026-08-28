@@ -22,7 +22,10 @@ type StoreContextValue = {
   cart: CartEntry[];
   favorites: string[];
   recentlyViewed: string[];
+  mealSuggestionProductId: string | null;
   addToCart: (input: AddToCartInput) => boolean;
+  suggestMeal: (productId: string) => void;
+  dismissMealSuggestion: () => void;
   updateQuantity: (cartItemId: string, quantity: number) => void;
   updateCartItem: (cartItemId: string, input: Pick<AddToCartInput, "selectedAddOnIds">) => void;
   clearCart: () => void;
@@ -102,6 +105,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
+  const [mealSuggestionProductId, setMealSuggestionProductId] = useState<string | null>(null);
   const [cartNotice, setCartNotice] = useState("");
   const [hasHydrated, setHasHydrated] = useState(false);
 
@@ -200,6 +204,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       cart,
       favorites,
       recentlyViewed,
+      mealSuggestionProductId,
       addToCart: (input) => {
         const selectedAddOnIds = normalizeAddOnIds(input.selectedAddOnIds);
         setCart((current) => {
@@ -225,6 +230,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         });
         setCartNotice("Added to cart");
         return true;
+      },
+      suggestMeal: (productId) => {
+        setMealSuggestionProductId(productId);
+      },
+      dismissMealSuggestion: () => {
+        setMealSuggestionProductId(null);
       },
       updateQuantity: (cartItemId, quantity) => {
         setCart((current) =>
@@ -279,7 +290,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           })
           .filter(Boolean) as CartProduct[]
     }),
-    [cart, favorites, recentlyViewed]
+    [cart, favorites, recentlyViewed, mealSuggestionProductId]
   );
 
   useEffect(() => {

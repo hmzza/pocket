@@ -8,10 +8,9 @@ import { Card } from "@/components/ui/card";
 import { cn, formatCompactCurrency } from "@/lib/utils";
 import type { Product } from "@/lib/types";
 
-export function AddToCartButton({ product, mealProduct }: { product: Product; mealProduct?: Product }) {
-  const { addToCart } = useStore();
+export function AddToCartButton({ product, mealProduct, buttonLabel }: { product: Product; mealProduct?: Product; buttonLabel?: string }) {
+  const { addToCart, suggestMeal, dismissMealSuggestion } = useStore();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [mealPromptOpen, setMealPromptOpen] = useState(false);
   const [configuredProduct, setConfiguredProduct] = useState<Product | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>({});
   const [error, setError] = useState("");
@@ -34,7 +33,9 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
 
   function beginAdd(productToAdd: Product) {
     if (!productToAdd.addOnGroups.length) {
-      addToCart({ productId: productToAdd.id });
+      const wasAdded = addToCart({ productId: productToAdd.id });
+      if (wasAdded && isShawarma && mealProduct) suggestMeal(mealProduct.id);
+      if (wasAdded && productToAdd.category.slug === "make-it-a-meal") dismissMealSuggestion();
       return;
     }
 
@@ -49,10 +50,6 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
   }
 
   function handleQuickAdd() {
-    if (isShawarma) {
-      setMealPromptOpen(true);
-      return;
-    }
     beginAdd(product);
   }
 
@@ -71,6 +68,8 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
     });
 
     if (wasAdded) {
+      if (isShawarma && mealProduct) suggestMeal(mealProduct.id);
+      if (itemBeingConfigured.category.slug === "make-it-a-meal") dismissMealSuggestion();
       setDialogOpen(false);
       setConfiguredProduct(null);
     }
@@ -80,24 +79,8 @@ export function AddToCartButton({ product, mealProduct }: { product: Product; me
     <>
       <Button onClick={handleQuickAdd}>
         <ShoppingBag className="h-4 w-4" />
-        {product.addOnGroups.length ? "Customize" : "Add to Cart"}
+        {buttonLabel ?? (product.addOnGroups.length ? "Customize" : "Add to Cart")}
       </Button>
-
-      {mealPromptOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4">
-          <Card className="w-full max-w-md rounded-3xl border-pocket-navy/10 p-6 text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Make it a meal</p>
-            <h3 className="mt-3 text-2xl font-black text-pocket-navy">Would you like to make your {product.name} a meal?</h3>
-            <p className="mt-3 text-sm leading-6 text-pocket-navy/70">Add fries and choose your drink or shake.</p>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              <Button variant="outline" onClick={() => { setMealPromptOpen(false); beginAdd(product); }}>No, just the shawarma</Button>
-              <Button disabled={!mealProduct} onClick={() => { if (!mealProduct) return; setMealPromptOpen(false); beginAdd(mealProduct); }}>Yes, make it a meal</Button>
-            </div>
-            {!mealProduct ? <p className="mt-3 text-sm font-medium text-red-600">This meal upgrade is not available right now.</p> : null}
-            <button type="button" className="mt-4 text-sm font-semibold text-pocket-navy/60 hover:text-pocket-navy" onClick={() => setMealPromptOpen(false)}>Cancel</button>
-          </Card>
-        </div>
-      ) : null}
 
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/70 p-4">
