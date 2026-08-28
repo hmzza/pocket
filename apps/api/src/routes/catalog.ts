@@ -13,6 +13,16 @@ import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 import rateLimit from "express-rate-limit";
 import { publicBranchPricingInclude, publicProductWhere, PUBLIC_HIDDEN_CATEGORY_SLUGS, resolvePublicBranch } from "../lib/public-catalog.js";
+import {
+  BEVERAGE_CATEGORY_SLUGS,
+  MEAL_BASE_PRICE,
+  MEAL_CATEGORY_SLUG,
+  filterMealProductOptions,
+  getAvailableMealBeverageIds,
+  isCanonicalMealProduct,
+  isLegacyMealProduct,
+  syncMealPairingOptions
+} from "../lib/meal-options.js";
 
 const router = Router();
 const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
@@ -120,7 +130,7 @@ router.get("/content/home", async (req, res) => {
     prisma.category.findMany({
       where: {
         isActive: true,
-        slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS },
+        slug: { notIn: [...PUBLIC_HIDDEN_CATEGORY_SLUGS, MEAL_CATEGORY_SLUG] },
         products: { some: publicProductWhere(branchId) }
       },
       orderBy: { sortOrder: "asc" }
@@ -149,8 +159,8 @@ router.get("/content/home", async (req, res) => {
           { url: "/images/loaded-fries.png", alt: "Loaded Fries" }
         ],
     heroSliderIntervalMs: Number((slider?.value as any)?.intervalMs ?? 4500),
-    featured,
-    bestSellers,
+    featured: featured.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG),
+    bestSellers: bestSellers.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG),
     categories,
     branch,
     contact,
@@ -202,7 +212,7 @@ router.get("/categories", async (req, res) => {
   const categories = await prisma.category.findMany({
     where: {
       isActive: true,
-      slug: { notIn: PUBLIC_HIDDEN_CATEGORY_SLUGS },
+      slug: { notIn: [...PUBLIC_HIDDEN_CATEGORY_SLUGS, MEAL_CATEGORY_SLUG] },
       products: { some: publicProductWhere(branch.id) }
     },
     orderBy: { sortOrder: "asc" }
@@ -223,6 +233,8 @@ router.get("/products", async (req, res, next) => {
     const { category, search, featured, bestSeller, branchSlug } = querySchema.parse(req.query);
     const branch = await resolvePublicBranch(branchSlug);
     if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
+    await syncMealPairingOptions(prisma);
+    const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, branch.id);
     const where: Prisma.ProductWhereInput = {
       ...publicProductWhere(branch.id),
       AND: [
@@ -259,7 +271,7 @@ router.get("/products", async (req, res, next) => {
       orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
     });
 
-    return res.json({ products });
+    return res.json({ products: filterMealProductOptions(products, availableMealBeverageIds) });
   } catch (error) {
     return next(error);
   }
@@ -277,7 +289,7 @@ router.get("/products/:slug", async (req, res) => {
     }
   });
 
-  if (!product || !product.isActive || !product.category.isActive || PUBLIC_HIDDEN_CATEGORY_SLUGS.includes(product.category.slug as any) || !product.branchPricing[0]?.isAvailable) {
+  if (!product || !product.isActive || !product.category.isActive || PUBLIC_HIDDEN_CATEGORY_SLUGS.includes(product.category.slug as any) || product.category.slug === MEAL_CATEGORY_SLUG || !product.branchPricing[0]?.isAvailable) {
     return res.status(404).json({ message: "Product not found." });
   }
 
@@ -286,7 +298,7 @@ router.get("/products/:slug", async (req, res) => {
         categoryId: product.categoryId,
         id: { not: product.id },
         isActive: true,
-        category: { is: { isActive: true, slug: { notIn: [...PUBLIC_HIDDEN_CATEGORY_SLUGS] } } },
+        category: { is: { isActive: true, slug: { notIn: [...PUBLIC_HIDDEN_CATEGORY_SLUGS, MEAL_CATEGORY_SLUG] } } },
         branchPricing: { some: { branchId: branch.id, isAvailable: true } }
       },
     include: {
@@ -322,7 +334,7 @@ router.get("/search", async (req, res, next) => {
       take: 8
     });
 
-    return res.json({ results: products });
+    return res.json({ results: products.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG && !isLegacyMealProduct(product)) });
   } catch (error) {
     return next(error);
   }
@@ -548,9 +560,18 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
     }
 
     const requestedProductIds = [...new Set(payload.items.map((item) => item.productId))];
+    await syncMealPairingOptions(prisma);
+    const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, branch.id);
     const products = await prisma.product.findMany({
-      where: { id: { in: requestedProductIds }, ...publicProductWhere(branch.id) },
+      where: {
+        ...publicProductWhere(branch.id),
+        OR: [
+          { id: { in: requestedProductIds } },
+          { category: { is: { isActive: true, slug: { in: [...BEVERAGE_CATEGORY_SLUGS] } } } }
+        ]
+      },
       include: {
+        category: true,
         addOnGroups: {
           orderBy: { sortOrder: "asc" },
           include: {
@@ -560,17 +581,26 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
             }
           }
         },
+        bundleComponents: {
+          orderBy: { sortOrder: "asc" },
+          include: {
+            componentProduct: {
+              select: { id: true, name: true, slug: true, isActive: true }
+            }
+          }
+        },
         branchPricing: {
           where: { branchId: branch.id }
         }
       }
     });
 
-    if (products.length !== requestedProductIds.length) {
+    const availableProducts = filterMealProductOptions(products, availableMealBeverageIds);
+    const productMap = new Map(availableProducts.map((product) => [product.id, product]));
+    if (requestedProductIds.some((productId) => !productMap.has(productId))) {
       return res.status(400).json({ message: "One or more items are unavailable." });
     }
 
-    const productMap = new Map(products.map((product) => [product.id, product]));
     const normalizedItems = payload.items.map((item) => {
       const product = productMap.get(item.productId);
       if (!product) {
@@ -580,6 +610,19 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
         throw Object.assign(new Error(`${product.name} is unavailable from the selected branch.`), { statusCode: 400 });
       }
 
+      if (isLegacyMealProduct(product)) {
+        throw Object.assign(new Error("Legacy meal products are no longer available. Use the single Make It A Meal product."), { statusCode: 400 });
+      }
+
+      if (isCanonicalMealProduct(product)) {
+        const validBundle = product.bundleComponents.length === 1
+          && product.bundleComponents[0]?.componentProduct.slug === "thela-fries"
+          && Number(product.bundleComponents[0]?.quantity) === 1;
+        if (!validBundle) {
+          throw Object.assign(new Error("Make It A Meal must contain exactly one Thela Fries bundle component."), { statusCode: 400 });
+        }
+      }
+
       const selectedAddOnIds = [...new Set(item.selectedAddOnIds)];
       const addOns = product.addOnGroups.flatMap((group) => {
         const selectedOptions = group.options.filter((option) => selectedAddOnIds.includes(option.id));
@@ -587,25 +630,37 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
           throw new Error(`${product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
         }
 
-        return selectedOptions.map((option) => ({
-          optionId: option.id,
-          optionName: option.name,
-          priceDelta: Number(option.priceDelta)
-        }));
+        return selectedOptions.map((option) => {
+          if (isCanonicalMealProduct(product) && (!option.linkedProductId || !availableMealBeverageIds.has(option.linkedProductId) || !productMap.has(option.linkedProductId))) {
+            throw Object.assign(new Error(`${product.name}: this beverage is unavailable from the selected branch.`), { statusCode: 400 });
+          }
+
+          return {
+            optionId: option.id,
+            optionName: option.name,
+            priceDelta: Number(option.priceDelta),
+            linkedProductId: option.linkedProductId
+          };
+        });
       });
 
       if (addOns.length !== selectedAddOnIds.length) {
         throw new Error(`${product.name}: invalid add-on selection.`);
       }
 
-      const basePrice = Number(product.branchPricing[0].price);
+      const basePrice = isCanonicalMealProduct(product) ? MEAL_BASE_PRICE : Number(product.branchPricing[0].price);
       const unitPrice = basePrice + addOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
 
       return {
         ...item,
         product,
         addOns,
-        unitPrice
+        unitPrice,
+        bundleComponents: product.bundleComponents.map((component) => ({
+          productId: component.componentProduct.id,
+          productName: component.componentProduct.name,
+          quantity: Number(component.quantity) * item.quantity
+        }))
       };
     });
 
@@ -712,10 +767,20 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
               create: normalizedItems.map((item) => {
                 return {
                   productId: item.product.id,
-                  productName: item.product.name,
-                  quantity: item.quantity,
-                  unitPrice: item.unitPrice,
-                  addOns: item.addOns.length
+                   productName: item.product.name,
+                   quantity: item.quantity,
+                   unitPrice: item.unitPrice,
+                   bundleComponents: item.bundleComponents.length
+                     ? {
+                         create: item.bundleComponents.map((component) => ({
+                           productId: component.productId,
+                           componentProductName: component.productName,
+                           quantity: component.quantity,
+                           unitPrice: 0
+                         }))
+                       }
+                     : undefined,
+                   addOns: item.addOns.length
                     ? {
                         create: item.addOns.map((addOn) => ({
                           optionId: addOn.optionId,

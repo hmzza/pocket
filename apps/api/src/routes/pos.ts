@@ -9,7 +9,17 @@ import { env } from "../config.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { signReceiptToken } from "../lib/receipt-token.js";
 import { applyInventoryChanges, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
-import { syncMealPairingOptions } from "../lib/meal-options.js";
+import {
+  BEVERAGE_CATEGORY_SLUGS,
+  MEAL_BASE_PRICE,
+  MEAL_PAIRING_GROUP_NAME,
+  THELA_FRIES_SLUG,
+  filterMealProductOptions,
+  getAvailableMealBeverageIds,
+  isCanonicalMealProduct,
+  isLegacyMealProduct,
+  syncMealPairingOptions
+} from "../lib/meal-options.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
 import { readIndependencePromotion } from "../lib/promotions.js";
@@ -293,9 +303,13 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     }),
     prisma.product.findMany({
       where: {
-        id: { in: productIds },
         isActive: true,
-        branchPricing: { some: { branchId: payload.branchId, isAvailable: true } }
+        category: { is: { isActive: true } },
+        branchPricing: { some: { branchId: payload.branchId, isAvailable: true } },
+        OR: [
+          { id: { in: productIds } },
+          { category: { is: { isActive: true, slug: { in: [...BEVERAGE_CATEGORY_SLUGS] } } } }
+        ]
       },
       include: {
         ...posProductInclude,
@@ -310,12 +324,33 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     throw Object.assign(new Error("Selected branch is unavailable."), { statusCode: 404 });
   }
 
-  if (products.length !== productIds.length) {
+  if (productIds.some((productId) => !products.some((product) => product.id === productId))) {
     throw Object.assign(new Error("One or more selected products are unavailable."), { statusCode: 400 });
   }
 
-  const productMap = new Map(products.map((product) => [product.id, product]));
-  const inventoryProductIds = [...new Set([...productIds, ...getBundleComponentProductIds(products)])];
+  const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, payload.branchId);
+  const scopedProducts = filterMealProductOptions(products, availableMealBeverageIds);
+  const rawProductMap = new Map(products.map((product) => [product.id, product]));
+  const productMap = new Map(scopedProducts.map((product) => [product.id, product]));
+  for (const productId of requestedProductIds) {
+    const product = rawProductMap.get(productId);
+    if (product && isLegacyMealProduct(product)) {
+      throw Object.assign(new Error("Legacy meal products are no longer available. Use the single Make It A Meal product."), { statusCode: 400 });
+    }
+    if (!productMap.has(productId)) {
+      throw Object.assign(new Error("One or more selected products are unavailable."), { statusCode: 400 });
+    }
+  }
+  const canonicalMeal = scopedProducts.find((product) => isCanonicalMealProduct(product));
+  if (canonicalMeal) {
+    const validBundle = canonicalMeal.bundleComponents.length === 1
+      && canonicalMeal.bundleComponents[0]?.componentProduct.slug === THELA_FRIES_SLUG
+      && Number(canonicalMeal.bundleComponents[0]?.quantity) === 1;
+    if (!validBundle) {
+      throw Object.assign(new Error("Make It A Meal must contain exactly one Thela Fries bundle component."), { statusCode: 400 });
+    }
+  }
+  const inventoryProductIds = [...new Set([...productIds, ...getBundleComponentProductIds(scopedProducts)])];
   const inventoryData = await readInventoryData(prisma, payload.branchId, inventoryProductIds);
 
   const normalizedItems = payload.items.map((item) => {
@@ -354,7 +389,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       : product.addOnGroups;
     const groups = new Map(productAddOnGroups.map((group) => [group.id, group]));
     const selectedGroups = new Map(item.selections.map((selection) => [selection.groupId, selection.optionIds]));
-    const lineAddOns: Array<{ optionId: string; optionName: string; priceDelta: number }> = [];
+    const lineAddOns: Array<{ optionId: string; optionName: string; priceDelta: number; linkedProductId?: string | null }> = [];
 
     for (const group of productAddOnGroups) {
       const selectedOptionIds = selectedGroups.get(group.id) ?? [];
@@ -369,10 +404,21 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
           throw Object.assign(new Error(`${product.name}: invalid add-on selection.`), { statusCode: 400 });
         }
 
+        if (isCanonicalMealProduct(product) && group.name === MEAL_PAIRING_GROUP_NAME) {
+          if (!option.linkedProductId || !availableMealBeverageIds.has(option.linkedProductId)) {
+            throw Object.assign(new Error(`${product.name}: this beverage is unavailable from the selected branch.`), { statusCode: 400 });
+          }
+          const linkedProduct = productMap.get(option.linkedProductId);
+          if (!linkedProduct || !linkedProduct.isActive || !linkedProduct.branchPricing[0]?.isAvailable) {
+            throw Object.assign(new Error(`${product.name}: this beverage is unavailable from the selected branch.`), { statusCode: 400 });
+          }
+        }
+
         lineAddOns.push({
           optionId: option.id,
           optionName: option.name,
-          priceDelta: Number(option.priceDelta)
+          priceDelta: Number(option.priceDelta),
+          linkedProductId: option.linkedProductId
         });
       }
     }
@@ -383,7 +429,9 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       }
     }
 
-    const baseUnitPrice = Number((branchPricing?.price ?? product.basePrice).toString());
+    const baseUnitPrice = isCanonicalMealProduct(product)
+      ? MEAL_BASE_PRICE
+      : Number((branchPricing?.price ?? product.basePrice).toString());
     const addOnTotal = lineAddOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
     const bundleComponents = (product.bundleComponents ?? []).map((component) => ({
       productId: component.componentProduct.id,
@@ -600,6 +648,7 @@ router.get("/catalog", async (req, res, next) => {
 
     const where: Prisma.ProductWhereInput = {
       isActive: true,
+      category: { is: { isActive: true } },
       branchPricing: { some: { branchId, isAvailable: true } },
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.search
@@ -621,12 +670,15 @@ router.get("/catalog", async (req, res, next) => {
       orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
     });
 
+    const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, branchId);
+    const branchProducts = filterMealProductOptions(products, availableMealBeverageIds);
+
     const categories = await prisma.category.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" }
     });
 
-    const posProducts = products.map((product) =>
+    const posProducts = branchProducts.map((product) =>
       product.slug === "loaded-fries"
         ? {
             ...product,

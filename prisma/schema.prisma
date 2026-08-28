@@ -83,57 +83,57 @@ enum ContentStatus {
 }
 
 model Role {
-  id        String   @id @default(cuid())
-  code      RoleCode @unique
-  label     String
-  users     User[]
+  id               String           @id @default(cuid())
+  code             RoleCode         @unique
+  label            String
+  users            User[]
   permissionGrants RolePermission[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 }
 
 model User {
-  id                    String                 @id @default(cuid())
-  roleId                String
-  name                  String
-  username              String                 @unique
-  email                 String                 @unique
-  phone                 String?                @unique
-  passwordHash          String
-  avatarUrl             String?
-  isActive              Boolean                @default(true)
-  canAccessAdmin        Boolean                @default(false)
-  canAccessPos          Boolean                @default(false)
-  lastLoginAt           DateTime?
-  marketingOptIn        Boolean                @default(false)
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  role                  Role                   @relation(fields: [roleId], references: [id])
-  addresses             Address[]
-  orders                Order[]
-  cashierOrders         Order[]                @relation("CashierOrder")
-  acceptedDeliveryOrders Order[]               @relation("DeliveryAcceptedBy")
-  dispatchedDeliveryOrders Order[]             @relation("DeliveryDispatchedBy")
-  reviews               Review[]
-  favorites             Favorite[]
-  notifications         Notification[]
-  auditLogs             AuditLog[]
-  cart                  ShoppingCart?
-  inventoryTransactions InventoryTransaction[] @relation("InventoryActor")
-  expenses              Expense[]              @relation("ExpenseActor")
-  fixedExpenses         FixedExpense[]         @relation("FixedExpenseActor")
-  moneyTransfers        MoneyTransfer[]        @relation("MoneyTransferActor")
-  moneyAdditions        MoneyAddition[]        @relation("MoneyAdditionActor")
-  dailyClosings         DailyClosing[]         @relation("DailyClosingActor")
-  openingBalances       OpeningBalance[]       @relation("OpeningBalanceActor")
-  foodpandaSettlements  FoodpandaSettlement[]  @relation("FoodpandaSettlementReceiver")
-  loans                 Loan[]                 @relation("LoanActor")
-  loanRepayments        LoanRepayment[]        @relation("LoanRepaymentActor")
-  investmentPartners    InvestmentPartner[]    @relation("InvestmentPartnerActor")
-  investmentCommitments InvestmentCommitment[] @relation("InvestmentCommitmentActor")
-  investmentPayments    InvestmentPayment[]    @relation("InvestmentPaymentActor")
-  branchAccesses        UserBranchAccess[]
-  permissionGrants      UserPermission[]
+  id                       String                 @id @default(cuid())
+  roleId                   String
+  name                     String
+  username                 String                 @unique
+  email                    String                 @unique
+  phone                    String?                @unique
+  passwordHash             String
+  avatarUrl                String?
+  isActive                 Boolean                @default(true)
+  canAccessAdmin           Boolean                @default(false)
+  canAccessPos             Boolean                @default(false)
+  lastLoginAt              DateTime?
+  marketingOptIn           Boolean                @default(false)
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+  role                     Role                   @relation(fields: [roleId], references: [id])
+  addresses                Address[]
+  orders                   Order[]
+  cashierOrders            Order[]                @relation("CashierOrder")
+  acceptedDeliveryOrders   Order[]                @relation("DeliveryAcceptedBy")
+  dispatchedDeliveryOrders Order[]                @relation("DeliveryDispatchedBy")
+  reviews                  Review[]
+  favorites                Favorite[]
+  notifications            Notification[]
+  auditLogs                AuditLog[]
+  cart                     ShoppingCart?
+  inventoryTransactions    InventoryTransaction[] @relation("InventoryActor")
+  expenses                 Expense[]              @relation("ExpenseActor")
+  fixedExpenses            FixedExpense[]         @relation("FixedExpenseActor")
+  moneyTransfers           MoneyTransfer[]        @relation("MoneyTransferActor")
+  moneyAdditions           MoneyAddition[]        @relation("MoneyAdditionActor")
+  dailyClosings            DailyClosing[]         @relation("DailyClosingActor")
+  openingBalances          OpeningBalance[]       @relation("OpeningBalanceActor")
+  foodpandaSettlements     FoodpandaSettlement[]  @relation("FoodpandaSettlementReceiver")
+  loans                    Loan[]                 @relation("LoanActor")
+  loanRepayments           LoanRepayment[]        @relation("LoanRepaymentActor")
+  investmentPartners       InvestmentPartner[]    @relation("InvestmentPartnerActor")
+  investmentCommitments    InvestmentCommitment[] @relation("InvestmentCommitmentActor")
+  investmentPayments       InvestmentPayment[]    @relation("InvestmentPaymentActor")
+  branchAccesses           UserBranchAccess[]
+  permissionGrants         UserPermission[]
 }
 
 model DeliveryRider {
@@ -148,17 +148,17 @@ model DeliveryRider {
 }
 
 model Permission {
-  id            String           @id @default(cuid())
-  key           String           @unique
-  label         String
-  routePrefix   String
+  id              String           @id @default(cuid())
+  key             String           @unique
+  label           String
+  routePrefix     String
   permissionGroup String
-  sortOrder     Int              @default(0)
-  isActive      Boolean          @default(true)
-  userGrants    UserPermission[]
-  roleGrants    RolePermission[]
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  sortOrder       Int              @default(0)
+  isActive        Boolean          @default(true)
+  userGrants      UserPermission[]
+  roleGrants      RolePermission[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   @@index([routePrefix])
   @@index([isActive, sortOrder])
@@ -189,36 +189,36 @@ model RolePermission {
 }
 
 model Branch {
-  id             String            @id @default(cuid())
-  slug           String            @unique
-  name           String
-  city           String
-  addressLine1   String
-  addressLine2   String?
-  phone          String
-  email          String?
-  latitude       Float?
-  longitude      Float?
-  deliveryFee    Decimal           @db.Decimal(10, 2)
-  isActive       Boolean           @default(true)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  hours          BranchHours[]
-  products       BranchProduct[]
-  carts          ShoppingCart[]
-  orders         Order[]
-  inventories    BranchInventory[]
-  expenses       Expense[]
-  fixedExpenses  FixedExpense[]
-  moneyTransfers MoneyTransfer[]
-  moneyAdditions MoneyAddition[]
-  dailyClosings  DailyClosing[]
-  openingBalances OpeningBalance[]
-  loans          Loan[]
-  loanRepayments LoanRepayment[]
+  id                 String              @id @default(cuid())
+  slug               String              @unique
+  name               String
+  city               String
+  addressLine1       String
+  addressLine2       String?
+  phone              String
+  email              String?
+  latitude           Float?
+  longitude          Float?
+  deliveryFee        Decimal             @db.Decimal(10, 2)
+  isActive           Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  hours              BranchHours[]
+  products           BranchProduct[]
+  carts              ShoppingCart[]
+  orders             Order[]
+  inventories        BranchInventory[]
+  expenses           Expense[]
+  fixedExpenses      FixedExpense[]
+  moneyTransfers     MoneyTransfer[]
+  moneyAdditions     MoneyAddition[]
+  dailyClosings      DailyClosing[]
+  openingBalances    OpeningBalance[]
+  loans              Loan[]
+  loanRepayments     LoanRepayment[]
   investmentPayments InvestmentPayment[]
-  coupons          Coupon[]
-  userAccesses   UserBranchAccess[]
+  coupons            Coupon[]
+  userAccesses       UserBranchAccess[]
 }
 
 model UserBranchAccess {
@@ -294,6 +294,7 @@ model Product {
   cartItems                 CartItem[]
   productIngredients        ProductIngredient[]
   packagingRules            PackagingRule[]
+  linkedAddOnOptions        AddOnOption[]              @relation("LinkedAddOnProduct")
 }
 
 model ProductImage {
@@ -319,14 +320,18 @@ model AddOnGroup {
 }
 
 model AddOnOption {
-  id         String           @id @default(cuid())
-  groupId    String
-  name       String
-  priceDelta Decimal          @db.Decimal(10, 2)
-  isActive   Boolean          @default(true)
-  sortOrder  Int              @default(0)
-  group      AddOnGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  orderItems OrderItemAddOn[]
+  id              String           @id @default(cuid())
+  groupId         String
+  linkedProductId String?
+  name            String
+  priceDelta      Decimal          @db.Decimal(10, 2)
+  isActive        Boolean          @default(true)
+  sortOrder       Int              @default(0)
+  group           AddOnGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  linkedProduct   Product?         @relation("LinkedAddOnProduct", fields: [linkedProductId], references: [id], onDelete: SetNull)
+  orderItems      OrderItemAddOn[]
+
+  @@index([linkedProductId])
 }
 
 model ProductBundleComponent {
@@ -416,54 +421,54 @@ model Coupon {
 }
 
 model Order {
-  id                   String        @id @default(cuid())
-  orderNumber          String        @unique
-  customerId           String?
-  cashierId            String?
-  branchId             String
-  addressId            String?
-  couponId             String?
-  status               OrderStatus   @default(PENDING)
-  channel              OrderChannel  @default(ONLINE)
-  serviceType          ServiceType   @default(DELIVERY)
-  customerName         String?
-  customerPhone        String?
-  foodpandaOrderNumber String?
-  paymentMethod        PaymentMethod
-  paymentStatus        PaymentStatus @default(PENDING)
-  subtotal             Decimal       @db.Decimal(10, 2)
-  taxRate              Decimal       @db.Decimal(5, 2)
-  taxAmount            Decimal       @db.Decimal(10, 2)
-  deliveryFee          Decimal       @db.Decimal(10, 2)
-  discountAmount       Decimal       @db.Decimal(10, 2)
-  manualDiscountType   DiscountType?
-  manualDiscountValue  Decimal?      @db.Decimal(10, 2)
-  promotionName        String?
-  promotionDiscountAmount Decimal?   @db.Decimal(10, 2)
-  cashReceivedAmount   Decimal?      @db.Decimal(10, 2)
-  changeDueAmount      Decimal?      @db.Decimal(10, 2)
-  totalAmount          Decimal       @db.Decimal(10, 2)
-  expectedDeliveryAt   DateTime?
-  deliveryInstructions String?
-  deliverySector       String?
-  deliverySubsector    String?
-  riderName            String?
-  riderPhone           String?
-  riderAssignedAt      DateTime?
-  acceptedById         String?
-  acceptedAt           DateTime?
-  dispatchedById       String?
-  dispatchedAt         DateTime?
-  placedAt             DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  customer             User?         @relation(fields: [customerId], references: [id])
-  cashier              User?         @relation("CashierOrder", fields: [cashierId], references: [id])
-  acceptedBy           User?         @relation("DeliveryAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
-  dispatchedBy         User?         @relation("DeliveryDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
-  branch               Branch        @relation(fields: [branchId], references: [id])
-  address              Address?      @relation(fields: [addressId], references: [id])
-  coupon               Coupon?       @relation(fields: [couponId], references: [id])
-  items                OrderItem[]
+  id                      String        @id @default(cuid())
+  orderNumber             String        @unique
+  customerId              String?
+  cashierId               String?
+  branchId                String
+  addressId               String?
+  couponId                String?
+  status                  OrderStatus   @default(PENDING)
+  channel                 OrderChannel  @default(ONLINE)
+  serviceType             ServiceType   @default(DELIVERY)
+  customerName            String?
+  customerPhone           String?
+  foodpandaOrderNumber    String?
+  paymentMethod           PaymentMethod
+  paymentStatus           PaymentStatus @default(PENDING)
+  subtotal                Decimal       @db.Decimal(10, 2)
+  taxRate                 Decimal       @db.Decimal(5, 2)
+  taxAmount               Decimal       @db.Decimal(10, 2)
+  deliveryFee             Decimal       @db.Decimal(10, 2)
+  discountAmount          Decimal       @db.Decimal(10, 2)
+  manualDiscountType      DiscountType?
+  manualDiscountValue     Decimal?      @db.Decimal(10, 2)
+  promotionName           String?
+  promotionDiscountAmount Decimal?      @db.Decimal(10, 2)
+  cashReceivedAmount      Decimal?      @db.Decimal(10, 2)
+  changeDueAmount         Decimal?      @db.Decimal(10, 2)
+  totalAmount             Decimal       @db.Decimal(10, 2)
+  expectedDeliveryAt      DateTime?
+  deliveryInstructions    String?
+  deliverySector          String?
+  deliverySubsector       String?
+  riderName               String?
+  riderPhone              String?
+  riderAssignedAt         DateTime?
+  acceptedById            String?
+  acceptedAt              DateTime?
+  dispatchedById          String?
+  dispatchedAt            DateTime?
+  placedAt                DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  customer                User?         @relation(fields: [customerId], references: [id])
+  cashier                 User?         @relation("CashierOrder", fields: [cashierId], references: [id])
+  acceptedBy              User?         @relation("DeliveryAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+  dispatchedBy            User?         @relation("DeliveryDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
+  branch                  Branch        @relation(fields: [branchId], references: [id])
+  address                 Address?      @relation(fields: [addressId], references: [id])
+  coupon                  Coupon?       @relation(fields: [couponId], references: [id])
+  items                   OrderItem[]
 
   @@index([branchId, placedAt])
   @@index([branchId, status, placedAt])
@@ -472,20 +477,20 @@ model Order {
 }
 
 model OrderItem {
-  id                String                     @id @default(cuid())
-  orderId           String
-  productId         String?
-  productName       String
-  customDescription String?
-  quantity          Int
-  unitPrice         Decimal                    @db.Decimal(10, 2)
-  promotionFreeQuantity Int                     @default(0)
-  note              String?
-  createdAt         DateTime                   @default(now())
-  order             Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product           Product?                   @relation(fields: [productId], references: [id])
-  addOns            OrderItemAddOn[]
-  bundleComponents  OrderItemBundleComponent[]
+  id                    String                     @id @default(cuid())
+  orderId               String
+  productId             String?
+  productName           String
+  customDescription     String?
+  quantity              Int
+  unitPrice             Decimal                    @db.Decimal(10, 2)
+  promotionFreeQuantity Int                        @default(0)
+  note                  String?
+  createdAt             DateTime                   @default(now())
+  order                 Order                      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product               Product?                   @relation(fields: [productId], references: [id])
+  addOns                OrderItemAddOn[]
+  bundleComponents      OrderItemBundleComponent[]
 }
 
 model OrderItemAddOn {
@@ -570,37 +575,37 @@ model Supplier {
 }
 
 model Ingredient {
-  id                  String                @id @default(cuid())
+  id                  String                   @id @default(cuid())
   supplierId          String?
   name                String
-  sku                 String                @unique
+  sku                 String                   @unique
   unit                String
-  type                String                @default("RAW")
-  isActive            Boolean               @default(true)
-  reorderLevel        Decimal               @db.Decimal(10, 3)
-  costPerUnit         Decimal               @db.Decimal(10, 2)
-  caloriesPerUnit     Decimal               @default(0) @db.Decimal(10, 2)
-  supplier            Supplier?             @relation(fields: [supplierId], references: [id])
+  type                String                   @default("RAW")
+  isActive            Boolean                  @default(true)
+  reorderLevel        Decimal                  @db.Decimal(10, 3)
+  costPerUnit         Decimal                  @db.Decimal(10, 2)
+  caloriesPerUnit     Decimal                  @default(0) @db.Decimal(10, 2)
+  supplier            Supplier?                @relation(fields: [supplierId], references: [id])
   branchLevels        BranchInventory[]
   productUsage        ProductIngredient[]
-  preparedComponents  IngredientComponent[] @relation("PreparedIngredient")
-  usedInPreparedItems IngredientComponent[] @relation("ComponentIngredient")
-  packagingRuleUsage  PackagingRule[]       @relation("PackagingRuleIngredient")
+  preparedComponents  IngredientComponent[]    @relation("PreparedIngredient")
+  usedInPreparedItems IngredientComponent[]    @relation("ComponentIngredient")
+  packagingRuleUsage  PackagingRule[]          @relation("PackagingRuleIngredient")
   purchaseUnits       IngredientPurchaseUnit[]
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
 }
 
 model IngredientPurchaseUnit {
-  id                   String       @id @default(cuid())
-  ingredientId         String
-  name                 String
-  quantityInBaseUnits  Decimal      @db.Decimal(12, 6)
-  isActive             Boolean      @default(true)
-  ingredient           Ingredient   @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  id                    String                 @id @default(cuid())
+  ingredientId          String
+  name                  String
+  quantityInBaseUnits   Decimal                @db.Decimal(12, 6)
+  isActive              Boolean                @default(true)
+  ingredient            Ingredient             @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
   inventoryTransactions InventoryTransaction[]
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 
   @@unique([ingredientId, name])
   @@index([ingredientId, isActive])
@@ -866,8 +871,8 @@ model MoneyAddition {
   additionDate DateTime
   createdById  String?
   createdAt    DateTime @default(now())
-  branch       Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  createdBy    User?   @relation("MoneyAdditionActor", fields: [createdById], references: [id], onDelete: SetNull)
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy    User?    @relation("MoneyAdditionActor", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([branchId, additionDate])
   @@index([toSource])
@@ -904,19 +909,19 @@ model InvestmentCommitment {
 }
 
 model InvestmentPayment {
-  id            String               @id @default(cuid())
-  commitmentId  String
-  branchId      String
-  amount        Decimal              @db.Decimal(10, 2)
+  id             String               @id @default(cuid())
+  commitmentId   String
+  branchId       String
+  amount         Decimal              @db.Decimal(10, 2)
   receivedSource String
-  paymentDate   DateTime
-  note          String?
-  createdById   String?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  commitment    InvestmentCommitment @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
-  branch        Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  createdBy     User?                @relation("InvestmentPaymentActor", fields: [createdById], references: [id], onDelete: SetNull)
+  paymentDate    DateTime
+  note           String?
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  commitment     InvestmentCommitment @relation(fields: [commitmentId], references: [id], onDelete: Cascade)
+  branch         Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy      User?                @relation("InvestmentPaymentActor", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@index([commitmentId])
   @@index([branchId, paymentDate])

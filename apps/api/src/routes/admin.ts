@@ -12,7 +12,7 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
-import { syncMealPairingOptions } from "../lib/meal-options.js";
+import { CANONICAL_MEAL_PRODUCT_SLUG, MEAL_BASE_PRICE, MEAL_CATEGORY_SLUG, THELA_FRIES_SLUG, syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
 import { readIndependencePromotion, readPromotionStats, saveIndependencePromotion } from "../lib/promotions.js";
@@ -387,6 +387,22 @@ function normalizeBundleComponents(
       sortOrder: typeof component.sortOrder === "number" ? component.sortOrder : index + 1
     }))
     .filter((component, index, list) => list.findIndex((entry) => entry.componentProductId === component.componentProductId) === index);
+}
+
+function validateCanonicalMealSetup(
+  categorySlug: string,
+  slug: string,
+  components: Array<{ componentProductId: string; quantity: number }>,
+  componentProducts: Array<{ id: string; slug?: string }>
+) {
+  if (categorySlug !== MEAL_CATEGORY_SLUG || slug !== CANONICAL_MEAL_PRODUCT_SLUG) return;
+
+  const friesComponent = components.length === 1
+    ? componentProducts.find((product) => product.id === components[0]?.componentProductId)
+    : undefined;
+  if (!friesComponent || friesComponent.slug !== THELA_FRIES_SLUG || components[0]?.quantity !== 1) {
+    throw Object.assign(new Error("Make It A Meal must contain exactly one Thela Fries bundle component."), { statusCode: 400 });
+  }
 }
 
 const vendorSchema = z.object({
@@ -1999,6 +2015,10 @@ router.post("/products", async (req, res, next) => {
     const description = payload.description?.trim() || name;
     const images = normalizeProductImages(payload.images, payload.imageUrl?.trim() || "/images/classic-shawarma.png", name);
     const bundleComponents = normalizeBundleComponents(payload.bundleComponents);
+    const category = await prisma.category.findUnique({ where: { id: payload.categoryId }, select: { slug: true } });
+    if (!category) {
+      throw Object.assign(new Error("Selected category is unavailable."), { statusCode: 400 });
+    }
 
     const componentProducts = bundleComponents.length
       ? await prisma.product.findMany({
@@ -2006,13 +2026,17 @@ router.post("/products", async (req, res, next) => {
             id: { in: bundleComponents.map((component) => component.componentProductId) },
             isActive: true
           },
-          select: { id: true }
+          select: { id: true, slug: true }
         })
       : [];
 
     if (componentProducts.length !== bundleComponents.length) {
       throw new Error("One or more bundle items are unavailable.");
     }
+    validateCanonicalMealSetup(category.slug, slug, bundleComponents, componentProducts);
+    const effectiveBasePrice = category.slug === MEAL_CATEGORY_SLUG && slug === CANONICAL_MEAL_PRODUCT_SLUG
+      ? MEAL_BASE_PRICE
+      : payload.basePrice;
 
     const product = await prisma.$transaction(async (transaction) => {
       const sku = await buildNextProductSku(transaction, payload.categoryId);
@@ -2024,7 +2048,7 @@ router.post("/products", async (req, res, next) => {
           name,
           description,
           ingredients: payload.ingredients,
-          basePrice: payload.basePrice,
+          basePrice: effectiveBasePrice,
           calories: payload.calories,
           featured: payload.featured,
           bestSeller: payload.bestSeller,
@@ -2067,7 +2091,7 @@ router.post("/products", async (req, res, next) => {
           data: activeBranches.map((branch) => ({
             branchId: branch.id,
             productId: createdProduct.id,
-            price: payload.basePrice,
+            price: effectiveBasePrice,
             isAvailable: payload.isActive,
             stockStatus: payload.stockStatus
           }))
@@ -2157,19 +2181,50 @@ router.patch("/products/:id", async (req, res, next) => {
       throw new Error("Bundle cannot include itself.");
     }
 
+    const currentProduct = await prisma.product.findUnique({
+      where: { id: req.params.id },
+      select: {
+        slug: true,
+        category: { select: { slug: true } },
+        bundleComponents: {
+          select: { componentProductId: true, quantity: true, componentProduct: { select: { id: true, slug: true } } }
+        }
+      }
+    });
+    if (!currentProduct) {
+      throw Object.assign(new Error("Product not found."), { statusCode: 404 });
+    }
+    const nextCategorySlug = payload.categoryId
+      ? (await prisma.category.findUnique({ where: { id: payload.categoryId }, select: { slug: true } }))?.slug
+      : currentProduct.category.slug;
+    if (!nextCategorySlug) {
+      throw Object.assign(new Error("Selected category is unavailable."), { statusCode: 400 });
+    }
+    const nextSlug = slug ? normalizeSlug(slug) : currentProduct.slug;
+    const nextBundleComponents = normalizedBundleComponents ?? currentProduct.bundleComponents.map((component) => ({
+      componentProductId: component.componentProductId,
+      quantity: Number(component.quantity)
+    }));
+
     const bundleComponentProducts = normalizedBundleComponents?.length
       ? await prisma.product.findMany({
           where: {
             id: { in: normalizedBundleComponents.map((component) => component.componentProductId) },
             isActive: true
           },
-          select: { id: true }
+          select: { id: true, slug: true }
         })
       : [];
 
     if (normalizedBundleComponents && bundleComponentProducts.length !== normalizedBundleComponents.length) {
       throw new Error("One or more bundle items are unavailable.");
     }
+    const canonicalComponentProducts = normalizedBundleComponents
+      ? bundleComponentProducts
+      : currentProduct.bundleComponents.map((component) => component.componentProduct);
+    validateCanonicalMealSetup(nextCategorySlug, nextSlug, nextBundleComponents, canonicalComponentProducts);
+    const isCanonicalMeal = nextCategorySlug === MEAL_CATEGORY_SLUG && nextSlug === CANONICAL_MEAL_PRODUCT_SLUG;
+    const effectiveBasePrice = isCanonicalMeal ? MEAL_BASE_PRICE : payload.basePrice;
 
     const product = await prisma.$transaction(async (transaction) => {
       const nextImages = payload.images
@@ -2182,6 +2237,7 @@ router.patch("/products/:id", async (req, res, next) => {
         where: { id: req.params.id },
         data: {
           ...productPayload,
+          ...(isCanonicalMeal ? { basePrice: MEAL_BASE_PRICE } : {}),
           ...(name ? { name: name.trim() } : {}),
           ...(slug ? { slug: normalizeSlug(slug) } : {}),
           ...(description ? { description: description.trim() } : {})
@@ -2241,11 +2297,11 @@ router.patch("/products/:id", async (req, res, next) => {
         }
       }
 
-      if (typeof payload.basePrice === "number" || typeof payload.isActive === "boolean" || typeof payload.stockStatus === "string") {
+      if (typeof payload.basePrice === "number" || isCanonicalMeal || typeof payload.isActive === "boolean" || typeof payload.stockStatus === "string") {
         await transaction.branchProduct.updateMany({
           where: { productId: updatedProduct.id },
           data: {
-            ...(typeof payload.basePrice === "number" ? { price: payload.basePrice } : {}),
+            ...(typeof payload.basePrice === "number" || isCanonicalMeal ? { price: effectiveBasePrice } : {}),
             ...(typeof payload.isActive === "boolean" ? { isAvailable: payload.isActive } : {}),
             ...(typeof payload.stockStatus === "string" ? { stockStatus: payload.stockStatus } : {})
           }

@@ -7,6 +7,7 @@ type InventoryOrderItem = {
   quantity: number;
   addOns?: Array<{
     optionName: string;
+    linkedProductId?: string | null;
   }>;
   bundleComponents?: Array<{
     productId?: string | null;
@@ -311,6 +312,11 @@ export function computeInventoryChanges({
       .filter((product) => product.category && BEVERAGE_CATEGORY_SLUGS.includes(product.category.slug as typeof BEVERAGE_CATEGORY_SLUGS[number]))
       .map((product) => [mealOptionNameFor(product.name, product.category!.slug), product])
   );
+  const mealAddOnProductById = new Map(
+    products
+      .filter((product) => product.category && BEVERAGE_CATEGORY_SLUGS.includes(product.category.slug as typeof BEVERAGE_CATEGORY_SLUGS[number]))
+      .map((product) => [product.id, product])
+  );
   const productQuantities = new Map<string, number>();
   const categoryQuantities = new Map<string, number>();
   let orderQuantity = 0;
@@ -408,7 +414,8 @@ export function computeInventoryChanges({
     }
 
     for (const addOn of item.addOns ?? []) {
-      const dynamicMealAddOnProduct = mealAddOnProductByName.get(addOn.optionName);
+      const dynamicMealAddOnProduct = (addOn.linkedProductId ? mealAddOnProductById.get(addOn.linkedProductId) : undefined)
+        ?? mealAddOnProductByName.get(addOn.optionName);
       if (dynamicMealAddOnProduct) {
         addProductRecipeUsage(dynamicMealAddOnProduct.id, item.quantity);
         continue;

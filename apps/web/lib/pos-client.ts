@@ -100,7 +100,7 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
         categoryId: product.categoryId,
         categorySlug: product.category.slug,
         categoryName: product.category.name,
-        price: Number(product.branchPricing?.[0]?.price ?? product.basePrice),
+        price: product.category.slug === "make-it-a-meal" ? 250 : Number(product.branchPricing?.[0]?.price ?? product.basePrice),
         bundleComponents: (product.bundleComponents ?? []).map((component: any) => ({
           productId: component.componentProductId,
           productName: component.componentProduct?.name ?? "Unknown product",
@@ -116,7 +116,8 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
           options: (group.options ?? []).map((option: any) => ({
             id: option.id,
             name: option.name,
-            priceDelta: Number(option.priceDelta)
+            priceDelta: Number(option.priceDelta),
+            linkedProductId: option.linkedProductId ?? null
           }))
         }))
       })

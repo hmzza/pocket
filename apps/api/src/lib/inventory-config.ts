@@ -159,18 +159,6 @@ export const PRODUCT_RECIPE_BY_SLUG: Record<string, RecipeLine[]> = {
   mushrooms: [{ ingredientSku: "ING-MUSHROOM", quantity: 0.04 }],
   "chicken-add-on": [{ ingredientSku: "ING-MARINATED-CHICKEN", quantity: 0.06 }],
   cheese: [{ ingredientSku: "ING-CHEESE", quantity: 0.008 }],
-  "classic-pocket-make-it-a-meal": [
-    { ingredientSku: "ING-FRIES", quantity: 0.32 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.012 }
-  ],
-  "spicy-pocket-make-it-a-meal": [
-    { ingredientSku: "ING-FRIES", quantity: 0.32 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.012 }
-  ],
-  "pocket-mai-rocket-make-it-a-meal": [
-    { ingredientSku: "ING-FRIES", quantity: 0.32 },
-    { ingredientSku: "ING-FRIES-MASALA", quantity: 0.012 }
-  ],
   "kiwi-passion": [
     { ingredientSku: "ING-KIWI-SYRUP", quantity: 0.03 },
     { ingredientSku: "ING-PASSION-SYRUP", quantity: 0.03 },
@@ -260,7 +248,7 @@ export const PACKAGING_RULES: Array<{
   quantity: number;
   itemStep?: number;
 }> = [
-  ...["classic-pocket", "spicy-pocket", "pocket-mai-rocket", "classic-pocket-make-it-a-meal", "spicy-pocket-make-it-a-meal", "pocket-mai-rocket-make-it-a-meal"].flatMap((productSlug) => [
+  ...["classic-pocket", "spicy-pocket", "pocket-mai-rocket"].flatMap((productSlug) => [
     { productSlug, serviceType: "DEFAULT" as const, packagingSku: "PKG-SHAWARMA-BOX", quantityMode: "FIXED" as const, quantity: 1 },
     { productSlug, serviceType: "DEFAULT" as const, packagingSku: "PKG-BUTTER-PAPER", quantityMode: "FIXED" as const, quantity: 1 }
   ]),

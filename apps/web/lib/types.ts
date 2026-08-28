@@ -10,6 +10,7 @@ export type AddOnOption = {
   id: string;
   name: string;
   priceDelta: number;
+  linkedProductId?: string | null;
 };
 
 export type AddOnGroup = {

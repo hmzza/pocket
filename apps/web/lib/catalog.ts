@@ -20,13 +20,14 @@ export function normalizeProducts(items: any[] | undefined): Product[] {
           imageUrl: resolvePocketImagePath(item.category.imageUrl ?? "/images/classic-shawarma.png")
         }
       : categories[0]!;
+    const isCanonicalMeal = item.slug === "make-it-a-meal" && category.slug === "make-it-a-meal";
 
     return {
       id: item.id,
       slug: item.slug,
       name: item.name,
       description: item.description,
-      price: Number(item.branchPricing?.[0]?.price ?? item.basePrice),
+      price: isCanonicalMeal ? 250 : Number(item.branchPricing?.[0]?.price ?? item.basePrice),
       calories: item.calories ?? undefined,
       category,
       imageUrl: resolvePocketImagePath(item.images?.[0]?.url ?? category.imageUrl),
@@ -49,7 +50,8 @@ export function normalizeProducts(items: any[] | undefined): Product[] {
           options: group.options.map((option: any) => ({
             id: option.id,
             name: option.name,
-            priceDelta: Number(option.priceDelta)
+            priceDelta: Number(option.priceDelta),
+            linkedProductId: option.linkedProductId ?? null
           }))
         })) ?? [],
       reviews:
