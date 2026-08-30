@@ -1,4 +1,4 @@
-import { OrderStatus, PaymentStatus, RoleCode } from "@prisma/client";
+import { OrderStatus, PaymentMethod, PaymentStatus, RoleCode } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
@@ -236,6 +236,13 @@ router.patch("/orders/:id/status", async (req, res, next) => {
           status: payload.status,
           ...(currentOrder.serviceType === "DELIVERY" && currentOrder.status === OrderStatus.PENDING && payload.status === OrderStatus.CONFIRMED
             ? { acceptedById: req.user!.id, acceptedAt: new Date() }
+            : {}),
+          // Same rule as the admin Orders screen: completing a cash-on-delivery
+          // order records the cash as collected, so the daily close sees it.
+          ...(payload.status === OrderStatus.DELIVERED &&
+          currentOrder.paymentMethod === PaymentMethod.CASH_ON_DELIVERY &&
+          currentOrder.paymentStatus !== PaymentStatus.PAID
+            ? { paymentStatus: PaymentStatus.PAID }
             : {})
         }
       });
