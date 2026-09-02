@@ -213,8 +213,8 @@ function formatEditablePosOrder(order: any) {
     customerPhone: order.customerPhone ?? "",
     serviceType: order.serviceType,
     paymentMethod: order.paymentMethod,
-    discountType: order.manualDiscountType ?? "NONE",
-    discountValue: Number(order.manualDiscountValue ?? 0),
+    discountType: order.coupon?.type ?? order.manualDiscountType ?? "NONE",
+    discountValue: Number(order.coupon?.value ?? order.manualDiscountValue ?? 0),
     promotionName: order.promotionName ?? null,
     promotionDiscountAmount: order.promotionDiscountAmount == null ? null : Number(order.promotionDiscountAmount),
     foodpandaOrderNumber: order.foodpandaOrderNumber ?? "",
@@ -601,6 +601,12 @@ const posOrderInclude = {
   },
   branch: true,
   address: true,
+  coupon: {
+    select: {
+      type: true,
+      value: true
+    }
+  },
   cashier: { select: { username: true, name: true } },
   items: {
     include: {

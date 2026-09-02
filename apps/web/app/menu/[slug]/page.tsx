@@ -24,10 +24,15 @@ export default async function ProductPage({ params, searchParams }: { params: { 
   if (!data) notFound();
 
   const { product, related } = data;
+  const branchQuery = searchParams.branch ? `?branch=${encodeURIComponent(searchParams.branch)}` : "";
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
-      <Link href={`/menu${searchParams.branch ? `?branch=${encodeURIComponent(searchParams.branch)}` : ""}`} className="mb-6 inline-flex text-sm font-bold text-pocket-orange">Back to menu</Link>
+      <nav aria-label="Store navigation" className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-bold">
+        <Link href={`/${branchQuery}`} className="text-pocket-navy hover:text-pocket-orange">Home</Link>
+        <Link href={`/menu${branchQuery}`} className="text-pocket-orange hover:text-pocket-navy">Back to menu</Link>
+        <Link href="/cart" className="text-pocket-navy hover:text-pocket-orange">Cart</Link>
+      </nav>
       <RecentlyViewedTracker productId={product.id} />
       <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
         <div>

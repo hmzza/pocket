@@ -114,6 +114,15 @@ router.get("/content/home", async (req, res) => {
       include: {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
+        addOnGroups: {
+          orderBy: { sortOrder: "asc" as const },
+          include: {
+            options: {
+              where: { isActive: true },
+              orderBy: { sortOrder: "asc" as const }
+            }
+          }
+        },
         branchPricing: publicBranchPricingInclude(branchId)
       },
       take: 4
@@ -123,6 +132,15 @@ router.get("/content/home", async (req, res) => {
       include: {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
+        addOnGroups: {
+          orderBy: { sortOrder: "asc" as const },
+          include: {
+            options: {
+              where: { isActive: true },
+              orderBy: { sortOrder: "asc" as const }
+            }
+          }
+        },
         branchPricing: publicBranchPricingInclude(branchId)
       },
       take: 4
@@ -304,6 +322,15 @@ router.get("/products/:slug", async (req, res) => {
     include: {
       category: true,
       images: { orderBy: { sortOrder: "asc" } },
+      addOnGroups: {
+        orderBy: { sortOrder: "asc" as const },
+        include: {
+          options: {
+            where: { isActive: true },
+            orderBy: { sortOrder: "asc" as const }
+          }
+        }
+      },
       branchPricing: publicBranchPricingInclude(branch.id)
     },
     take: 4
