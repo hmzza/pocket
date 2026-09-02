@@ -28,11 +28,6 @@ export default async function ProductPage({ params, searchParams }: { params: { 
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 md:px-6">
-      <nav aria-label="Store navigation" className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm font-bold">
-        <Link href={`/${branchQuery}`} className="text-pocket-navy hover:text-pocket-orange">Home</Link>
-        <Link href={`/menu${branchQuery}`} className="text-pocket-orange hover:text-pocket-navy">Back to menu</Link>
-        <Link href="/cart" className="text-pocket-navy hover:text-pocket-orange">Cart</Link>
-      </nav>
       <RecentlyViewedTracker productId={product.id} />
       <div className="grid gap-10 lg:grid-cols-[1.1fr_0.9fr]">
         <div>
@@ -94,12 +89,12 @@ export default async function ProductPage({ params, searchParams }: { params: { 
 
       <div className="mt-14 grid gap-10 lg:grid-cols-[0.9fr_1.1fr]">
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Related</p>
               <h2 className="text-3xl font-black text-pocket-navy">Frequently bought together</h2>
             </div>
-            <Link href={`/menu${searchParams.branch ? `?branch=${encodeURIComponent(searchParams.branch)}` : ""}`} className="text-sm font-semibold text-pocket-orange">
+            <Link href={`/menu${branchQuery}`} className="shrink-0 whitespace-nowrap text-sm font-semibold text-pocket-orange hover:text-pocket-navy">
               Browse full menu
             </Link>
           </div>

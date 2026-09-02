@@ -14,11 +14,14 @@ const links = [
   { href: "/menu", label: "Menu" }
 ];
 
+function withBranchQuery(href: string, branchSlug?: string) {
+  return branchSlug ? `${href}?branch=${encodeURIComponent(branchSlug)}` : href;
+}
+
 export function Header() {
   const [open, setOpen] = useState(false);
   const { cartCount } = useStore();
   const { branches, selectedBranch, loading, selectBranch } = usePublicBranch();
-  const branchQuery = selectedBranch ? `?branch=${encodeURIComponent(selectedBranch.slug)}` : "";
 
   return (
     <header className="sticky top-0 z-40 border-b border-pocket-navy/10 bg-white/95 backdrop-blur">
@@ -44,7 +47,7 @@ export function Header() {
         <div className="ml-auto flex shrink-0 items-center justify-end gap-2">
           <nav className="hidden items-center gap-4 md:flex">
             {links.map((link) => (
-              <Link key={link.href} href={`${link.href}${branchQuery}`} className="text-[13px] font-medium text-pocket-navy transition hover:text-pocket-orange">
+              <Link key={link.href} href={withBranchQuery(link.href, selectedBranch?.slug)} className="text-[13px] font-medium text-pocket-navy transition hover:text-pocket-orange">
                 {link.label}
               </Link>
             ))}
@@ -65,7 +68,7 @@ export function Header() {
             </select>
           ) : null}
           <Link
-            href="/cart"
+            href={withBranchQuery("/cart", selectedBranch?.slug)}
             aria-label={`View cart${cartCount ? `, ${cartCount} item${cartCount === 1 ? "" : "s"}` : ""}`}
             className="relative inline-flex h-8 w-8 items-center justify-center rounded-md text-pocket-navy transition-colors hover:bg-pocket-cream focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pocket-orange focus-visible:ring-offset-2"
           >
@@ -85,7 +88,7 @@ export function Header() {
       <div className={cn("border-t border-pocket-navy/10 bg-white md:hidden", open ? "block" : "hidden")}>
         <div className="space-y-1.5 px-4 py-3">
           {links.map((link) => (
-            <Link key={link.href} href={`${link.href}${branchQuery}`} className="block rounded-md px-3 py-1.5 text-sm font-semibold text-pocket-navy hover:bg-pocket-cream" onClick={() => setOpen(false)}>
+            <Link key={link.href} href={withBranchQuery(link.href, selectedBranch?.slug)} className="block rounded-md px-3 py-1.5 text-sm font-semibold text-pocket-navy hover:bg-pocket-cream" onClick={() => setOpen(false)}>
               {link.label}
             </Link>
           ))}
