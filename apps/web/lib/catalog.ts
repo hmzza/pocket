@@ -42,18 +42,20 @@ export function normalizeProducts(items: any[] | undefined): Product[] {
         fats: item.nutritionInfo?.macros?.fats ?? 0
       },
       addOnGroups:
-        item.addOnGroups?.map((group: any) => ({
-          id: group.id,
-          name: group.name,
-          minSelect: group.minSelect,
-          maxSelect: group.maxSelect,
-          options: group.options.map((option: any) => ({
-            id: option.id,
-            name: option.name,
-            priceDelta: Number(option.priceDelta),
-            linkedProductId: option.linkedProductId ?? null
-          }))
-        })) ?? [],
+        item.slug === "loaded-fries"
+          ? []
+          : item.addOnGroups?.map((group: any) => ({
+              id: group.id,
+              name: group.name,
+              minSelect: group.minSelect,
+              maxSelect: group.maxSelect,
+              options: group.options.map((option: any) => ({
+                id: option.id,
+                name: option.name,
+                priceDelta: Number(option.priceDelta),
+                linkedProductId: option.linkedProductId ?? null
+              }))
+            })) ?? [],
       reviews:
         item.reviews?.map((review: any) => ({
           id: review.id,

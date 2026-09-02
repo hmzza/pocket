@@ -22,10 +22,7 @@ type StoreContextValue = {
   cart: CartEntry[];
   favorites: string[];
   recentlyViewed: string[];
-  mealSuggestionProductId: string | null;
   addToCart: (input: AddToCartInput) => boolean;
-  suggestMeal: (productId: string) => void;
-  dismissMealSuggestion: () => void;
   updateQuantity: (cartItemId: string, quantity: number) => void;
   updateCartItem: (cartItemId: string, input: Pick<AddToCartInput, "selectedAddOnIds">) => void;
   clearCart: () => void;
@@ -105,7 +102,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
-  const [mealSuggestionProductId, setMealSuggestionProductId] = useState<string | null>(null);
   const [cartNotice, setCartNotice] = useState("");
   const [hasHydrated, setHasHydrated] = useState(false);
 
@@ -204,7 +200,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       cart,
       favorites,
       recentlyViewed,
-      mealSuggestionProductId,
       addToCart: (input) => {
         const selectedAddOnIds = normalizeAddOnIds(input.selectedAddOnIds);
         setCart((current) => {
@@ -230,12 +225,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         });
         setCartNotice("Added to cart");
         return true;
-      },
-      suggestMeal: (productId) => {
-        setMealSuggestionProductId(productId);
-      },
-      dismissMealSuggestion: () => {
-        setMealSuggestionProductId(null);
       },
       updateQuantity: (cartItemId, quantity) => {
         setCart((current) =>
@@ -271,7 +260,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               return null;
             }
 
-            const selectedAddOns = entry.selectedAddOnIds.reduce<AddOnOption[]>((selected, optionId) => {
+            const validSelectedAddOnIds = entry.selectedAddOnIds.filter((optionId) => product.addOnGroups.some((group) => group.options.some((option) => option.id === optionId)));
+            const selectedAddOns = validSelectedAddOnIds.reduce<AddOnOption[]>((selected, optionId) => {
               const option = product.addOnGroups.flatMap((group) => group.options).find((item) => item.id === optionId);
               if (option) {
                 selected.push(option);
@@ -283,14 +273,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               ...product,
               cartItemId: entry.id,
               quantity: entry.quantity,
-              selectedAddOnIds: entry.selectedAddOnIds,
+              selectedAddOnIds: validSelectedAddOnIds,
               selectedAddOns,
               price: product.price + selectedAddOns.reduce((sum, option) => sum + option.priceDelta, 0)
             };
           })
           .filter(Boolean) as CartProduct[]
     }),
-    [cart, favorites, recentlyViewed, mealSuggestionProductId]
+    [cart, favorites, recentlyViewed]
   );
 
   useEffect(() => {

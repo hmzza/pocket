@@ -11,10 +11,9 @@ import { Input } from "@/components/ui/input";
 import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
-import { AddToCartButton } from "@/components/store/add-to-cart-button";
 
 export default function CartPage() {
-  const { cart, getCartProducts, updateCartItem, updateQuantity, mealSuggestionProductId, dismissMealSuggestion } = useStore();
+  const { cart, getCartProducts, updateCartItem, updateQuantity } = useStore();
   const { selectedBranch } = usePublicBranch();
   const { products, loading, error: catalogError } = useLiveProducts();
   const [coupon, setCoupon] = useState("");
@@ -28,10 +27,6 @@ export default function CartPage() {
   const subtotal = useMemo(() => cartProducts.reduce((total, product) => total + product.price * product.quantity, 0), [cartProducts]);
   const totals = useMemo(() => calculateOrderTotals(subtotal, 0, couponDiscount), [couponDiscount, subtotal]);
   const editingProduct = cartProducts.find((product) => product.cartItemId === editingCartItemId) ?? null;
-  const mealProduct = products.find((product) => product.id === mealSuggestionProductId && product.category.slug === "make-it-a-meal") ?? null;
-  const hasShawarma = cartProducts.some((product) => product.category.slug === "shawarma");
-  const showMealSuggestion = Boolean(mealProduct && hasShawarma && !cart.some((entry) => entry.productId === mealProduct.id));
-
   function beginEdit(cartItemId: string) {
     const product = cartProducts.find((item) => item.cartItemId === cartItemId);
     if (!product) return;
@@ -134,18 +129,6 @@ export default function CartPage() {
           ) : null}
           {loading && !cartProducts.length && cart.length ? (
             <Card className="p-4 text-sm text-pocket-navy/70">Refreshing live cart items...</Card>
-          ) : null}
-          {showMealSuggestion && mealProduct ? (
-            <Card className="flex flex-col gap-4 border-pocket-orange/30 bg-pocket-cream p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-lg font-black text-pocket-navy">Add fries and a drink?</p>
-                <p className="mt-1 text-sm text-pocket-navy/70">Choose a regular drink, shake, or chiller with Thela Fries.</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <AddToCartButton product={mealProduct} buttonLabel="Choose drink" />
-                <Button type="button" variant="ghost" onClick={dismissMealSuggestion}>Dismiss</Button>
-              </div>
-            </Card>
           ) : null}
           {cartProducts.length ? (
             cartProducts.map((product) => (
