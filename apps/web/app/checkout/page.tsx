@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useStore } from "@/components/store/store-provider";
 import { branch } from "@/lib/mock-data";
-import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
+import { calculateOrderTotals, readStoredCouponState, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
 import { useDeliveryAvailability } from "@/components/site/use-delivery-availability";
@@ -38,7 +38,6 @@ export default function CheckoutPage() {
   const [error, setError] = useState("");
   const [couponCode, setCouponCode] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
-  const [couponMessage, setCouponMessage] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
   const [deliverySector, setDeliverySector] = useState("");
   const [deliverySubsector, setDeliverySubsector] = useState("");
@@ -59,33 +58,52 @@ export default function CheckoutPage() {
   );
 
   useEffect(() => {
-    setCouponCode(readStoredCoupon());
-  }, []);
-
-  async function applyCoupon() {
-    if (!couponCode.trim()) {
+    const storedCoupon = readStoredCouponState();
+    if (!storedCoupon?.code || !subtotal || !selectedBranch?.slug) {
+      setCouponCode("");
       setCouponDiscount(0);
-      setCouponMessage("");
+      setCouponLoading(false);
+      return;
+    }
+
+    if (storedCoupon.branchSlug && storedCoupon.branchSlug !== selectedBranch.slug) {
+      setCouponCode("");
+      setCouponDiscount(0);
+      setCouponLoading(false);
       writeStoredCoupon("");
       return;
     }
 
+    const storedCode = storedCoupon.code;
+    const branchSlug = selectedBranch.slug;
+    let cancelled = false;
     setCouponLoading(true);
-    setCouponMessage("");
-    try {
-      const nextCoupon = await validateCouponCode(couponCode, subtotal, selectedBranch?.slug);
-      setCouponCode(nextCoupon.code);
-      setCouponDiscount(nextCoupon.discount);
-      setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");
-      writeStoredCoupon(nextCoupon.code);
-    } catch (validationError) {
-      setCouponDiscount(0);
-      setCouponMessage(validationError instanceof Error ? validationError.message : "Coupon is unavailable.");
-      writeStoredCoupon("");
-    } finally {
-      setCouponLoading(false);
+
+    async function refreshCoupon() {
+      try {
+        const nextCoupon = await validateCouponCode(storedCode, subtotal, branchSlug);
+        if (!cancelled) {
+          setCouponCode(nextCoupon.code);
+          setCouponDiscount(nextCoupon.discount);
+          writeStoredCoupon({ ...nextCoupon, branchSlug });
+        }
+      } catch {
+        if (!cancelled) {
+          setCouponCode("");
+          setCouponDiscount(0);
+          writeStoredCoupon("");
+        }
+      } finally {
+        if (!cancelled) setCouponLoading(false);
+      }
     }
-  }
+
+    void refreshCoupon();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBranch?.slug, subtotal]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -119,8 +137,7 @@ export default function CheckoutPage() {
         const nextCoupon = await validateCouponCode(couponCode, subtotal, selectedBranch.slug);
         setCouponCode(nextCoupon.code);
         setCouponDiscount(nextCoupon.discount);
-        setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");
-        writeStoredCoupon(nextCoupon.code);
+        writeStoredCoupon({ ...nextCoupon, branchSlug: selectedBranch.slug });
         activeCouponCode = nextCoupon.code;
       } else {
         writeStoredCoupon("");
@@ -267,13 +284,15 @@ export default function CheckoutPage() {
           {cartProducts.length ? <div className="mt-4 space-y-3 text-sm">{cartProducts.map((item) => <div key={item.cartItemId} className="flex items-start justify-between gap-4"><div><p className="font-semibold text-pocket-navy">{item.name}</p>{item.selectedAddOns.length ? <p className="text-pocket-navy/60">{item.selectedAddOns.map((option) => option.name).join(", ")}</p> : null}<p className="text-pocket-navy/60">Qty {item.quantity}</p></div><p className="text-right font-bold text-pocket-orange">{formatCompactCurrency(item.price * item.quantity)}</p></div>)}</div> : <p className="mt-4 text-sm text-pocket-navy/60">Your cart is empty. <Link href="/menu" className="font-bold text-pocket-orange">Browse the menu</Link>.</p>}
           <div className="mt-5 space-y-3 border-t border-pocket-navy/10 pt-4 text-sm">
             <div className="flex justify-between gap-3"><span>Items</span><span>{formatCurrency(totals.subtotal)}</span></div>
-            <div className="flex justify-between gap-3"><span>Discount</span><span>-{formatCurrency(totals.discount)}</span></div>
+            {couponCode ? <>
+              <div className="flex justify-between gap-3"><span>Coupon</span><span className="font-semibold text-emerald-700">{couponCode}</span></div>
+              <div className="flex justify-between gap-3"><span>Discount</span><span>-{formatCurrency(totals.discount)}</span></div>
+            </> : null}
             <div className="flex justify-between gap-3"><span>Delivery ({selectedArea.sector})</span><span>{formatCurrency(totals.delivery)}</span></div>
             <div className="flex justify-between gap-3 border-t border-pocket-navy/10 pt-3 text-base font-black"><span>Total</span><span className="text-pocket-orange">{formatCurrency(totals.total)}</span></div>
           </div>
-          <div className="mt-5"><label className="block text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">Coupon</label><div className="mt-2 flex gap-2"><Input value={couponCode} onChange={(event) => { setCouponCode(event.target.value); setCouponDiscount(0); setCouponMessage(""); }} placeholder="Coupon code" /><Button type="button" variant="outline" onClick={() => void applyCoupon()} disabled={!subtotal || couponLoading}>{couponLoading ? "Applying..." : "Apply"}</Button></div>{couponMessage ? <p className={`mt-2 text-sm ${couponDiscount ? "text-emerald-700" : "text-red-600"}`}>{couponMessage}</p> : null}</div>
           {error ? <p className="mt-4 text-sm font-medium text-red-600">{error}</p> : null}
-          <Button className="mt-6 w-full" disabled={!cartProducts.length || !selectedArea || loading || catalogLoading || deliveryAvailabilityLoading || !deliveryEnabled || Boolean(catalogError)}>{loading ? "Placing order..." : "Place delivery order"}</Button>
+          <Button className="mt-6 w-full" disabled={!cartProducts.length || !selectedArea || loading || couponLoading || catalogLoading || deliveryAvailabilityLoading || !deliveryEnabled || Boolean(catalogError)}>{loading ? "Placing order..." : "Place delivery order"}</Button>
         </Card> : null}
       </form>
     </div>

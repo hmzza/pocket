@@ -11,6 +11,10 @@ export type CouponValidationResult = {
   title?: string;
 };
 
+export type StoredCoupon = CouponValidationResult & {
+  branchSlug: string;
+};
+
 export function calculateOrderTotals(subtotal: number, delivery: number, discount: number) {
   const safeSubtotal = Math.max(0, subtotal);
   const safeDiscount = Math.min(safeSubtotal, Math.max(0, discount));
@@ -56,23 +60,67 @@ export async function validateCouponCode(code: string, subtotal: number, branchS
 
   return {
     code: normalizedCode,
-    discount: Number(payload?.discount ?? 0)
+    discount: Number(payload?.discount ?? 0),
+    title: typeof payload?.title === "string" ? payload.title : undefined
   };
 }
 
 export function readStoredCoupon() {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(STORED_COUPON_KEY) ?? "";
+  return readStoredCouponState()?.code ?? "";
 }
 
-export function writeStoredCoupon(code: string) {
+export function readStoredCouponState(): StoredCoupon | null {
+  if (typeof window === "undefined") return null;
+
+  const storedValue = window.localStorage.getItem(STORED_COUPON_KEY);
+  if (!storedValue) return null;
+
+  try {
+    const parsed = JSON.parse(storedValue) as Partial<StoredCoupon>;
+    if (
+      typeof parsed.code === "string" &&
+      parsed.code.trim() &&
+      typeof parsed.branchSlug === "string" &&
+      parsed.branchSlug.trim() &&
+      typeof parsed.discount === "number" &&
+      Number.isFinite(parsed.discount)
+    ) {
+      return {
+        code: parsed.code.trim().toUpperCase(),
+        discount: Math.max(0, parsed.discount),
+        title: typeof parsed.title === "string" ? parsed.title : undefined,
+        branchSlug: parsed.branchSlug.trim()
+      };
+    }
+  } catch {
+    // Older versions stored only the code. The caller can revalidate it before using it.
+    const legacyCode = storedValue.trim().toUpperCase();
+    if (legacyCode) {
+      return { code: legacyCode, discount: 0, branchSlug: "" };
+    }
+  }
+
+  return null;
+}
+
+export function writeStoredCoupon(coupon: string | StoredCoupon) {
   if (typeof window === "undefined") return;
 
-  const normalizedCode = code.trim().toUpperCase();
+  const normalizedCode = typeof coupon === "string" ? coupon.trim().toUpperCase() : coupon.code.trim().toUpperCase();
   if (!normalizedCode) {
     window.localStorage.removeItem(STORED_COUPON_KEY);
     return;
   }
 
-  window.localStorage.setItem(STORED_COUPON_KEY, normalizedCode);
+  if (typeof coupon === "string") {
+    window.localStorage.setItem(STORED_COUPON_KEY, normalizedCode);
+    return;
+  }
+
+  window.localStorage.setItem(STORED_COUPON_KEY, JSON.stringify({
+    code: normalizedCode,
+    discount: Math.max(0, coupon.discount),
+    title: coupon.title,
+    branchSlug: coupon.branchSlug
+  } satisfies StoredCoupon));
 }

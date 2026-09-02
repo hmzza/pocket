@@ -8,7 +8,7 @@ import { useStore } from "@/components/store/store-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { calculateOrderTotals, readStoredCoupon, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
+import { calculateOrderTotals, readStoredCouponState, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
 
@@ -49,27 +49,40 @@ export default function CartPage() {
   }
 
   useEffect(() => {
-    setCoupon(readStoredCoupon());
-  }, []);
-
-  useEffect(() => {
-    if (!couponDiscount || !coupon.trim()) {
+    if (!subtotal || !selectedBranch?.slug) {
       return;
     }
 
+    const storedCoupon = readStoredCouponState();
+    if (!storedCoupon?.code) {
+      return;
+    }
+
+    if (storedCoupon.branchSlug && storedCoupon.branchSlug !== selectedBranch.slug) {
+      writeStoredCoupon("");
+      setCoupon("");
+      setCouponDiscount(0);
+      setCouponMessage("");
+      return;
+    }
+
+    const storedCode = storedCoupon.code;
+    const branchSlug = selectedBranch.slug;
     let cancelled = false;
+    setCoupon(storedCode);
 
     async function refreshCoupon() {
       try {
-        const nextCoupon = await validateCouponCode(coupon, subtotal, selectedBranch?.slug);
+        const nextCoupon = await validateCouponCode(storedCode, subtotal, branchSlug);
         if (!cancelled) {
           setCoupon(nextCoupon.code);
           setCouponDiscount(nextCoupon.discount);
           setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");
-          writeStoredCoupon(nextCoupon.code);
+          writeStoredCoupon({ ...nextCoupon, branchSlug });
         }
       } catch (validationError) {
         if (!cancelled) {
+          setCoupon("");
           setCouponDiscount(0);
           setCouponMessage(validationError instanceof Error ? validationError.message : "Coupon is unavailable.");
           writeStoredCoupon("");
@@ -82,7 +95,7 @@ export default function CartPage() {
     return () => {
       cancelled = true;
     };
-  }, [coupon, couponDiscount, selectedBranch?.slug, subtotal]);
+  }, [selectedBranch?.slug, subtotal]);
 
   async function applyCoupon() {
     if (!coupon.trim()) {
@@ -99,7 +112,7 @@ export default function CartPage() {
       setCoupon(nextCoupon.code);
       setCouponDiscount(nextCoupon.discount);
       setCouponMessage(nextCoupon.title ? `${nextCoupon.title} applied.` : "Coupon applied.");
-      writeStoredCoupon(nextCoupon.code);
+      writeStoredCoupon({ ...nextCoupon, branchSlug: selectedBranch!.slug });
     } catch (validationError) {
       setCouponDiscount(0);
       setCouponMessage(validationError instanceof Error ? validationError.message : "Coupon is unavailable.");
@@ -223,8 +236,8 @@ export default function CartPage() {
       </div>
 
       {editingProduct ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-cart-item-title">
-          <Card className="w-full max-w-2xl rounded-3xl border-pocket-navy/10 p-6">
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/70 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-cart-item-title">
+          <Card className="max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-y-auto rounded-3xl border-pocket-navy/10 p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Edit item</p>
