@@ -132,6 +132,7 @@ model User {
   investmentPartners       InvestmentPartner[]    @relation("InvestmentPartnerActor")
   investmentCommitments    InvestmentCommitment[] @relation("InvestmentCommitmentActor")
   investmentPayments       InvestmentPayment[]    @relation("InvestmentPaymentActor")
+  shareTransfersCreated    ShareTransfer[]        @relation("ShareTransferActor")
   branchAccesses           UserBranchAccess[]
   permissionGrants         UserPermission[]
 }
@@ -887,6 +888,8 @@ model InvestmentPartner {
   updatedAt   DateTime               @updatedAt
   createdBy   User?                  @relation("InvestmentPartnerActor", fields: [createdById], references: [id], onDelete: SetNull)
   commitments InvestmentCommitment[]
+  transfersFrom ShareTransfer[]      @relation("ShareTransferFrom")
+  transfersTo   ShareTransfer[]      @relation("ShareTransferTo")
 
   @@index([name])
 }
@@ -926,6 +929,26 @@ model InvestmentPayment {
   @@index([commitmentId])
   @@index([branchId, paymentDate])
   @@index([receivedSource])
+}
+
+model ShareTransfer {
+  id              String            @id @default(cuid())
+  fromPartnerId   String
+  toPartnerId     String
+  percentage      Decimal           @db.Decimal(7, 4)
+  referenceAmount Decimal           @db.Decimal(12, 2)
+  transferDate    DateTime
+  note            String?
+  createdById     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  fromPartner     InvestmentPartner @relation("ShareTransferFrom", fields: [fromPartnerId], references: [id], onDelete: Cascade)
+  toPartner       InvestmentPartner @relation("ShareTransferTo", fields: [toPartnerId], references: [id], onDelete: Cascade)
+  createdBy       User?             @relation("ShareTransferActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([fromPartnerId, transferDate])
+  @@index([toPartnerId, transferDate])
+  @@index([transferDate])
 }
 
 model AuditLog {

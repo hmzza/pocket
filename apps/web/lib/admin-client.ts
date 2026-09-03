@@ -1196,6 +1196,26 @@ export async function deleteAdminInvestmentPayment(paymentId: string) {
   });
 }
 
+export async function createAdminShareTransfer(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ transfer: any }>("/api/admin/investments/transfers", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+  return data.transfer;
+}
+
+export async function updateAdminShareTransfer(transferId: string, payload: Record<string, unknown>) {
+  const data = await adminFetch<{ transfer: any }>(`/api/admin/investments/transfers/${transferId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return data.transfer;
+}
+
+export async function deleteAdminShareTransfer(transferId: string) {
+  await adminFetch(`/api/admin/investments/transfers/${transferId}`, { method: "DELETE" });
+}
+
 export async function fetchAdminExpenses(params?: {
   preset?: AdminRangePreset;
   branchId?: string;

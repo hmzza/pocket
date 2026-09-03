@@ -249,7 +249,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         );
       },
       markViewed: (productId) => {
-        setRecentlyViewed((current) => [productId, ...current.filter((entry) => entry !== productId)].slice(0, 6));
+        setRecentlyViewed((current) => {
+          const next = [productId, ...current.filter((entry) => entry !== productId)].slice(0, 6);
+          const unchanged = next.length === current.length && next.every((entry, index) => entry === current[index]);
+          return unchanged ? current : next;
+        });
       },
       cartCount: cart.reduce((total, entry) => total + entry.quantity, 0),
       getCartProducts: (catalogue) =>

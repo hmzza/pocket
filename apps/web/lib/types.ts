@@ -502,8 +502,23 @@ export type AdminInvestmentPartner = {
   committedAmount: number;
   paidAmount: number;
   unpaidAmount: number;
+  baseEquityPercent: number;
   equityPercent: number;
   commitments: AdminInvestmentCommitment[];
+};
+
+export type AdminShareTransfer = {
+  id: string;
+  fromPartnerId: string;
+  fromPartnerName: string;
+  toPartnerId: string;
+  toPartnerName: string;
+  percentage: number;
+  referenceAmount: number;
+  transferDate: string;
+  note?: string | null;
+  createdByName?: string | null;
+  createdAt: string;
 };
 
 export type AdminInvestmentData = {
@@ -514,8 +529,11 @@ export type AdminInvestmentData = {
     totalPaid: number;
     totalUnpaid: number;
     partnerCount: number;
+    impliedCompanyValue: number;
+    pricePerPercent: number;
   };
   partners: AdminInvestmentPartner[];
+  transfers: AdminShareTransfer[];
 };
 
 export type AdminPackagingRuleData = {
