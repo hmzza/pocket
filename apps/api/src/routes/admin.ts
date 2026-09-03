@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { InventoryTransactionType, OrderStatus, PaymentMethod, Prisma, RoleCode, ServiceType } from "@prisma/client";
+import { InventoryTransactionType, OrderStatus, PaymentMethod, PaymentStatus, Prisma, RoleCode, ServiceType } from "@prisma/client";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -3262,6 +3262,21 @@ function emptyMoneyTotals() {
   return { CASH: 0, EASYPAISA: 0, JAZZCASH: 0 };
 }
 
+/**
+ * Which till a payment lands in.
+ *
+ * Cash on delivery has to be mapped explicitly. The totals are keyed by money
+ * source, so indexing them by payment method directly would create a stray
+ * CASH_ON_DELIVERY key that no later loop reads, and the money would vanish
+ * silently rather than fail loudly.
+ */
+function moneySourceForPayment(paymentMethod: PaymentMethod): (typeof MONEY_SOURCES)[number] | null {
+  if (paymentMethod === PaymentMethod.CASH || paymentMethod === PaymentMethod.CASH_ON_DELIVERY) return "CASH";
+  if (paymentMethod === PaymentMethod.EASYPAISA) return "EASYPAISA";
+  if (paymentMethod === PaymentMethod.JAZZCASH) return "JAZZCASH";
+  return null;
+}
+
 function isMissingTableError(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && ["P2021", "P2022"].includes(error.code);
 }
@@ -3328,7 +3343,14 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
         branchId,
         status: { not: OrderStatus.CANCELLED },
         placedAt: { gte: start, lte: end },
-        paymentMethod: { in: [PaymentMethod.CASH, PaymentMethod.EASYPAISA, PaymentMethod.JAZZCASH] }
+        OR: [
+          { paymentMethod: { in: [PaymentMethod.CASH, PaymentMethod.EASYPAISA, PaymentMethod.JAZZCASH] } },
+          // Every delivery is cash on delivery, so without this the day's
+          // delivery takings never reach the closing count and an accurate
+          // drawer reads as an unexplained surplus. Gated on PAID because the
+          // money is with the customer until the rider hands it in.
+          { paymentMethod: PaymentMethod.CASH_ON_DELIVERY, paymentStatus: PaymentStatus.PAID }
+        ]
       },
       select: { paymentMethod: true, totalAmount: true }
     }),
@@ -3393,7 +3415,8 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   };
   const sales = emptyMoneyTotals();
   for (const order of orders) {
-    sales[order.paymentMethod as keyof typeof sales] += parseDecimal(order.totalAmount);
+    const source = moneySourceForPayment(order.paymentMethod);
+    if (source) sales[source] += parseDecimal(order.totalAmount);
   }
   const foodpandaSales = roundMoney(foodpandaOrders.reduce((sum, order) => sum + parseDecimal(order.totalAmount), 0));
   const expenseTotals = emptyMoneyTotals();
@@ -5500,6 +5523,15 @@ router.patch("/orders/:id/status", async (req, res, next) => {
           status: payload.status,
           ...(currentOrder.serviceType === ServiceType.DELIVERY && currentOrder.status === OrderStatus.PENDING && payload.status === OrderStatus.CONFIRMED
             ? { acceptedById: req.user!.id, acceptedAt: new Date() }
+            : {}),
+          // Delivered means the rider collected the cash, so record it as paid.
+          // Without this the closing count above depends on someone separately
+          // pressing Mark paid, and any order they miss is money the drawer
+          // cannot account for. Staff can still correct it with Mark unpaid.
+          ...(payload.status === OrderStatus.DELIVERED &&
+          currentOrder.paymentMethod === PaymentMethod.CASH_ON_DELIVERY &&
+          currentOrder.paymentStatus !== PaymentStatus.PAID
+            ? { paymentStatus: PaymentStatus.PAID }
             : {})
         }
       });
