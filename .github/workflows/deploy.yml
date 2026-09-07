@@ -46,6 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -62,8 +64,12 @@ jobs:
             exit 1
           fi
           printf '%s' "$API_ENV" | ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}" 'umask 077; cat > /home/ubuntu/.pocket-api.env'
+      - name: Upload backend deployment source
+        run: |
+          git bundle create pocket-deploy.bundle HEAD
+          scp -i ~/.ssh/id_deploy pocket-deploy.bundle "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}:/tmp/pocket-deploy-api-${{ github.sha }}.bundle"
       - name: Deploy
-        run: ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}" 'bash -s -- pocket-api @pocket/api ${{ github.sha }}' < scripts/deploy.sh
+        run: ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.BACKEND_HOST }}" 'bash -s -- pocket-api @pocket/api ${{ github.sha }} /tmp/pocket-deploy-api-${{ github.sha }}.bundle' < scripts/deploy.sh
 
   deploy-frontend:
     name: Deploy frontend (pocketpakistan.com)
@@ -72,6 +78,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -88,5 +96,9 @@ jobs:
             exit 1
           fi
           printf '%s' "$WEB_ENV" | ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}" 'umask 077; cat > /home/ubuntu/.pocket-web.env'
+      - name: Upload frontend deployment source
+        run: |
+          git bundle create pocket-deploy.bundle HEAD
+          scp -i ~/.ssh/id_deploy pocket-deploy.bundle "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}:/tmp/pocket-deploy-web-${{ github.sha }}.bundle"
       - name: Deploy
-        run: ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}" 'bash -s -- pocket-web @pocket/web ${{ github.sha }}' < scripts/deploy.sh
+        run: ssh -i ~/.ssh/id_deploy "${{ secrets.DEPLOY_USER }}@${{ secrets.FRONTEND_HOST }}" 'bash -s -- pocket-web @pocket/web ${{ github.sha }} /tmp/pocket-deploy-web-${{ github.sha }}.bundle' < scripts/deploy.sh

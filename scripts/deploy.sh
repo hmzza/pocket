@@ -3,11 +3,12 @@
 # Pocket deploy script — runs ON the target Lightsail box, streamed in over SSH by
 # the GitHub Actions "Deploy" workflow:
 #
-#   ssh <user>@<host> 'bash -s -- <app> <workspace> <sha>' < scripts/deploy.sh
+#   ssh <user>@<host> 'bash -s -- <app> <workspace> <sha> <bundle>' < scripts/deploy.sh
 #
 #   <app>        pocket-api | pocket-web   (PM2 process name, see ecosystem.config.js)
 #   <workspace>  @pocket/api | @pocket/web (npm workspace to build)
 #   <sha>        git commit SHA to deploy (the pushed commit on main)
+#   <bundle>     optional Git bundle uploaded by Actions (avoids target GitHub access)
 #
 # Behaviour: pin the repo to <sha>, install, (api) run migrations, build, zero-downtime
 # reload via PM2, health-check, and roll the CODE back to the previous commit if the
@@ -17,6 +18,7 @@ set -euo pipefail
 APP="${1:?app name required}"
 WORKSPACE="${2:?workspace required}"
 SHA="${3:?git sha required}"
+SOURCE_BUNDLE="${4:-}"
 REPO_DIR="/home/ubuntu/pocket"
 
 cd "$REPO_DIR"
@@ -78,7 +80,21 @@ health_check() {
   return 1
 }
 
-git fetch --all --prune --quiet
+if [ -n "$SOURCE_BUNDLE" ]; then
+  case "$SOURCE_BUNDLE" in
+    /tmp/pocket-deploy-*.bundle) ;;
+    *) echo "FATAL: invalid deployment bundle path"; exit 1 ;;
+  esac
+  [ -s "$SOURCE_BUNDLE" ] || { echo "FATAL: deployment bundle is missing or empty"; exit 1; }
+  git bundle verify "$SOURCE_BUNDLE"
+  git fetch --quiet "$SOURCE_BUNDLE" HEAD
+  rm -f -- "$SOURCE_BUNDLE"
+else
+  # Manual deployments can still fetch origin. Actions always supplies a bundle,
+  # so target servers do not require outbound access to github.com.
+  git fetch --all --prune --quiet
+fi
+git cat-file -e "${SHA}^{commit}" || { echo "FATAL: commit $SHA is absent from deployment source"; exit 1; }
 git reset --hard "$SHA"
 restore_env
 
