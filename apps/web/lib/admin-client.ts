@@ -170,6 +170,27 @@ export async function fetchAdminProducts() {
   return { products, categories };
 }
 
+export async function createAdminCategory(payload: {
+  name: string;
+  slug: string;
+  description?: string;
+  sortOrder?: number;
+  imageUrl?: string;
+}) {
+  const data = await adminFetch<{ category: any }>("/api/admin/categories", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+
+  return {
+    id: data.category.id,
+    slug: data.category.slug,
+    name: data.category.name,
+    description: data.category.description ?? "",
+    imageUrl: resolvePocketImagePath(data.category.imageUrl ?? "")
+  } satisfies Category;
+}
+
 export async function fetchAdminSettings() {
   const data = await adminFetch<{ settings: Array<{ key: string; value: unknown }> }>("/api/admin/settings");
   return data.settings;

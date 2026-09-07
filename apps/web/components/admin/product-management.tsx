@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminProduct, uploadAdminImage } from "@/lib/admin-client";
+import { createAdminCategory, createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminProduct, uploadAdminImage } from "@/lib/admin-client";
 import type { AdminProduct, Category } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
@@ -139,6 +139,7 @@ function ProductEditor({
   saving,
   editorLabel,
   onUploadError,
+  onCreateCategory,
   onChange,
   onClose,
   onSubmit
@@ -153,11 +154,15 @@ function ProductEditor({
   saving: boolean;
   editorLabel: string;
   onUploadError: (message: string) => void;
+  onCreateCategory: (name: string) => Promise<Category>;
   onChange: (next: ProductFormState) => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
   const bundleProductOptions = products.filter((product) => product.isActive && product.id !== editingProductId);
   const assetLibrary = [
     "/images/classic-shawarma.png",
@@ -198,6 +203,26 @@ function ProductEditor({
       onUploadError(uploadError instanceof Error ? uploadError.message : "Failed to upload image.");
     } finally {
       setUploadingIndex(null);
+    }
+  }
+
+  async function handleCreateCategory() {
+    const categoryName = newCategoryName.trim();
+    if (categoryName.length < 2) {
+      onUploadError("Enter a category name with at least two characters.");
+      return;
+    }
+
+    setCreatingCategory(true);
+    try {
+      const category = await onCreateCategory(categoryName);
+      onChange({ ...value, categoryId: category.id });
+      setNewCategoryName("");
+      setAddingCategory(false);
+    } catch (createError) {
+      onUploadError(createError instanceof Error ? createError.message : "Could not create the category.");
+    } finally {
+      setCreatingCategory(false);
     }
   }
 
@@ -254,15 +279,57 @@ function ProductEditor({
             <label className="text-sm font-semibold text-pocket-navy">Category</label>
             <select
               value={value.categoryId}
-              onChange={(event) => onChange({ ...value, categoryId: event.target.value })}
+              onChange={(event) => {
+                if (event.target.value === "__add_category__") {
+                  setAddingCategory(true);
+                  return;
+                }
+                onChange({ ...value, categoryId: event.target.value });
+              }}
               className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
             >
+              <option value="">Select a category</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
                 </option>
               ))}
+              <option value="__add_category__">＋ Add a new category…</option>
             </select>
+            {addingCategory ? (
+              <div className="mt-2 rounded-lg border border-pocket-orange/25 bg-pocket-cream/70 p-3">
+                <p className="text-xs font-semibold text-pocket-navy">Add and select a category</p>
+                <div className="mt-2 flex gap-2">
+                  <Input
+                    value={newCategoryName}
+                    onChange={(event) => setNewCategoryName(event.target.value)}
+                    placeholder="For example: Wraps"
+                    maxLength={80}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void handleCreateCategory();
+                      }
+                    }}
+                  />
+                  <Button type="button" onClick={() => void handleCreateCategory()} disabled={creatingCategory}>
+                    {creatingCategory ? "Adding..." : "Add"}
+                  </Button>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-1 h-auto px-0 py-1 text-xs"
+                  onClick={() => {
+                    setAddingCategory(false);
+                    setNewCategoryName("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : null}
           </div>
           <div className="space-y-3 md:col-span-2">
             <div className="flex items-start justify-between gap-3">
@@ -679,6 +746,30 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
     }
   }
 
+  async function addCategory(name: string) {
+    const normalizedName = name.trim();
+    const existing = categories.find((category) => category.name.toLowerCase() === normalizedName.toLowerCase());
+    if (existing) {
+      return existing;
+    }
+
+    const slug = slugify(normalizedName);
+    if (slug.length < 2) {
+      throw new Error("Use a category name with letters or numbers.");
+    }
+
+    const category = await createAdminCategory({
+      name: normalizedName,
+      slug,
+      description: `${normalizedName} menu items`,
+      sortOrder: categories.length + 1,
+      imageUrl: "/images/shawarma-pocket.svg"
+    });
+    setCategories((current) => [...current, category]);
+    flashNotice("success", `${category.name} category added.`);
+    return category;
+  }
+
   async function deleteProduct(product: AdminProduct) {
     const confirmed = window.confirm(`Delete ${product.name}? This cannot be undone if the product is not protected by order history.`);
     if (!confirmed) return;
@@ -859,6 +950,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
         saving={saving}
         editorLabel={copy.editorLabel}
         onUploadError={setError}
+        onCreateCategory={addCategory}
         onChange={setForm}
         onClose={() => setEditorOpen(false)}
         onSubmit={() => void submitForm()}
