@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createAdminCategory, createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminProduct, uploadAdminImage } from "@/lib/admin-client";
+import { createAdminCategory, createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminDealConfiguration, updateAdminProduct, uploadAdminImage } from "@/lib/admin-client";
 import type { AdminProduct, Category } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
@@ -34,6 +34,18 @@ type ProductFormState = {
   bundleComponents: Array<{
     componentProductId: string;
     quantity: string;
+  }>;
+  dealGroups: Array<{
+    id?: string;
+    name: string;
+    minSelect: string;
+    maxSelect: string;
+    options: Array<{
+      id?: string;
+      linkedProductId: string;
+      name: string;
+      priceDelta: string;
+    }>;
   }>;
 };
 
@@ -96,7 +108,8 @@ const EMPTY_FORM: ProductFormState = {
   isActive: true,
   stockStatus: "IN_STOCK",
   images: [{ url: "", alt: "" }],
-  bundleComponents: []
+  bundleComponents: [],
+  dealGroups: []
 };
 
 function slugify(value: string) {
@@ -124,6 +137,18 @@ function mapProductToForm(product: AdminProduct): ProductFormState {
     bundleComponents: product.bundleComponents.map((component) => ({
       componentProductId: component.productId,
       quantity: String(component.quantity)
+    })),
+    dealGroups: (product.addOnGroups ?? []).map((group) => ({
+      id: group.id,
+      name: group.name,
+      minSelect: String(group.minSelect),
+      maxSelect: String(group.maxSelect),
+      options: group.options.map((option) => ({
+        id: option.id,
+        linkedProductId: option.linkedProductId ?? "",
+        name: option.name,
+        priceDelta: String(option.priceDelta)
+      }))
     }))
   };
 }
@@ -164,6 +189,9 @@ function ProductEditor({
   const [newCategoryName, setNewCategoryName] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
   const bundleProductOptions = products.filter((product) => product.isActive && product.id !== editingProductId);
+  const selectedCategory = categories.find((category) => category.id === value.categoryId);
+  const isDeal = selectedCategory?.slug === "deals";
+  const dealProductOptions = bundleProductOptions.filter((product) => product.category.slug !== "deals");
   const assetLibrary = [
     "/images/classic-shawarma.png",
     "/images/spicy-shawarma.png",
@@ -570,6 +598,151 @@ function ProductEditor({
               )}
             </div>
           </div>
+          {isDeal ? (
+            <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-4 md:col-span-2">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <label className="text-sm font-bold text-pocket-navy">Deal configuration</label>
+                  <p className="mt-1 text-xs text-pocket-navy/60">
+                    These are the choices customers and POS staff make. Each linked product is validated and deducted from inventory when selected.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    const nextNumber = value.dealGroups.length + 1;
+                    onChange({
+                      ...value,
+                      dealGroups: [...value.dealGroups, {
+                        name: `Choice ${nextNumber}`,
+                        minSelect: "1",
+                        maxSelect: "1",
+                        options: [{ linkedProductId: "", name: `Choice ${nextNumber}: New option`, priceDelta: "0" }]
+                      }]
+                    });
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                  Add choice
+                </Button>
+              </div>
+
+              {value.dealGroups.length ? (
+                <div className="space-y-4">
+                  {value.dealGroups.map((group, groupIndex) => (
+                    <div key={group.id ?? `new-group-${groupIndex}`} className="rounded-lg border border-blue-200 bg-white p-4">
+                      <div className="grid gap-3 md:grid-cols-[1fr_110px_110px_auto]">
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold uppercase tracking-[0.15em] text-pocket-navy/55">Choice name</label>
+                          <Input
+                            value={group.name}
+                            onChange={(event) => {
+                              const nextName = event.target.value;
+                              onChange({
+                                ...value,
+                                dealGroups: value.dealGroups.map((entry, index) => index === groupIndex
+                                  ? {
+                                      ...entry,
+                                      name: nextName,
+                                      options: entry.options.map((option) => {
+                                        const separator = option.name.indexOf(": ");
+                                        const optionLabel = separator >= 0 ? option.name.slice(separator + 2) : option.name;
+                                        return { ...option, name: `${nextName}: ${optionLabel}` };
+                                      })
+                                    }
+                                  : entry)
+                              });
+                            }}
+                            placeholder="For example: Wrap 1"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold uppercase tracking-[0.15em] text-pocket-navy/55">Minimum</label>
+                          <Input type="number" min="0" max="20" value={group.minSelect} onChange={(event) => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, minSelect: event.target.value } : entry) })} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold uppercase tracking-[0.15em] text-pocket-navy/55">Maximum</label>
+                          <Input type="number" min="1" max="20" value={group.maxSelect} onChange={(event) => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, maxSelect: event.target.value } : entry) })} />
+                        </div>
+                        <Button type="button" variant="ghost" className="self-end text-red-600" onClick={() => onChange({ ...value, dealGroups: value.dealGroups.filter((_, index) => index !== groupIndex) })}>
+                          Remove
+                        </Button>
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        {group.options.map((option, optionIndex) => {
+                          const prefix = `${group.name}: `;
+                          const displayName = option.name.startsWith(prefix) ? option.name.slice(prefix.length) : option.name;
+                          return (
+                            <div key={option.id ?? `new-option-${optionIndex}`} className="grid gap-2 rounded-md bg-pocket-cream/50 p-3 md:grid-cols-[1.15fr_1fr_110px_auto]">
+                              <select
+                                value={option.linkedProductId}
+                                onChange={(event) => {
+                                  const linkedProduct = dealProductOptions.find((product) => product.id === event.target.value);
+                                  onChange({
+                                    ...value,
+                                    dealGroups: value.dealGroups.map((entry, index) => index === groupIndex
+                                      ? {
+                                          ...entry,
+                                          options: entry.options.map((item, itemIndex) => itemIndex === optionIndex
+                                            ? { ...item, linkedProductId: event.target.value, name: linkedProduct ? `${group.name}: ${linkedProduct.name}` : item.name }
+                                            : item)
+                                        }
+                                      : entry)
+                                  });
+                                }}
+                                className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"
+                              >
+                                <option value="">Custom option (no product)</option>
+                                {dealProductOptions.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+                              </select>
+                              <Input
+                                value={displayName}
+                                onChange={(event) => onChange({
+                                  ...value,
+                                  dealGroups: value.dealGroups.map((entry, index) => index === groupIndex
+                                    ? { ...entry, options: entry.options.map((item, itemIndex) => itemIndex === optionIndex ? { ...item, name: `${group.name}: ${event.target.value}` } : item) }
+                                    : entry)
+                                })}
+                                placeholder="Display name"
+                              />
+                              <Input
+                                type="number"
+                                min="0"
+                                value={option.priceDelta}
+                                onChange={(event) => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, options: entry.options.map((item, itemIndex) => itemIndex === optionIndex ? { ...item, priceDelta: event.target.value } : item) } : entry) })}
+                                placeholder="Extra Rs"
+                              />
+                              <Button type="button" variant="ghost" className="text-red-600" disabled={group.options.length === 1} onClick={() => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, options: entry.options.filter((_, index) => index !== optionIndex) } : entry) })}>
+                                Remove
+                              </Button>
+                            </div>
+                          );
+                        })}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onChange({
+                            ...value,
+                            dealGroups: value.dealGroups.map((entry, index) => index === groupIndex
+                              ? { ...entry, options: [...entry.options, { linkedProductId: "", name: `${group.name}: New option`, priceDelta: "0" }] }
+                              : entry)
+                          })}
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add option
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-md border border-dashed border-blue-200 bg-white px-4 py-3 text-sm text-pocket-navy/60">No selectable choices. Only fixed bundle components will be included.</p>
+              )}
+            </div>
+          ) : null}
           <div className="space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Stock status <span className="text-pocket-navy/40">(optional)</span></label>
             <select
@@ -698,6 +871,25 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
       return;
     }
 
+    const selectedCategory = categories.find((category) => category.id === form.categoryId);
+    const isDealForm = selectedCategory?.slug === "deals";
+    const dealGroups = form.dealGroups.map((group) => ({
+      id: group.id,
+      name: group.name.trim(),
+      minSelect: Number(group.minSelect),
+      maxSelect: Number(group.maxSelect),
+      options: group.options.map((option) => ({
+        id: option.id,
+        linkedProductId: option.linkedProductId || null,
+        name: option.name.trim(),
+        priceDelta: Number(option.priceDelta || 0)
+      }))
+    }));
+    if (isDealForm && dealGroups.some((group) => !group.name || !Number.isInteger(group.minSelect) || !Number.isInteger(group.maxSelect) || group.maxSelect < group.minSelect || group.options.some((option) => !option.name || !Number.isFinite(option.priceDelta)))) {
+      setError("Complete every deal choice and ensure its minimum, maximum, option names, and prices are valid.");
+      return;
+    }
+
     const priceChanged = !editingProduct || basePrice !== editingProduct.basePrice;
     const payload: Record<string, unknown> = {
       categoryId: form.categoryId,
@@ -730,12 +922,18 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
     setSaving(true);
     setError("");
     try {
+      let savedProductId: string;
       if (editingProduct) {
         await updateAdminProduct(editingProduct.id, payload);
+        savedProductId = editingProduct.id;
         flashNotice("success", `${copy.editorLabel} updated.`);
       } else {
-        await createAdminProduct(payload);
+        const createdProduct = await createAdminProduct(payload);
+        savedProductId = createdProduct.id;
         flashNotice("success", `${copy.editorLabel} added.`);
+      }
+      if (isDealForm || editingProduct?.category.slug === "deals") {
+        await updateAdminDealConfiguration(savedProductId, isDealForm ? dealGroups : []);
       }
       setEditorOpen(false);
       await loadProducts();

@@ -136,6 +136,23 @@ export async function fetchAdminProducts() {
       quantity: Number(component.quantity),
       sortOrder: component.sortOrder ?? undefined
     })),
+    addOnGroups: (product.addOnGroups ?? []).map((group: any) => ({
+      id: group.id,
+      name: group.name,
+      minSelect: Number(group.minSelect),
+      maxSelect: Number(group.maxSelect),
+      isRequired: Boolean(group.isRequired),
+      isActive: group.isActive !== false,
+      sortOrder: group.sortOrder ?? undefined,
+      options: (group.options ?? []).map((option: any) => ({
+        id: option.id,
+        name: option.name,
+        priceDelta: Number(option.priceDelta),
+        linkedProductId: option.linkedProductId ?? null,
+        isActive: option.isActive !== false,
+        sortOrder: option.sortOrder ?? undefined
+      }))
+    })),
     costSummary: product.costSummary
       ? {
           recipeCost: Number(product.costSummary.recipeCost),
@@ -308,6 +325,13 @@ export async function updateAdminProduct(productId: string, payload: Record<stri
     body: JSON.stringify(payload)
   });
   return data.product;
+}
+
+export async function updateAdminDealConfiguration(productId: string, groups: unknown[]) {
+  return adminFetch<{ groups: unknown[] }>(`/api/admin/products/${productId}/deal-configuration`, {
+    method: "PUT",
+    body: JSON.stringify({ groups })
+  });
 }
 
 export async function updateAdminProductCostSettings(productId: string, payload: Record<string, unknown>) {

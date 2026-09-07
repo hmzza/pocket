@@ -3,21 +3,23 @@ export type DisplayBundleComponent = {
   quantity: number;
 };
 
-type SelectionGroup = "Rocket sauces" | "Pockets" | "Wraps" | "Drinks";
+type SelectionGroup = "Rocket sauces" | "Pockets" | "Wraps" | "Drinks" | "Selections";
 
-const selectionPatterns: Array<{ label: SelectionGroup; pattern: RegExp }> = [
-  { label: "Rocket sauces", pattern: /^Rocket\s+(\d+)\s+sauce:\s*(.+)$/i },
-  { label: "Pockets", pattern: /^Pocket\s+(\d+):\s*(.+)$/i },
-  { label: "Wraps", pattern: /^Wrap\s+(\d+):\s*(.+)$/i },
-  { label: "Drinks", pattern: /^Drink\s+(\d+):\s*(.+)$/i }
+const selectionPatterns: Array<{ label: SelectionGroup; pattern: RegExp; hasSlot?: boolean }> = [
+  { label: "Rocket sauces", pattern: /^Rocket\s+(\d+)\s+sauce:\s*(.+)$/i, hasSlot: true },
+  { label: "Pockets", pattern: /^Pocket\s+(\d+):\s*(.+)$/i, hasSlot: true },
+  { label: "Wraps", pattern: /^Wrap\s+(\d+):\s*(.+)$/i, hasSlot: true },
+  { label: "Drinks", pattern: /^Drink\s+(\d+):\s*(.+)$/i, hasSlot: true },
+  { label: "Selections", pattern: /^.+?:\s*(.+)$/i }
 ];
 
-const selectionOrder: SelectionGroup[] = ["Rocket sauces", "Pockets", "Wraps", "Drinks"];
+const selectionOrder: SelectionGroup[] = ["Rocket sauces", "Pockets", "Wraps", "Selections", "Drinks"];
 
 function parseSelection(name: string) {
   for (const entry of selectionPatterns) {
     const match = name.match(entry.pattern);
-    if (match?.[2]) return { label: entry.label, slot: Number(match[1]), name: match[2].trim() };
+    const value = entry.hasSlot ? match?.[2] : match?.[1];
+    if (value) return { label: entry.label, slot: entry.hasSlot ? Number(match?.[1]) : 0, name: value.trim() };
   }
   return null;
 }

@@ -1739,6 +1739,17 @@ router.get("/products", async (_req, res, next) => {
   const includeBase = {
     category: true,
     images: { orderBy: { sortOrder: "asc" as const } },
+    addOnGroups: {
+      where: { isActive: true },
+      orderBy: { sortOrder: "asc" as const },
+      include: {
+        options: {
+          where: { isActive: true },
+          orderBy: { sortOrder: "asc" as const },
+          include: { linkedProduct: { select: { id: true, name: true, slug: true } } }
+        }
+      }
+    },
     bundleComponents: {
       orderBy: { sortOrder: "asc" as const },
       include: {
@@ -1984,6 +1995,31 @@ const productCostSettingsSchema = z.object({
   foodPackagingCost: z.number().nonnegative().optional(),
   isActive: z.boolean().optional()
 }).refine((value) => Object.keys(value).length > 0, "At least one cost setting is required.");
+
+const dealConfigurationSchema = z.object({
+  groups: z.array(z.object({
+    id: z.string().cuid().optional(),
+    name: z.string().trim().min(2).max(80),
+    minSelect: z.number().int().min(0).max(20),
+    maxSelect: z.number().int().min(1).max(20),
+    options: z.array(z.object({
+      id: z.string().cuid().optional(),
+      linkedProductId: z.string().cuid().nullable().optional(),
+      name: z.string().trim().min(1).max(160),
+      priceDelta: z.number().min(0).max(100000).default(0)
+    })).min(1).max(100)
+  }).refine((group) => group.maxSelect >= group.minSelect, "Maximum selections cannot be lower than minimum selections.")).max(30)
+}).superRefine((value, context) => {
+  const names = value.groups.map((group) => group.name.toLowerCase());
+  if (new Set(names).size !== names.length) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: "Deal choice group names must be unique.", path: ["groups"] });
+  }
+  value.groups.forEach((group, index) => {
+    if (group.options.length < group.minSelect) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: `${group.name} needs at least ${group.minSelect} options.`, path: ["groups", index, "options"] });
+    }
+  });
+});
 
 function normalizeProductImages(
   images: Array<{ url: string; alt?: string; sortOrder?: number }> | undefined,
@@ -2337,6 +2373,141 @@ router.patch("/products/:id", async (req, res, next) => {
     });
 
     return res.json({ product });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put("/products/:id/deal-configuration", async (req, res, next) => {
+  try {
+    const payload = dealConfigurationSchema.parse(req.body);
+    const product = await prisma.product.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true,
+        name: true,
+        category: { select: { slug: true } },
+        addOnGroups: { include: { options: true } }
+      }
+    });
+    if (!product) throw Object.assign(new Error("Product not found."), { statusCode: 404 });
+    if (product.category.slug !== "deals" && payload.groups.length) {
+      throw Object.assign(new Error("Selectable deal choices can only be added to products in the Deals category."), { statusCode: 400 });
+    }
+
+    const existingGroupsById = new Map(product.addOnGroups.map((group) => [group.id, group]));
+    for (const group of payload.groups) {
+      if (group.id && !existingGroupsById.has(group.id)) {
+        throw Object.assign(new Error(`The choice group ${group.name} does not belong to this deal.`), { statusCode: 400 });
+      }
+      const existingOptions = group.id ? existingGroupsById.get(group.id)?.options ?? [] : [];
+      const existingOptionIds = new Set(existingOptions.map((option) => option.id));
+      if (group.options.some((option) => option.id && !existingOptionIds.has(option.id))) {
+        throw Object.assign(new Error(`One or more options in ${group.name} do not belong to this deal.`), { statusCode: 400 });
+      }
+    }
+
+    const linkedProductIds = [...new Set(payload.groups.flatMap((group) => group.options.flatMap((option) => option.linkedProductId ? [option.linkedProductId] : [])))];
+    if (linkedProductIds.includes(product.id)) {
+      throw Object.assign(new Error("A deal cannot contain itself as a selectable item."), { statusCode: 400 });
+    }
+    const linkedProducts = linkedProductIds.length
+      ? await prisma.product.findMany({ where: { id: { in: linkedProductIds }, isActive: true }, select: { id: true } })
+      : [];
+    if (linkedProducts.length !== linkedProductIds.length) {
+      throw Object.assign(new Error("One or more selected deal products are unavailable."), { statusCode: 400 });
+    }
+
+    const configuration = await prisma.$transaction(async (transaction) => {
+      const activeGroupIds: string[] = [];
+      for (const [groupIndex, groupPayload] of payload.groups.entries()) {
+        const group = groupPayload.id
+          ? await transaction.addOnGroup.update({
+              where: { id: groupPayload.id },
+              data: {
+                name: groupPayload.name,
+                minSelect: groupPayload.minSelect,
+                maxSelect: groupPayload.maxSelect,
+                isRequired: groupPayload.minSelect > 0,
+                isActive: true,
+                sortOrder: groupIndex + 1
+              }
+            })
+          : await transaction.addOnGroup.create({
+              data: {
+                productId: product.id,
+                name: groupPayload.name,
+                minSelect: groupPayload.minSelect,
+                maxSelect: groupPayload.maxSelect,
+                isRequired: groupPayload.minSelect > 0,
+                isActive: true,
+                sortOrder: groupIndex + 1
+              }
+            });
+        activeGroupIds.push(group.id);
+
+        const activeOptionIds: string[] = [];
+        for (const [optionIndex, optionPayload] of groupPayload.options.entries()) {
+          const option = optionPayload.id
+            ? await transaction.addOnOption.update({
+                where: { id: optionPayload.id },
+                data: {
+                  linkedProductId: optionPayload.linkedProductId || null,
+                  name: optionPayload.name,
+                  priceDelta: optionPayload.priceDelta,
+                  isActive: true,
+                  sortOrder: optionIndex + 1
+                }
+              })
+            : await transaction.addOnOption.create({
+                data: {
+                  groupId: group.id,
+                  linkedProductId: optionPayload.linkedProductId || null,
+                  name: optionPayload.name,
+                  priceDelta: optionPayload.priceDelta,
+                  isActive: true,
+                  sortOrder: optionIndex + 1
+                }
+              });
+          activeOptionIds.push(option.id);
+        }
+        await transaction.addOnOption.updateMany({
+          where: { groupId: group.id, id: { notIn: activeOptionIds } },
+          data: { isActive: false }
+        });
+      }
+
+      await transaction.addOnGroup.updateMany({
+        where: { productId: product.id, id: { notIn: activeGroupIds } },
+        data: { isActive: false, isRequired: false, minSelect: 0 }
+      });
+      await transaction.addOnOption.updateMany({
+        where: { group: { productId: product.id, isActive: false } },
+        data: { isActive: false }
+      });
+
+      return transaction.addOnGroup.findMany({
+        where: { productId: product.id, isActive: true },
+        orderBy: { sortOrder: "asc" },
+        include: {
+          options: {
+            where: { isActive: true },
+            orderBy: { sortOrder: "asc" },
+            include: { linkedProduct: { select: { id: true, name: true, slug: true } } }
+          }
+        }
+      });
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "product.deal_configuration.update",
+      entityType: "product",
+      entityId: product.id,
+      payload: { productName: product.name, groups: payload.groups }
+    });
+
+    return res.json({ groups: configuration });
   } catch (error) {
     return next(error);
   }

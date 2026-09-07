@@ -84,7 +84,7 @@ router.get("/cart", async (req, res) => {
           product: {
             include: {
               images: true,
-              addOnGroups: { include: { options: true } }
+              addOnGroups: { where: { isActive: true }, include: { options: { where: { isActive: true } } } }
             }
           }
         }
@@ -291,6 +291,7 @@ router.post("/checkout", async (req, res, next) => {
             product: {
               include: {
                 addOnGroups: {
+                  where: { isActive: true },
                   orderBy: { sortOrder: "asc" },
                   include: {
                     options: {

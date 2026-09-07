@@ -11,6 +11,8 @@ export type AddOnOption = {
   name: string;
   priceDelta: number;
   linkedProductId?: string | null;
+  isActive?: boolean;
+  sortOrder?: number;
 };
 
 export type AddOnGroup = {
@@ -19,6 +21,8 @@ export type AddOnGroup = {
   minSelect: number;
   maxSelect: number;
   isRequired?: boolean;
+  isActive?: boolean;
+  sortOrder?: number;
   options: AddOnOption[];
 };
 
@@ -800,6 +804,7 @@ export type AdminProduct = {
     sortOrder?: number;
   }>;
   category: Category;
+  addOnGroups: AddOnGroup[];
   bundleComponents: BundleComponent[];
   costSummary?: AdminProductCostSummary;
 };

@@ -46,10 +46,6 @@ export function isDealProduct(product: { category?: { slug?: string | null } | n
   return product.category?.slug === DEAL_CATEGORY_SLUG;
 }
 
-export function isDealComponentGroup(groupName: string) {
-  return /^(Pocket|Wrap|Drink) \d+$/.test(groupName);
-}
-
 export async function getAvailableDealChoiceProductIds(client: DealOptionClient, branchId: string) {
   const products = await client.branchProduct.findMany({
     where: {
@@ -98,7 +94,7 @@ async function syncDealOptionsInternal(client: DealOptionClient) {
   const [deals, pockets, wraps, drinks] = await Promise.all([
     client.product.findMany({
       where: { slug: { in: dealSlugs }, isActive: true, category: { slug: DEAL_CATEGORY_SLUG, isActive: true } },
-      select: { id: true, slug: true }
+      select: { id: true, slug: true, addOnGroups: { select: { id: true } } }
     }),
     client.product.findMany({
       where: { slug: { in: POCKET_SLUGS }, isActive: true },
@@ -124,29 +120,31 @@ async function syncDealOptionsInternal(client: DealOptionClient) {
   const productsByKind = { pocket: pockets, wrap: wraps, drink: drinks };
 
   for (const deal of deals) {
+    // Any existing groups mean this deal has already been seeded or managed.
+    // From that point onward its database configuration is authoritative.
+    if (deal.addOnGroups.length) continue;
     const definitions = DEAL_GROUPS[deal.slug] ?? [];
     for (const [groupIndex, definition] of definitions.entries()) {
       const existingGroup = await client.addOnGroup.findFirst({
         where: { productId: deal.id, name: definition.name },
         include: { options: true }
       });
-      const group = existingGroup
-        ? await client.addOnGroup.update({
-            where: { id: existingGroup.id },
-            data: { minSelect: 1, maxSelect: 1, isRequired: true, sortOrder: groupIndex + 1 },
-            include: { options: true }
-          })
-        : await client.addOnGroup.create({
-            data: {
-              productId: deal.id,
-              name: definition.name,
-              minSelect: 1,
-              maxSelect: 1,
-              isRequired: true,
-              sortOrder: groupIndex + 1
-            },
-            include: { options: true }
-          });
+      // Existing configurations belong to the admin editor. Defaults only seed
+      // groups that have never been configured, so catalog reads cannot undo edits.
+      if (existingGroup) continue;
+
+      const group = await client.addOnGroup.create({
+        data: {
+          productId: deal.id,
+          name: definition.name,
+          minSelect: 1,
+          maxSelect: 1,
+          isRequired: true,
+          isActive: true,
+          sortOrder: groupIndex + 1
+        },
+        include: { options: true }
+      });
 
       const targetOptions = definition.kind === "sauce"
         ? SAUCE_OPTIONS.map((name, index) => ({

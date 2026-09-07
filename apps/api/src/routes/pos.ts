@@ -28,7 +28,6 @@ import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 import {
   filterDealProductOptions,
   getAvailableDealChoiceProductIds,
-  isDealComponentGroup,
   isDealProduct,
   syncDealOptions
 } from "../lib/deal-options.js";
@@ -40,6 +39,7 @@ router.use(authenticate, authorize(RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF), re
 const posProductInclude = {
   category: true,
   addOnGroups: {
+    where: { isActive: true },
     orderBy: { sortOrder: "asc" as const },
     include: {
       options: {
@@ -462,7 +462,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
           }
         }
 
-        if (isDealProduct(product) && isDealComponentGroup(group.name)) {
+        if (isDealProduct(product) && option.linkedProductId) {
           const linkedProduct = option.linkedProduct;
           const linkedBranchProduct = linkedProduct?.branchPricing.find((entry) => entry.branchId === payload.branchId);
           if (!option.linkedProductId || !linkedProduct?.isActive || !linkedBranchProduct?.isAvailable) {
@@ -688,6 +688,7 @@ const posOrderInclude = {
             }
           },
           addOnGroups: {
+            where: { isActive: true },
             orderBy: { sortOrder: "asc" as const },
             include: {
               options: {

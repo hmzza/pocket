@@ -26,7 +26,6 @@ import {
 import {
   filterDealProductOptions,
   getAvailableDealChoiceProductIds,
-  isDealComponentGroup,
   isDealProduct,
   syncDealOptions
 } from "../lib/deal-options.js";
@@ -88,6 +87,7 @@ const productInclude = {
   category: true,
   images: { orderBy: { sortOrder: "asc" as const } },
   addOnGroups: {
+    where: { isActive: true },
     orderBy: { sortOrder: "asc" as const },
     include: {
       options: {
@@ -122,6 +122,7 @@ router.get("/content/home", async (req, res) => {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
         addOnGroups: {
+          where: { isActive: true },
           orderBy: { sortOrder: "asc" as const },
           include: {
             options: {
@@ -140,6 +141,7 @@ router.get("/content/home", async (req, res) => {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
         addOnGroups: {
+          where: { isActive: true },
           orderBy: { sortOrder: "asc" as const },
           include: {
             options: {
@@ -286,6 +288,7 @@ router.get("/products", async (req, res, next) => {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
         addOnGroups: {
+          where: { isActive: true },
           orderBy: { sortOrder: "asc" },
           include: {
             options: {
@@ -343,6 +346,7 @@ router.get("/products/:slug", async (req, res) => {
       category: true,
       images: { orderBy: { sortOrder: "asc" } },
       addOnGroups: {
+        where: { isActive: true },
         orderBy: { sortOrder: "asc" as const },
         include: {
           options: {
@@ -632,6 +636,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       include: {
         category: true,
         addOnGroups: {
+          where: { isActive: true },
           orderBy: { sortOrder: "asc" },
           include: {
             options: {
@@ -710,7 +715,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
             throw Object.assign(new Error(`${product.name}: this beverage is unavailable from the selected branch.`), { statusCode: 400 });
           }
 
-          if (isDealProduct(product) && isDealComponentGroup(group.name)) {
+          if (isDealProduct(product) && option.linkedProductId) {
             const linkedProduct = option.linkedProduct;
             const linkedBranchProduct = linkedProduct?.branchPricing.find((entry) => entry.branchId === branch.id);
             if (!option.linkedProductId || !linkedProduct?.isActive || !linkedBranchProduct?.isAvailable) {
