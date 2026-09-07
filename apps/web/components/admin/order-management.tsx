@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders } from "@/lib/admin-client";
 import type { AdminOrder, AdminOrderSegment, AdminRangePreset } from "@/lib/types";
 import { formatCurrency, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
+import { formatBundleSummary, formatItemDetailLines, hasDealSelections } from "@/lib/item-detail-display";
 
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
@@ -65,10 +66,6 @@ function formatPaymentMethod(value: string) {
   return map[value] ?? value.replaceAll("_", " ");
 }
 
-function formatBundleSummary(components: Array<{ productName: string; quantity: number }>) {
-  return components.map((component) => `${component.quantity}x ${component.productName}`).join(", ");
-}
-
 function OrderDetails({ order }: { order: AdminOrder }) {
   return (
     <div className="grid gap-6 rounded-lg bg-pocket-cream p-5 lg:grid-cols-[0.85fr_1.15fr]">
@@ -123,12 +120,15 @@ function OrderDetails({ order }: { order: AdminOrder }) {
                   <p className="font-semibold text-pocket-navy">{item.productName}</p>
                   <p className="text-sm text-pocket-navy/60">Qty {item.quantity}</p>
                   {item.customDescription ? <p className="text-sm text-pocket-navy/60">{item.customDescription}</p> : null}
-                  {item.bundleComponents.length ? <p className="text-sm text-pocket-navy/60">Contains: {formatBundleSummary(item.bundleComponents)}</p> : null}
+                  {(hasDealSelections(item.addOns.map((addOn) => addOn.optionName))
+                    ? formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity })
+                    : item.bundleComponents.length ? [`Includes: ${formatBundleSummary(item.bundleComponents)}`] : []
+                  ).map((line) => <p key={line} className="text-sm text-pocket-navy/60">{line}</p>)}
                   {item.note ? <p className="mt-1 text-sm text-pocket-navy/60">Note: {item.note}</p> : null}
                 </div>
                 <p className="font-bold text-pocket-orange">{formatCurrency(item.unitPrice * item.quantity)}</p>
               </div>
-              {item.addOns.length ? (
+              {item.addOns.length && !hasDealSelections(item.addOns.map((addOn) => addOn.optionName)) ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {item.addOns.map((addOn) => (
                     <span key={addOn.id} className="rounded-md bg-pocket-cream px-3 py-1.5 text-xs font-semibold text-pocket-navy">

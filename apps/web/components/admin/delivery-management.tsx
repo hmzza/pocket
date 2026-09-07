@@ -9,6 +9,7 @@ import { dispatchAdminDeliveryOrder, fetchAdminDeliveryLogs, fetchAdminDeliveryR
 import { getSelectedBranchId } from "@/lib/branch-selection";
 import type { AdminOrder, DeliveryLog, DeliveryRider } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
+import { formatItemDetailLines } from "@/lib/item-detail-display";
 
 const terminalStatuses = new Set(["DELIVERED", "CANCELLED"]);
 const DELIVERY_POLL_MS = 4_000;
@@ -422,7 +423,7 @@ export function DeliveryManagement() {
             <div className="space-y-1"><p className="font-semibold text-pocket-navy">Customer entered</p><p>Name: {order.customerName}</p><p>WhatsApp: {order.customerPhone ?? "Not provided"}</p><p>City: {order.address?.city ?? "Islamabad"}</p><p>Sector: {order.deliverySubsector ?? order.deliverySector ?? "Not provided"}</p></div>
             <div className="space-y-1"><p className="font-semibold text-pocket-navy">Delivery address</p><p>{order.address?.addressLine1 ?? "Not provided"}</p>{order.address?.addressLine2 ? <p>{order.address.addressLine2}</p> : null}{order.address?.instructions ? <p>Location instructions: {order.address.instructions}</p> : null}{order.deliveryInstructions ? <p>Order instructions: {order.deliveryInstructions}</p> : null}</div>
           </div>
-          <div className="mt-3 border-t border-pocket-navy/10 pt-3"><p className="font-semibold text-pocket-navy">Items</p><div className="mt-2 space-y-1.5">{order.items.map((item) => <div key={item.id} className="flex items-start justify-between gap-3"><div><p>{item.quantity}× {item.productName}</p>{item.customDescription ? <p className="text-pocket-navy/60">{item.customDescription}</p> : null}{item.addOns.length ? <p className="text-pocket-navy/60">{item.addOns.map((addOn) => addOn.optionName).join(", ")}</p> : null}</div><p className="shrink-0 font-semibold text-pocket-navy">{formatCurrency(item.unitPrice * item.quantity)}</p></div>)}</div></div>
+          <div className="mt-3 border-t border-pocket-navy/10 pt-3"><p className="font-semibold text-pocket-navy">Items</p><div className="mt-2 space-y-1.5">{order.items.map((item) => <div key={item.id} className="flex items-start justify-between gap-3"><div><p>{item.quantity}× {item.productName}</p>{item.customDescription ? <p className="text-pocket-navy/60">{item.customDescription}</p> : null}{formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity }).map((line) => <p key={line} className="text-pocket-navy/60">{line}</p>)}</div><p className="shrink-0 font-semibold text-pocket-navy">{formatCurrency(item.unitPrice * item.quantity)}</p></div>)}</div></div>
         </details>
         <div className="mt-3 flex flex-wrap gap-2">
           {order.status === "PENDING" ? <Button type="button" size="sm" disabled={busy} onClick={() => void changeStatus(order, "CONFIRMED")}><PackageCheck className="h-4 w-4" />{busy ? "Accepting..." : "Accept"}</Button> : null}

@@ -14,6 +14,7 @@ import { DesktopPrinterSettings } from "@/components/pos/desktop-printer-setting
 import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
+import { formatBundleSummary, formatItemDetailLines } from "@/lib/item-detail-display";
 
 type TicketLine = {
   id: string;
@@ -215,12 +216,7 @@ function buildWhatsAppReceiptMessage(order: PosReceiptOrder) {
     if (item.customDescription) {
       lines.push(`   ${item.customDescription}`);
     }
-    if (item.bundleComponents.length) {
-      lines.push(`   Contains: ${formatBundleSummary(item.bundleComponents)}`);
-    }
-    if (item.addOns.length) {
-      lines.push(`   ${item.addOns.map((addOn) => addOn.optionName).join(", ")}`);
-    }
+    formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity }).forEach((line) => lines.push(`   ${line}`));
     lines.push(`   ${formatCurrency(item.unitPrice)} x ${item.quantity} = ${formatCurrency(item.unitPrice * item.quantity)}`);
   });
 
@@ -307,10 +303,6 @@ function synchronizeIndependenceOffer(lines: TicketLine[], promotion: PosPromoti
   }
 
   return changed ? nextLines : lines;
-}
-
-function formatBundleSummary(components: Array<{ productName: string; quantity: number }>, multiplier = 1) {
-  return components.map((component) => `${component.quantity * multiplier}x ${component.productName}`).join(", ");
 }
 
 function buildSelectionsFromEditableItem(item: PosEditableOrder["items"][number]) {
@@ -1082,14 +1074,12 @@ export function PosTerminal() {
                           </div>
                         </div>
                         {item.customDescription ? <p className={splitView ? "mt-0.5 pl-[4.5rem] text-[0.52rem] leading-tight text-slate-500" : "mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-500"}>{item.customDescription}</p> : null}
-                        {item.bundleComponents.length ? (
-                          <p className={splitView ? "mt-0.5 pl-[4.5rem] text-[0.52rem] leading-tight text-slate-600" : "mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600"}>
-                            Contains: {formatBundleSummary(item.bundleComponents, item.quantity)}
-                          </p>
-                        ) : null}
-                        {item.addOns.length ? (
-                          <p className={splitView ? "mt-0.5 pl-[4.5rem] text-[0.52rem] leading-tight text-slate-600" : "mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600"}>{item.addOns.map((addOn) => addOn.name).join(", ")}</p>
-                        ) : null}
+                        {formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.name), {
+                          componentMultiplier: item.quantity,
+                          selectionMultiplier: item.quantity
+                        }).map((line) => (
+                          <p key={line} className={splitView ? "mt-0.5 pl-[4.5rem] text-[0.52rem] leading-tight text-slate-600" : "mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-600"}>{line}</p>
+                        ))}
                       </div>
                       <div className="flex shrink-0 items-start gap-1.5">
                         <div className="text-right">
@@ -1366,7 +1356,7 @@ export function PosTerminal() {
                 <h3 className="mt-2 text-2xl font-black">{productDialog.name}</h3>
               <p className="mt-2 break-words text-amber-200">{formatCompactCurrency(productDialog.price)}</p>
                 {productDialog.bundleComponents.length ? (
-                  <p className="mt-2 text-sm text-amber-100/80">Contains: {formatBundleSummary(productDialog.bundleComponents)}</p>
+                  <p className="mt-2 text-sm text-amber-100/80">Includes: {formatBundleSummary(productDialog.bundleComponents)}</p>
                 ) : null}
               </div>
               <Button variant="ghost" className="text-white hover:bg-white/10" onClick={() => setProductDialog(null)}>Close</Button>

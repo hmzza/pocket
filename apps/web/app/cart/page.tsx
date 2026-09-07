@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { calculateOrderTotals, readStoredCouponState, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
+import { formatSelectionLines } from "@/lib/item-detail-display";
 
 function getOptionDisplayName(groupName: string, optionName: string) {
   const prefix = `${groupName}: `;
@@ -154,9 +155,9 @@ export default function CartPage() {
                 <div>
                   <p className="text-lg font-black text-pocket-navy">{product.name}</p>
                   <p className="text-sm text-pocket-navy/65">{product.description}</p>
-                  {product.selectedAddOns.length ? (
-                    <p className="mt-2 text-sm text-pocket-navy/60">{product.selectedAddOns.map((option) => option.name).join(", ")}</p>
-                  ) : null}
+                  {formatSelectionLines(product.selectedAddOns.map((option) => option.name), product.quantity).map((line) => (
+                    <p key={line} className="mt-1 text-sm text-pocket-navy/60 first:mt-2">{line}</p>
+                  ))}
                   <p className="mt-3 break-words text-base font-bold text-pocket-orange">{formatCompactCurrency(product.price)}</p>
                 </div>
                 <div className="flex items-center gap-3">

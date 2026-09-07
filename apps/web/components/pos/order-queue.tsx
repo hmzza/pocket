@@ -19,6 +19,7 @@ import {
 } from "@/lib/pos-client";
 import type { AdminOrder, DeliveryRider } from "@/lib/types";
 import { formatCurrency, toBusinessDateInputValue } from "@/lib/utils";
+import { formatItemDetailLines } from "@/lib/item-detail-display";
 
 type QueueScope = "active" | "watch_later" | "delivered" | "unpaid" | "all";
 
@@ -246,12 +247,9 @@ function CompactOrderCard({
                 <p className={embedded ? "shrink-0 text-[9px] font-semibold text-slate-900" : "shrink-0 font-semibold text-slate-900"}>{formatCurrency(item.unitPrice * item.quantity)}</p>
               </div>
               {item.customDescription ? <p className={embedded ? "mt-0.5 leading-tight text-slate-600" : "mt-0.5 leading-tight text-slate-600"}>{item.customDescription}</p> : null}
-              {item.bundleComponents.length ? (
-                <p className={embedded ? "mt-0.5 leading-tight text-slate-600" : "mt-0.5 leading-tight text-slate-600"}>
-                  Contains: {item.bundleComponents.map((component) => `${component.quantity}x ${component.productName}`).join(", ")}
-                </p>
-              ) : null}
-              {item.addOns.length ? <p className="mt-0.5 leading-tight text-slate-600">{item.addOns.map((addOn) => addOn.optionName).join(", ")}</p> : null}
+              {formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity }).map((line) => (
+                <p key={line} className="mt-0.5 leading-tight text-slate-600">{line}</p>
+              ))}
               {item.note ? <p className="mt-0.5 leading-tight text-slate-600">Note: {item.note}</p> : null}
             </div>
           ))}

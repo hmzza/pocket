@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { fetchPosReceipt, fetchPublicReceipt, getPosReceiptCacheKey } from "@/lib/pos-client";
 import type { PosReceiptOrder } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
+import { formatItemDetailLines } from "@/lib/item-detail-display";
 
 function formatPaymentMethod(value: string) {
   const map: Record<string, string> = {
@@ -42,10 +43,6 @@ function formatDateTime(value: string) {
 
 function money(value: number) {
   return formatCurrency(Number(value.toFixed(2)));
-}
-
-function formatBundleSummary(components: Array<{ productName: string; quantity: number }>) {
-  return components.map((component) => `${component.quantity}x ${component.productName}`).join(", ");
 }
 
 type ReceiptCopy = "customer" | "store";
@@ -118,16 +115,9 @@ function ReceiptSlip({
               <td className="py-2 pr-1">
                 <div className="break-words font-semibold">{item.productName}</div>
                 {item.customDescription ? <div className="mt-0.5 break-words text-[9px] font-medium text-black/75 print:font-semibold print:text-black">{item.customDescription}</div> : null}
-                {item.bundleComponents.length ? (
-                  <div className="mt-0.5 break-words text-[9px] font-medium text-black/65 print:font-semibold print:text-black">
-                    Contains: {formatBundleSummary(item.bundleComponents)}
-                  </div>
-                ) : null}
-                {item.addOns.length ? (
-                  <div className="mt-0.5 break-words text-[9px] font-medium text-black/65 print:font-semibold print:text-black">
-                    {item.addOns.map((addOn) => addOn.optionName).join(", ")}
-                  </div>
-                ) : null}
+                {formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity }).map((line) => (
+                  <div key={line} className="mt-0.5 break-words text-[9px] font-medium text-black/65 print:font-semibold print:text-black">{line}</div>
+                ))}
                 {item.note ? <div className="mt-0.5 break-words text-[9px] font-medium text-black/65 print:font-semibold print:text-black">Note: {item.note}</div> : null}
               </td>
               <td className="py-2 pl-0 pr-1 text-right whitespace-nowrap font-medium print:font-semibold">{money(item.unitPrice)}</td>
@@ -213,20 +203,13 @@ function ChefSlip({
           {item.customDescription ? (
             <p className="mt-1 text-[13px] font-semibold print:text-[14px]">{item.customDescription}</p>
           ) : null}
-          {item.bundleComponents.length ? (
-            <p className="mt-1 text-[13px] font-semibold print:text-[14px]">Contains: {formatBundleSummary(item.bundleComponents)}</p>
+          {formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity }).length ? (
+            <ul className="mt-2 space-y-1">
+              {formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity }).map((line) => (
+                <li key={line} className="text-[14px] font-semibold print:text-[15px]">{line}</li>
+              ))}
+            </ul>
           ) : null}
-          {item.addOns.length ? (
-            <div className="mt-2">
-                <ul className="mt-1 space-y-1">
-                  {item.addOns.map((addOn) => (
-                    <li key={addOn.id} className="text-[14px] font-semibold print:text-[15px]">
-                      {addOn.optionName}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
             {item.note ? <p className="mt-2 text-[13px] font-semibold">Note: {item.note}</p> : null}
           </div>
         ))}

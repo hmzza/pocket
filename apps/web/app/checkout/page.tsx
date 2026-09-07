@@ -14,6 +14,7 @@ import { calculateOrderTotals, readStoredCouponState, validateCouponCode, writeS
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
 import { useDeliveryAvailability } from "@/components/site/use-delivery-availability";
+import { formatSelectionLines } from "@/lib/item-detail-display";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 
@@ -281,7 +282,7 @@ export default function CheckoutPage() {
 
         {selectedArea ? <Card className="h-fit p-5 lg:sticky lg:top-24">
           <p className="text-xl font-black text-pocket-navy">Your order</p>
-          {cartProducts.length ? <div className="mt-4 space-y-3 text-sm">{cartProducts.map((item) => <div key={item.cartItemId} className="flex items-start justify-between gap-4"><div><p className="font-semibold text-pocket-navy">{item.name}</p>{item.selectedAddOns.length ? <p className="text-pocket-navy/60">{item.selectedAddOns.map((option) => option.name).join(", ")}</p> : null}<p className="text-pocket-navy/60">Qty {item.quantity}</p></div><p className="text-right font-bold text-pocket-orange">{formatCompactCurrency(item.price * item.quantity)}</p></div>)}</div> : <p className="mt-4 text-sm text-pocket-navy/60">Your cart is empty. <Link href="/menu" className="font-bold text-pocket-orange">Browse the menu</Link>.</p>}
+          {cartProducts.length ? <div className="mt-4 space-y-3 text-sm">{cartProducts.map((item) => <div key={item.cartItemId} className="flex items-start justify-between gap-4"><div><p className="font-semibold text-pocket-navy">{item.name}</p>{formatSelectionLines(item.selectedAddOns.map((option) => option.name), item.quantity).map((line) => <p key={line} className="text-pocket-navy/60">{line}</p>)}<p className="text-pocket-navy/60">Qty {item.quantity}</p></div><p className="text-right font-bold text-pocket-orange">{formatCompactCurrency(item.price * item.quantity)}</p></div>)}</div> : <p className="mt-4 text-sm text-pocket-navy/60">Your cart is empty. <Link href="/menu" className="font-bold text-pocket-orange">Browse the menu</Link>.</p>}
           <div className="mt-5 space-y-3 border-t border-pocket-navy/10 pt-4 text-sm">
             <div className="flex justify-between gap-3"><span>Items</span><span>{formatCurrency(totals.subtotal)}</span></div>
             {couponCode ? <>
