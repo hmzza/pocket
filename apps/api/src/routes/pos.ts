@@ -57,6 +57,22 @@ const posProductInclude = {
   branchPricing: true
 };
 
+const POS_CATEGORY_PRIORITY = new Map([
+  ["shawarma", 1],
+  ["wraps", 2],
+  ["slider", 3],
+  ["fries", 4],
+  ["add-ons", 5],
+  ["make-it-a-meal", 6],
+  ["chillers", 7],
+  ["ice-cream-shakes", 8],
+  ["soft-drinks", 9]
+]);
+
+function getPosCategoryRank(category: { slug: string; sortOrder: number }) {
+  return POS_CATEGORY_PRIORITY.get(category.slug) ?? 1_000 + category.sortOrder;
+}
+
 const selectionSchema = z.object({
   groupId: z.string().cuid(),
   optionIds: z.array(z.string().cuid()).default([])
@@ -677,12 +693,18 @@ router.get("/catalog", async (req, res, next) => {
     });
 
     const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, branchId);
-    const branchProducts = filterMealProductOptions(products, availableMealBeverageIds);
+    const branchProducts = filterMealProductOptions(products, availableMealBeverageIds).sort((left, right) => {
+      const categoryDifference = getPosCategoryRank(left.category) - getPosCategoryRank(right.category);
+      if (categoryDifference !== 0) return categoryDifference;
 
-    const categories = await prisma.category.findMany({
+      const productDifference = left.sortOrder - right.sortOrder;
+      return productDifference !== 0 ? productDifference : left.name.localeCompare(right.name);
+    });
+
+    const categories = (await prisma.category.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: "asc" }
-    });
+    })).sort((left, right) => getPosCategoryRank(left) - getPosCategoryRank(right));
 
     const posProducts = branchProducts.map((product) =>
       product.slug === "loaded-fries"
@@ -693,6 +715,7 @@ router.get("/catalog", async (req, res, next) => {
         : product
     );
 
+    res.setHeader("Cache-Control", "no-store");
     return res.json({ branches, branchId, categories, products: posProducts, promotion });
   } catch (error) {
     return next(error);

@@ -6,6 +6,21 @@ import { resolvePocketImagePath } from "@/lib/image-paths";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 const POS_RECEIPT_CACHE_PREFIX = "pocket-pos-receipt:";
+const POS_CATEGORY_PRIORITY = new Map([
+  ["shawarma", 1],
+  ["wraps", 2],
+  ["slider", 3],
+  ["fries", 4],
+  ["add-ons", 5],
+  ["make-it-a-meal", 6],
+  ["chillers", 7],
+  ["ice-cream-shakes", 8],
+  ["soft-drinks", 9]
+]);
+
+function getPosCategoryRank(slug?: string) {
+  return POS_CATEGORY_PRIORITY.get(slug ?? "") ?? 1_000;
+}
 
 async function posFetch<T>(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers);
@@ -74,7 +89,23 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
   if (params?.categoryId) query.set("categoryId", params.categoryId);
   if (params?.search) query.set("search", params.search);
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  const data = await posFetch<{ branches: any[]; categories: any[]; products: any[]; branchId?: string; promotion: PosPromotion }>(`/api/pos/catalog${suffix}`);
+  const data = await posFetch<{ branches: any[]; categories: any[]; products: any[]; branchId?: string; promotion: PosPromotion }>(`/api/pos/catalog${suffix}`, {
+    cache: "no-store"
+  });
+
+  const categories = [...data.categories].sort((left, right) => {
+    const priorityDifference = getPosCategoryRank(left.slug) - getPosCategoryRank(right.slug);
+    if (priorityDifference !== 0) return priorityDifference;
+    return Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0);
+  });
+
+  const products = [...data.products].sort((left, right) => {
+    const priorityDifference = getPosCategoryRank(left.category?.slug) - getPosCategoryRank(right.category?.slug);
+    if (priorityDifference !== 0) return priorityDifference;
+
+    const productDifference = Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0);
+    return productDifference !== 0 ? productDifference : String(left.name).localeCompare(String(right.name));
+  });
 
   return {
     branchId: data.branchId,
@@ -86,14 +117,14 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
         name: branch.name
       })
     ),
-    categories: data.categories.map((category) => ({
+    categories: categories.map((category) => ({
       id: category.id,
       slug: category.slug,
       name: category.name,
       description: category.description ?? undefined,
       imageUrl: resolvePocketImagePath(category.imageUrl ?? undefined)
     })),
-    products: data.products.map(
+    products: products.map(
       (product): PosCatalogProduct => ({
         id: product.id,
         name: product.name,
