@@ -22,6 +22,11 @@ function getMealPairingGroup(product?: Product) {
   return product?.addOnGroups.find((group) => group.name === "Choose your meal pairing") ?? null;
 }
 
+function getOptionDisplayName(group: AddOnGroup, optionName: string) {
+  const prefix = `${group.name}: `;
+  return optionName.startsWith(prefix) ? optionName.slice(prefix.length) : optionName;
+}
+
 export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCartButtonProps) {
   const { addToCart } = useStore();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -178,7 +183,7 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
                                   : "border-pocket-navy/10 bg-white hover:border-pocket-orange/50"
                               )}
                             >
-                              <p className="font-semibold text-pocket-navy">{option.name}</p>
+                              <p className="font-semibold text-pocket-navy">{getOptionDisplayName(group, option.name)}</p>
                               <p className="text-sm text-pocket-navy/60">{option.priceDelta ? `+${formatCompactCurrency(option.priceDelta)}` : "Included"}</p>
                             </button>
                           );

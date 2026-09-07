@@ -401,6 +401,10 @@ export function computeInventoryChanges({
   const inventoryBySku = new Map(branchInventories.map((entry) => [entry.ingredient.sku, entry]));
 
   for (const item of items) {
+    const bundledProductIds = new Set(
+      (item.bundleComponents ?? []).flatMap((component) => component.productId ? [component.productId] : [])
+    );
+
     if (item.productId && !(item.bundleComponents?.length ?? 0)) {
       addProductRecipeUsage(item.productId, item.quantity);
     }
@@ -414,6 +418,9 @@ export function computeInventoryChanges({
     }
 
     for (const addOn of item.addOns ?? []) {
+      if (addOn.linkedProductId && bundledProductIds.has(addOn.linkedProductId)) {
+        continue;
+      }
       const dynamicMealAddOnProduct = (addOn.linkedProductId ? mealAddOnProductById.get(addOn.linkedProductId) : undefined)
         ?? mealAddOnProductByName.get(addOn.optionName);
       if (dynamicMealAddOnProduct) {

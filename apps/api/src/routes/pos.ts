@@ -25,6 +25,13 @@ import { requirePermission } from "../lib/permissions.js";
 import { readIndependencePromotion } from "../lib/promotions.js";
 import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
+import {
+  filterDealProductOptions,
+  getAvailableDealChoiceProductIds,
+  isDealComponentGroup,
+  isDealProduct,
+  syncDealOptions
+} from "../lib/deal-options.js";
 
 const router = Router();
 
@@ -37,7 +44,19 @@ const posProductInclude = {
     include: {
       options: {
         where: { isActive: true },
-        orderBy: { sortOrder: "asc" as const }
+        orderBy: { sortOrder: "asc" as const },
+        include: {
+          linkedProduct: {
+            select: {
+              id: true,
+              name: true,
+              isActive: true,
+              branchPricing: {
+                select: { branchId: true, isAvailable: true }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -60,13 +79,14 @@ const posProductInclude = {
 const POS_CATEGORY_PRIORITY = new Map([
   ["shawarma", 1],
   ["wraps", 2],
-  ["slider", 3],
-  ["fries", 4],
-  ["add-ons", 5],
+  ["fries", 3],
+  ["slider", 4],
+  ["deals", 5],
   ["make-it-a-meal", 6],
   ["chillers", 7],
   ["ice-cream-shakes", 8],
-  ["soft-drinks", 9]
+  ["soft-drinks", 9],
+  ["add-ons", 10]
 ]);
 
 function getPosCategoryRank(category: { slug: string; sortOrder: number }) {
@@ -305,7 +325,7 @@ function getBundleComponentProductIds(products: Array<{ bundleComponents?: Array
 }
 
 async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
-  await syncMealPairingOptions(prisma);
+  await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
   const requestedProductIds = getProductIds(payload.items);
   const promotion = await readIndependencePromotion(prisma, payload.branchId);
   const productIds = [...new Set([
@@ -344,8 +364,14 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     throw Object.assign(new Error("One or more selected products are unavailable."), { statusCode: 400 });
   }
 
-  const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, payload.branchId);
-  const scopedProducts = filterMealProductOptions(products, availableMealBeverageIds);
+  const [availableMealBeverageIds, availableDealChoiceProductIds] = await Promise.all([
+    getAvailableMealBeverageIds(prisma, payload.branchId),
+    getAvailableDealChoiceProductIds(prisma, payload.branchId)
+  ]);
+  const scopedProducts = filterDealProductOptions(
+    filterMealProductOptions(products, availableMealBeverageIds),
+    availableDealChoiceProductIds
+  );
   const rawProductMap = new Map(products.map((product) => [product.id, product]));
   const productMap = new Map(scopedProducts.map((product) => [product.id, product]));
   for (const productId of requestedProductIds) {
@@ -366,7 +392,12 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       throw Object.assign(new Error("Make It A Meal must contain exactly one Thela Fries bundle component."), { statusCode: 400 });
     }
   }
-  const inventoryProductIds = [...new Set([...productIds, ...getBundleComponentProductIds(scopedProducts)])];
+  const dealChoiceProductIds = scopedProducts.flatMap((product) =>
+    isDealProduct(product)
+      ? product.addOnGroups.flatMap((group) => group.options.flatMap((option) => option.linkedProductId ? [option.linkedProductId] : []))
+      : []
+  );
+  const inventoryProductIds = [...new Set([...productIds, ...getBundleComponentProductIds(scopedProducts), ...dealChoiceProductIds])];
   const inventoryData = await readInventoryData(prisma, payload.branchId, inventoryProductIds);
 
   const normalizedItems = payload.items.map((item) => {
@@ -406,6 +437,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     const groups = new Map(productAddOnGroups.map((group) => [group.id, group]));
     const selectedGroups = new Map(item.selections.map((selection) => [selection.groupId, selection.optionIds]));
     const lineAddOns: Array<{ optionId: string; optionName: string; priceDelta: number; linkedProductId?: string | null }> = [];
+    const selectedDealComponents: Array<{ productId: string; productName: string; quantity: number }> = [];
 
     for (const group of productAddOnGroups) {
       const selectedOptionIds = selectedGroups.get(group.id) ?? [];
@@ -428,6 +460,19 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
           if (!linkedProduct || !linkedProduct.isActive || !linkedProduct.branchPricing[0]?.isAvailable) {
             throw Object.assign(new Error(`${product.name}: this beverage is unavailable from the selected branch.`), { statusCode: 400 });
           }
+        }
+
+        if (isDealProduct(product) && isDealComponentGroup(group.name)) {
+          const linkedProduct = option.linkedProduct;
+          const linkedBranchProduct = linkedProduct?.branchPricing.find((entry) => entry.branchId === payload.branchId);
+          if (!option.linkedProductId || !linkedProduct?.isActive || !linkedBranchProduct?.isAvailable) {
+            throw Object.assign(new Error(`${product.name}: ${group.name} selection is unavailable.`), { statusCode: 400 });
+          }
+          selectedDealComponents.push({
+            productId: linkedProduct.id,
+            productName: linkedProduct.name,
+            quantity: item.quantity
+          });
         }
 
         lineAddOns.push({
@@ -453,7 +498,12 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       productId: component.componentProduct.id,
       productName: component.componentProduct.name,
       quantity: component.quantity * item.quantity
-    }));
+    })).concat(selectedDealComponents).reduce<Array<{ productId: string; productName: string; quantity: number }>>((merged, component) => {
+      const existing = merged.find((entry) => entry.productId === component.productId);
+      if (existing) existing.quantity += component.quantity;
+      else merged.push({ ...component });
+      return merged;
+    }, []);
 
     return {
       type: "product" as const,
@@ -665,7 +715,7 @@ router.get("/catalog", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const branches = branchContext.branches;
     const branchId = branchContext.branchId;
-    await syncMealPairingOptions(prisma);
+    await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
     const promotion = await readIndependencePromotion(prisma, branchId);
 
     const where: Prisma.ProductWhereInput = {
@@ -692,8 +742,14 @@ router.get("/catalog", async (req, res, next) => {
       orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
     });
 
-    const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, branchId);
-    const branchProducts = filterMealProductOptions(products, availableMealBeverageIds).sort((left, right) => {
+    const [availableMealBeverageIds, availableDealChoiceProductIds] = await Promise.all([
+      getAvailableMealBeverageIds(prisma, branchId),
+      getAvailableDealChoiceProductIds(prisma, branchId)
+    ]);
+    const branchProducts = filterDealProductOptions(
+      filterMealProductOptions(products, availableMealBeverageIds),
+      availableDealChoiceProductIds
+    ).sort((left, right) => {
       const categoryDifference = getPosCategoryRank(left.category) - getPosCategoryRank(right.category);
       if (categoryDifference !== 0) return categoryDifference;
 

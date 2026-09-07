@@ -23,6 +23,13 @@ import {
   isLegacyMealProduct,
   syncMealPairingOptions
 } from "../lib/meal-options.js";
+import {
+  filterDealProductOptions,
+  getAvailableDealChoiceProductIds,
+  isDealComponentGroup,
+  isDealProduct,
+  syncDealOptions
+} from "../lib/deal-options.js";
 
 const router = Router();
 const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
@@ -251,8 +258,11 @@ router.get("/products", async (req, res, next) => {
     const { category, search, featured, bestSeller, branchSlug } = querySchema.parse(req.query);
     const branch = await resolvePublicBranch(branchSlug);
     if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
-    await syncMealPairingOptions(prisma);
-    const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, branch.id);
+    await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
+    const [availableMealBeverageIds, availableDealChoiceProductIds] = await Promise.all([
+      getAvailableMealBeverageIds(prisma, branch.id),
+      getAvailableDealChoiceProductIds(prisma, branch.id)
+    ]);
     const where: Prisma.ProductWhereInput = {
       ...publicProductWhere(branch.id),
       AND: [
@@ -289,7 +299,12 @@ router.get("/products", async (req, res, next) => {
       orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
     });
 
-    return res.json({ products: filterMealProductOptions(products, availableMealBeverageIds) });
+    return res.json({
+      products: filterDealProductOptions(
+        filterMealProductOptions(products, availableMealBeverageIds),
+        availableDealChoiceProductIds
+      )
+    });
   } catch (error) {
     return next(error);
   }
@@ -299,6 +314,11 @@ router.get("/products/:slug", async (req, res) => {
   const branchSlug = typeof req.query.branchSlug === "string" ? req.query.branchSlug : undefined;
   const branch = await resolvePublicBranch(branchSlug);
   if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
+  await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
+  const [availableMealBeverageIds, availableDealChoiceProductIds] = await Promise.all([
+    getAvailableMealBeverageIds(prisma, branch.id),
+    getAvailableDealChoiceProductIds(prisma, branch.id)
+  ]);
   const product = await prisma.product.findUnique({
     where: { slug: req.params.slug },
     include: {
@@ -336,7 +356,16 @@ router.get("/products/:slug", async (req, res) => {
     take: 4
   });
 
-  return res.json({ product, related });
+  const [filteredProduct] = filterDealProductOptions(
+    filterMealProductOptions([product], availableMealBeverageIds),
+    availableDealChoiceProductIds
+  );
+  const filteredRelated = filterDealProductOptions(
+    filterMealProductOptions(related, availableMealBeverageIds),
+    availableDealChoiceProductIds
+  );
+
+  return res.json({ product: filteredProduct, related: filteredRelated });
 });
 
 router.get("/search", async (req, res, next) => {
@@ -587,8 +616,11 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
     }
 
     const requestedProductIds = [...new Set(payload.items.map((item) => item.productId))];
-    await syncMealPairingOptions(prisma);
-    const availableMealBeverageIds = await getAvailableMealBeverageIds(prisma, branch.id);
+    await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
+    const [availableMealBeverageIds, availableDealChoiceProductIds] = await Promise.all([
+      getAvailableMealBeverageIds(prisma, branch.id),
+      getAvailableDealChoiceProductIds(prisma, branch.id)
+    ]);
     const products = await prisma.product.findMany({
       where: {
         ...publicProductWhere(branch.id),
@@ -604,7 +636,19 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
           include: {
             options: {
               where: { isActive: true },
-              orderBy: { sortOrder: "asc" }
+              orderBy: { sortOrder: "asc" },
+              include: {
+                linkedProduct: {
+                  select: {
+                    id: true,
+                    name: true,
+                    isActive: true,
+                    branchPricing: {
+                      select: { branchId: true, isAvailable: true }
+                    }
+                  }
+                }
+              }
             }
           }
         },
@@ -622,7 +666,10 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       }
     });
 
-    const availableProducts = filterMealProductOptions(products, availableMealBeverageIds);
+    const availableProducts = filterDealProductOptions(
+      filterMealProductOptions(products, availableMealBeverageIds),
+      availableDealChoiceProductIds
+    );
     const productMap = new Map(availableProducts.map((product) => [product.id, product]));
     if (requestedProductIds.some((productId) => !productMap.has(productId))) {
       return res.status(400).json({ message: "One or more items are unavailable." });
@@ -651,6 +698,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       }
 
       const selectedAddOnIds = [...new Set(item.selectedAddOnIds)];
+      const selectedDealComponents: Array<{ productId: string; productName: string; quantity: number }> = [];
       const addOns = product.addOnGroups.flatMap((group) => {
         const selectedOptions = group.options.filter((option) => selectedAddOnIds.includes(option.id));
         if (selectedOptions.length < group.minSelect || selectedOptions.length > group.maxSelect) {
@@ -660,6 +708,19 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
         return selectedOptions.map((option) => {
           if (isCanonicalMealProduct(product) && (!option.linkedProductId || !availableMealBeverageIds.has(option.linkedProductId) || !productMap.has(option.linkedProductId))) {
             throw Object.assign(new Error(`${product.name}: this beverage is unavailable from the selected branch.`), { statusCode: 400 });
+          }
+
+          if (isDealProduct(product) && isDealComponentGroup(group.name)) {
+            const linkedProduct = option.linkedProduct;
+            const linkedBranchProduct = linkedProduct?.branchPricing.find((entry) => entry.branchId === branch.id);
+            if (!option.linkedProductId || !linkedProduct?.isActive || !linkedBranchProduct?.isAvailable) {
+              throw Object.assign(new Error(`${product.name}: ${group.name} selection is unavailable.`), { statusCode: 400 });
+            }
+            selectedDealComponents.push({
+              productId: linkedProduct.id,
+              productName: linkedProduct.name,
+              quantity: item.quantity
+            });
           }
 
           return {
@@ -687,7 +748,12 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
           productId: component.componentProduct.id,
           productName: component.componentProduct.name,
           quantity: Number(component.quantity) * item.quantity
-        }))
+        })).concat(selectedDealComponents).reduce<Array<{ productId: string; productName: string; quantity: number }>>((merged, component) => {
+          const existing = merged.find((entry) => entry.productId === component.productId);
+          if (existing) existing.quantity += component.quantity;
+          else merged.push({ ...component });
+          return merged;
+        }, [])
       };
     });
 

@@ -12,6 +12,11 @@ import { calculateOrderTotals, readStoredCouponState, validateCouponCode, writeS
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
 
+function getOptionDisplayName(groupName: string, optionName: string) {
+  const prefix = `${groupName}: `;
+  return optionName.startsWith(prefix) ? optionName.slice(prefix.length) : optionName;
+}
+
 export default function CartPage() {
   const { cart, getCartProducts, updateCartItem, updateQuantity } = useStore();
   const { selectedBranch } = usePublicBranch();
@@ -268,7 +273,7 @@ export default function CartPage() {
                           }}
                           className={selected ? "rounded-xl border border-pocket-orange bg-pocket-orange/10 px-4 py-3 text-left" : "rounded-xl border border-pocket-navy/10 bg-white px-4 py-3 text-left hover:border-pocket-orange/50"}
                         >
-                          <p className="font-semibold text-pocket-navy">{option.name}</p>
+                          <p className="font-semibold text-pocket-navy">{getOptionDisplayName(group.name, option.name)}</p>
                           <p className="text-sm text-pocket-navy/60">{option.priceDelta ? `+${formatCompactCurrency(option.priceDelta)}` : "Included"}</p>
                         </button>
                       );

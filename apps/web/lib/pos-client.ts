@@ -9,13 +9,14 @@ const POS_RECEIPT_CACHE_PREFIX = "pocket-pos-receipt:";
 const POS_CATEGORY_PRIORITY = new Map([
   ["shawarma", 1],
   ["wraps", 2],
-  ["slider", 3],
-  ["fries", 4],
-  ["add-ons", 5],
+  ["fries", 3],
+  ["slider", 4],
+  ["deals", 5],
   ["make-it-a-meal", 6],
   ["chillers", 7],
   ["ice-cream-shakes", 8],
-  ["soft-drinks", 9]
+  ["soft-drinks", 9],
+  ["add-ons", 10]
 ]);
 
 function getPosCategoryRank(slug?: string) {

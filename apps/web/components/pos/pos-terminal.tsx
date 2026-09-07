@@ -123,6 +123,11 @@ function calculateLinePrice(product: PosCatalogProduct, selections: ProductSelec
   };
 }
 
+function getOptionDisplayName(group: AddOnGroup, optionName: string) {
+  const prefix = `${group.name}: `;
+  return optionName.startsWith(prefix) ? optionName.slice(prefix.length) : optionName;
+}
+
 function parsePositiveInteger(value: string, fallback = 1) {
   const parsed = Number.parseInt(value.replace(/\D/g, ""), 10);
   return Number.isFinite(parsed) ? Math.max(1, parsed) : fallback;
@@ -1388,7 +1393,7 @@ export function PosTerminal() {
                             selected ? "border-amber-300 bg-amber-300/10" : "border-white/10 bg-white/5"
                           )}
                         >
-                          <p className="font-semibold">{option.name}</p>
+                          <p className="font-semibold">{getOptionDisplayName(group, option.name)}</p>
                           <p className="break-words text-sm text-white/60">{option.priceDelta ? `+${formatCompactCurrency(option.priceDelta)}` : "Included"}</p>
                         </button>
                       );
