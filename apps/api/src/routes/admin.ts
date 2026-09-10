@@ -5588,6 +5588,13 @@ router.delete("/orders/:id", async (req, res, next) => {
         });
       }
 
+      // Detach optional restrictive relations so permanent order deletion works for
+      // delivery orders without deleting customer, address, or coupon history.
+      await transaction.order.update({
+        where: { id: currentOrder.id },
+        data: { customerId: null, addressId: null, couponId: null }
+      });
+
       await transaction.order.delete({
         where: { id: currentOrder.id }
       });
