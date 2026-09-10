@@ -94,18 +94,27 @@ export async function dispatchDeliveryOrder(input: { orderId: string; branchId: 
       throw Object.assign(new Error("Accept or prepare this order before assigning it to a rider."), { statusCode: 409 });
     }
 
-    const rider = await transaction.deliveryRider.findFirst({
-      where: { id: input.riderId, isActive: true },
+    const rider = await transaction.user.findFirst({
+      where: {
+        id: input.riderId,
+        isActive: true,
+        role: { code: "DELIVERY_RIDER" },
+        branchAccesses: { some: { branchId: input.branchId } }
+      },
       select: { id: true, name: true, phone: true }
     });
     if (!rider) {
       throw Object.assign(new Error("Select an active delivery rider."), { statusCode: 400 });
+    }
+    if (!rider.phone) {
+      throw Object.assign(new Error("This Rider does not have a WhatsApp number."), { statusCode: 400 });
     }
 
     const order = await transaction.order.update({
       where: { id: currentOrder.id },
       data: {
         status: currentOrder.status === OrderStatus.OUT_FOR_DELIVERY ? currentOrder.status : OrderStatus.OUT_FOR_DELIVERY,
+        riderId: rider.id,
         riderName: rider.name,
         riderPhone: rider.phone,
         riderAssignedAt: new Date(),

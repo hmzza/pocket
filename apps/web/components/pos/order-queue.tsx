@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, Bike, CheckCircle2, Clock3, ListChecks, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { BadgeDollarSign, Bike, CheckCircle2, Clock3, ExternalLink, ListChecks, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -130,6 +130,8 @@ function CompactOrderCard({
   onDispatchDelivery,
   riders,
   riderPickerOrderId,
+  selectedRiderId,
+  onSelectRider,
   onToggleRiderPicker
 }: {
   order: AdminOrder;
@@ -143,6 +145,8 @@ function CompactOrderCard({
   onDispatchDelivery: (order: AdminOrder, riderId: string) => void;
   riders: DeliveryRider[];
   riderPickerOrderId: string;
+  selectedRiderId: string;
+  onSelectRider: (riderId: string) => void;
   onToggleRiderPicker: (orderId: string) => void;
   onChangeStatus: (order: AdminOrder, status: "CONFIRMED" | "DELIVERED" | "CANCELLED" | "WATCH_LATER") => void;
   onTogglePaymentStatus: (order: AdminOrder) => void;
@@ -298,9 +302,13 @@ function CompactOrderCard({
                   onClick={() => onChangeStatus(order, "DELIVERED")}
                 />
               ) : null}
-              {riderPickerOrderId === order.id ? riders.length ? riders.map((rider) => (
-                <button key={rider.id} type="button" className="h-10 rounded-full border border-white/70 bg-white px-3 text-[11px] font-bold text-blue-700 hover:bg-blue-50" disabled={busy} onClick={() => onDispatchDelivery(order, rider.id)}>{rider.name} · {order.status === "OUT_FOR_DELIVERY" ? "Send update" : "WhatsApp"}</button>
-              )) : <p className="text-[10px] font-semibold text-blue-50">Add an active rider in Users first.</p> : null}
+              {riderPickerOrderId === order.id ? riders.length ? <div className="flex flex-wrap items-center gap-1">
+                <select value={selectedRiderId} onChange={(event) => onSelectRider(event.target.value)} className="h-10 min-w-36 rounded-full border border-white/70 bg-white px-3 text-[11px] font-bold text-blue-700">
+                  <option value="">Select rider</option>
+                  {riders.map((rider) => <option key={rider.id} value={rider.id}>{rider.name}</option>)}
+                </select>
+                <OrderActionButton title="Send WhatsApp" label="Send WhatsApp" className="border-white/80 bg-white text-blue-700 hover:bg-blue-50" icon={<ExternalLink className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />} disabled={busy || !selectedRiderId} onClick={() => onDispatchDelivery(order, selectedRiderId)} />
+              </div> : <p className="text-[10px] font-semibold text-blue-50">Add an active rider in Users first.</p> : null}
               <OrderActionButton
                 title="Cancel order"
                 label="Cancel"
@@ -382,6 +390,8 @@ function OrderSection({
   onDispatchDelivery,
   riders,
   riderPickerOrderId,
+  selectedRiderId,
+  onSelectRider,
   onToggleRiderPicker,
   embedded,
   busy,
@@ -404,6 +414,8 @@ function OrderSection({
   onDispatchDelivery: (order: AdminOrder, riderId: string) => void;
   riders: DeliveryRider[];
   riderPickerOrderId: string;
+  selectedRiderId: string;
+  onSelectRider: (riderId: string) => void;
   onToggleRiderPicker: (orderId: string) => void;
   embedded?: boolean;
 }) {
@@ -432,6 +444,8 @@ function OrderSection({
               onDispatchDelivery={onDispatchDelivery}
               riders={riders}
               riderPickerOrderId={riderPickerOrderId}
+              selectedRiderId={selectedRiderId}
+              onSelectRider={onSelectRider}
               onToggleRiderPicker={onToggleRiderPicker}
               busy={busy && order.id === mutedOrderId}
               muted={busy && order.id !== mutedOrderId}
@@ -479,6 +493,7 @@ function PosOrderQueueView({
   const [updatingOrderId, setUpdatingOrderId] = useState("");
   const [exitingOrderIds, setExitingOrderIds] = useState<string[]>([]);
   const [riderPickerOrderId, setRiderPickerOrderId] = useState("");
+  const [selectedRiderId, setSelectedRiderId] = useState("");
   const [riders, setRiders] = useState<DeliveryRider[]>([]);
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, AdminOrder["status"]>>({});
   const [pendingPaymentStatuses, setPendingPaymentStatuses] = useState<Record<string, AdminOrder["paymentStatus"]>>({});
@@ -969,6 +984,8 @@ function PosOrderQueueView({
             onDispatchDelivery={dispatchDelivery}
             riders={riders}
             riderPickerOrderId={riderPickerOrderId}
+            selectedRiderId={selectedRiderId}
+            onSelectRider={setSelectedRiderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No orders have been punched in this business day."
           />
@@ -990,6 +1007,8 @@ function PosOrderQueueView({
             onDispatchDelivery={dispatchDelivery}
             riders={riders}
             riderPickerOrderId={riderPickerOrderId}
+            selectedRiderId={selectedRiderId}
+            onSelectRider={setSelectedRiderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No active orders match the current filter."
           />
@@ -1012,6 +1031,8 @@ function PosOrderQueueView({
             onDispatchDelivery={dispatchDelivery}
             riders={riders}
             riderPickerOrderId={riderPickerOrderId}
+            selectedRiderId={selectedRiderId}
+            onSelectRider={setSelectedRiderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No watch later orders yet."
           />
@@ -1034,6 +1055,8 @@ function PosOrderQueueView({
             onDispatchDelivery={dispatchDelivery}
             riders={riders}
             riderPickerOrderId={riderPickerOrderId}
+            selectedRiderId={selectedRiderId}
+            onSelectRider={setSelectedRiderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No completed orders match the current filter."
           />
@@ -1055,6 +1078,8 @@ function PosOrderQueueView({
             onDispatchDelivery={dispatchDelivery}
             riders={riders}
             riderPickerOrderId={riderPickerOrderId}
+            selectedRiderId={selectedRiderId}
+            onSelectRider={setSelectedRiderId}
             onToggleRiderPicker={(orderId) => setRiderPickerOrderId((current) => current === orderId ? "" : orderId)}
             emptyText="No unpaid orders match the current filter."
           />

@@ -3,12 +3,51 @@ import { prisma } from "./prisma.js";
 import { hashPassword } from "./auth.js";
 import { env } from "../config.js";
 import { ensurePermissionCatalog } from "./permissions.js";
+import { buildUniqueUsername } from "./username.js";
+import { randomUUID } from "node:crypto";
 
 const ADMIN_USERNAME = "superadmin_pocket";
 const ADMIN_EMAIL = "admin@pocketshawarma.com";
 const ADMIN_PHONE = "+92-300-0000001";
 const ADMIN_BOOTSTRAP_MARKER = "system.admin.bootstrap.version";
 const ADMIN_BOOTSTRAP_VERSION = 1;
+
+async function ensureLegacyRiderUsers(riderRoleId: string) {
+  const branch = await prisma.branch.findFirst({ where: { isActive: true }, orderBy: { name: "asc" }, select: { id: true } });
+  if (!branch) return;
+
+  const legacyRiders = await prisma.deliveryRider.findMany({ where: { isActive: true } });
+  for (const legacyRider of legacyRiders) {
+    const existingByPhone = await prisma.user.findUnique({ where: { phone: legacyRider.phone } });
+    if (existingByPhone) {
+      if (existingByPhone.roleId === riderRoleId) {
+        await prisma.userBranchAccess.upsert({
+          where: { userId_branchId: { userId: existingByPhone.id, branchId: branch.id } },
+          update: { isPrimary: true },
+          create: { userId: existingByPhone.id, branchId: branch.id, isPrimary: true }
+        });
+      }
+      continue;
+    }
+
+    const username = buildUniqueUsername(legacyRider.name);
+    const user = await prisma.user.create({
+      data: {
+        roleId: riderRoleId,
+        name: legacyRider.name,
+        username,
+        email: `${username}@rider.pocket.local`,
+        phone: legacyRider.phone,
+        passwordHash: await hashPassword(`Rider-${randomUUID()}`),
+        isActive: true,
+        canAccessAdmin: false,
+        canAccessPos: false,
+        branchAccesses: { create: { branchId: branch.id, isPrimary: true } }
+      }
+    });
+    console.log(`Legacy delivery rider converted to user: ${user.username}`);
+  }
+}
 
 /**
  * Reconciles the bootstrap admin after migrations. This is intentionally
@@ -20,6 +59,11 @@ export async function ensureBootstrapAdmin() {
     where: { code: RoleCode.SUPER_ADMIN },
     update: { label: "Super Admin" },
     create: { code: RoleCode.SUPER_ADMIN, label: "Super Admin" }
+  });
+  const riderRole = await prisma.role.upsert({
+    where: { code: RoleCode.DELIVERY_RIDER },
+    update: { label: "Rider" },
+    create: { code: RoleCode.DELIVERY_RIDER, label: "Rider" }
   });
 
   const configuredEmail = env.INITIAL_ADMIN_EMAIL || ADMIN_EMAIL;
@@ -71,6 +115,7 @@ export async function ensureBootstrapAdmin() {
       }
     });
     console.log(`Bootstrap admin created: ${ADMIN_USERNAME}`);
+    await ensureLegacyRiderUsers(riderRole.id);
     return;
   }
 
@@ -104,4 +149,5 @@ export async function ensureBootstrapAdmin() {
   if (existing.username !== ADMIN_USERNAME || credentialsNeedRepair) {
     console.log(`Bootstrap admin migrated to username: ${ADMIN_USERNAME}`);
   }
+  await ensureLegacyRiderUsers(riderRole.id);
 }
