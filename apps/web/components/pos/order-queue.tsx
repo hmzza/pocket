@@ -260,14 +260,14 @@ function CompactOrderCard({
         {!isTerminal ? (
           isDelivery ? (
             <div className="flex flex-wrap items-center justify-end gap-1">
-              {order.status !== "OUT_FOR_DELIVERY" ? <OrderActionButton
+              <OrderActionButton
                 title="Edit delivery order"
                 label="Edit delivery order"
                 className="border-white/80 bg-white text-blue-700 hover:bg-blue-50"
                 icon={<PencilLine className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
                 disabled={busy}
                 onClick={() => onEdit(order)}
-              /> : null}
+              />
               {order.status === "PENDING" ? (
                 <OrderActionButton
                   title="Accept delivery order"
@@ -281,13 +281,29 @@ function CompactOrderCard({
               {order.status === "OUT_FOR_DELIVERY" ? (
                 <OrderActionButton
                   title="Mark delivery complete"
-                  label="Mark delivery complete"
+                  label="Completed"
                   className="border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
                   icon={<CheckCircle2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
                   disabled={busy}
                   onClick={() => onChangeStatus(order, "DELIVERED")}
                 />
               ) : null}
+              {order.status === "OUT_FOR_DELIVERY" ? <OrderActionButton
+                title="Delete delivery order"
+                label="Delete"
+                className="border-red-500 bg-red-500 text-white hover:bg-red-600"
+                icon={<Trash2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                disabled={busy}
+                onClick={() => onDelete(order)}
+              /> : null}
+              {order.status === "OUT_FOR_DELIVERY" ? <OrderActionButton
+                title="Check delivery later"
+                label="Check later"
+                className="border-amber-400 bg-amber-400 text-slate-950 hover:bg-amber-500"
+                icon={<Clock3 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                disabled={busy}
+                onClick={() => onChangeStatus(order, "WATCH_LATER")}
+              /> : null}
               {canSendDeliveryUpdate && order.status !== "OUT_FOR_DELIVERY" ? riders.length ? <div className="flex flex-wrap items-center gap-1">
                 <select value={selectedRiderId} onChange={(event) => onSelectRider(event.target.value)} className="h-10 min-w-36 rounded-full border border-white/70 bg-white px-3 text-[11px] font-bold text-blue-700">
                   <option value="">Select rider</option>
