@@ -278,7 +278,7 @@ function CompactOrderCard({
                   onClick={() => onChangeStatus(order, "CONFIRMED")}
                 />
               ) : null}
-              {order.status === "OUT_FOR_DELIVERY" ? (
+              {order.status === "OUT_FOR_DELIVERY" || (isDelivery && order.status === "WATCH_LATER") ? (
                 <OrderActionButton
                   title="Mark delivery complete"
                   label="Completed"
@@ -288,7 +288,7 @@ function CompactOrderCard({
                   onClick={() => onChangeStatus(order, "DELIVERED")}
                 />
               ) : null}
-              {order.status === "OUT_FOR_DELIVERY" ? <OrderActionButton
+              {order.status === "OUT_FOR_DELIVERY" || (isDelivery && order.status === "WATCH_LATER") ? <OrderActionButton
                 title="Delete delivery order"
                 label="Delete"
                 className="border-red-500 bg-red-500 text-white hover:bg-red-600"
@@ -296,7 +296,7 @@ function CompactOrderCard({
                 disabled={busy}
                 onClick={() => onDelete(order)}
               /> : null}
-              {order.status === "OUT_FOR_DELIVERY" ? <OrderActionButton
+              {order.status === "OUT_FOR_DELIVERY" || (isDelivery && order.status === "WATCH_LATER") ? <OrderActionButton
                 title="Check delivery later"
                 label="Check later"
                 className="border-amber-400 bg-amber-400 text-slate-950 hover:bg-amber-500"
