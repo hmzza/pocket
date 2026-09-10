@@ -84,7 +84,6 @@ export function DeliveryManagement() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyOrderId, setBusyOrderId] = useState("");
-  const [riderPickerOrderId, setRiderPickerOrderId] = useState("");
   const [selectedRiderId, setSelectedRiderId] = useState("");
   const [riders, setRiders] = useState<DeliveryRider[]>([]);
   const [logs, setLogs] = useState<DeliveryLog[]>([]);
@@ -329,6 +328,12 @@ export function DeliveryManagement() {
     };
   }, [activateSound, alertsPreferred, soundEnabled]);
 
+  useEffect(() => {
+    if (!selectedRiderId || !riders.some((rider) => rider.id === selectedRiderId && rider.isActive)) {
+      setSelectedRiderId(riders.find((rider) => rider.isActive)?.id ?? "");
+    }
+  }, [riders, selectedRiderId]);
+
   async function changeStatus(order: AdminOrder, status: "CONFIRMED" | "READY" | "DELIVERED" | "CANCELLED") {
     if (status === "CANCELLED" && !window.confirm(`Cancel ${order.orderNumber}?`)) return;
     setBusyOrderId(order.id);
@@ -362,7 +367,6 @@ export function DeliveryManagement() {
       else window.location.assign(result.whatsappUrl);
       await loadOrders();
       if (logsOpen) await loadLogs();
-      setRiderPickerOrderId("");
       setNotice(`${order.orderNumber} dispatched to ${selectedRider.name}.`);
     } catch (actionError) {
       whatsappWindow?.close();
@@ -382,11 +386,6 @@ export function DeliveryManagement() {
     });
   }, [orders, query, statusFilter, view]);
 
-  function openRiderPicker(orderId: string) {
-    setRiderPickerOrderId((current) => current === orderId ? "" : orderId);
-    if (!selectedRiderId) setSelectedRiderId(riders.find((rider) => rider.isActive)?.id ?? "");
-  }
-
   async function toggleLogs() {
     const nextOpen = !logsOpen;
     setLogsOpen(nextOpen);
@@ -405,8 +404,8 @@ export function DeliveryManagement() {
 
   function renderOrder(order: AdminOrder) {
     const busy = busyOrderId === order.id;
-    const canCancel = !terminalStatuses.has(order.status);
-    const canSendToRider = order.status === "CONFIRMED" || order.status === "READY" || order.status === "OUT_FOR_DELIVERY";
+    const canCancel = !terminalStatuses.has(order.status) && order.status !== "OUT_FOR_DELIVERY";
+    const canSendToRider = order.status === "CONFIRMED" || order.status === "READY";
     const deliveryFee = Math.max(0, order.totalAmount - order.subtotal + order.discountAmount);
     return (
       <Card key={order.id} className="border-blue-200 bg-white/95 p-4 shadow-sm shadow-blue-950/5">
@@ -428,11 +427,10 @@ export function DeliveryManagement() {
         <div className="mt-3 flex flex-wrap gap-2">
           {order.status === "PENDING" ? <Button type="button" size="sm" disabled={busy} onClick={() => void changeStatus(order, "CONFIRMED")}><PackageCheck className="h-4 w-4" />{busy ? "Accepting..." : "Accept"}</Button> : null}
           {order.status === "PREPARING" ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void changeStatus(order, "READY")}><PackageCheck className="h-4 w-4" />Mark ready</Button> : null}
-          {canSendToRider ? <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => openRiderPicker(order.id)}><MessageCircle className="h-4 w-4" />{order.status === "OUT_FOR_DELIVERY" ? "Resend WhatsApp" : "Send to rider"}</Button> : null}
           {order.status === "OUT_FOR_DELIVERY" ? <Button type="button" size="sm" disabled={busy} onClick={() => void changeStatus(order, "DELIVERED")}><CheckCircle2 className="h-4 w-4" />{busy ? "Completing..." : "Delivered"}</Button> : null}
           {canCancel ? <Button type="button" size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800" disabled={busy} onClick={() => void changeStatus(order, "CANCELLED")}><XCircle className="h-4 w-4" />Cancel</Button> : null}
         </div>
-        {riderPickerOrderId === order.id ? <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2"><span className="text-xs font-semibold text-blue-900">Choose rider</span><select value={selectedRiderId} onChange={(event) => setSelectedRiderId(event.target.value)} className="h-9 min-w-44 rounded-md border border-blue-200 bg-white px-2 text-sm text-pocket-navy"><option value="">Select rider</option>{riders.filter((rider) => rider.isActive).map((rider) => <option key={rider.id} value={rider.id}>{rider.name}</option>)}</select><Button type="button" size="sm" className="bg-blue-700 hover:bg-blue-800" disabled={busy || !selectedRiderId} onClick={() => void dispatch(order)}>{order.status === "OUT_FOR_DELIVERY" ? "Send WhatsApp update" : "Send WhatsApp message"} <ExternalLink className="h-4 w-4" /></Button>{!riders.some((rider) => rider.isActive) ? <span className="text-xs text-blue-800">Add an active rider in Users first.</span> : null}</div> : null}
+        {canSendToRider && order.status !== "OUT_FOR_DELIVERY" ? <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2"><span className="text-xs font-semibold text-blue-900">Choose rider</span><select value={selectedRiderId} onChange={(event) => setSelectedRiderId(event.target.value)} className="h-9 min-w-44 rounded-md border border-blue-200 bg-white px-2 text-sm text-pocket-navy"><option value="">Select rider</option>{riders.filter((rider) => rider.isActive).map((rider) => <option key={rider.id} value={rider.id}>{rider.name}</option>)}</select><Button type="button" size="sm" className="bg-blue-700 hover:bg-blue-800" disabled={busy || !selectedRiderId} onClick={() => void dispatch(order)}><MessageCircle className="h-4 w-4" />Send WhatsApp</Button>{!riders.some((rider) => rider.isActive) ? <span className="text-xs text-blue-800">Add an active rider in Users first.</span> : null}</div> : null}
       </Card>
     );
   }
