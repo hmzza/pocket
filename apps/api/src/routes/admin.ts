@@ -536,7 +536,7 @@ function addVendorCategory(categories: VendorCategoryRecord[], name: string) {
   return [...categories, { name: normalizedName, createdAt: now, updatedAt: now }];
 }
 
-const manageableUserRoleCodes = ["SUPER_ADMIN", "POS_STAFF"] as const;
+const manageableUserRoleCodes = ["SUPER_ADMIN", "POS_STAFF", "DELIVERY_RIDER"] as const;
 type ManageableUserRoleCode = (typeof manageableUserRoleCodes)[number];
 
 const userQuerySchema = z.object({
@@ -547,7 +547,7 @@ const userWriteSchema = z.object({
   name: z.string().min(2).max(80).optional(),
   username: z.string().min(2).max(80).optional(),
   email: z.string().email().optional().or(z.literal("")),
-  phone: z.string().min(8).max(20).optional().or(z.literal("")),
+  phone: z.string().min(8).max(24).optional().or(z.literal("")),
   password: z.string().min(8),
   roleCode: z.enum(manageableUserRoleCodes),
   branchId: z.string().cuid().optional().or(z.literal("")),
@@ -641,10 +641,10 @@ function serializeManagedUser(user: {
     roleCode: user.role.code as ManageableUserRoleCode,
     roleLabel: user.role.label,
     isActive: user.isActive,
-    canAccessAdmin: user.role.code === RoleCode.SUPER_ADMIN || (user.permissionGrants ?? []).some((grant) => grant.permission.key !== "POS"),
-    canAccessPos: user.role.code === RoleCode.SUPER_ADMIN || (user.permissionGrants ?? []).some((grant) => grant.permission.key === "POS"),
-    permissionKeys: user.role.code === RoleCode.SUPER_ADMIN ? PERMISSION_DEFINITIONS.map((permission) => permission.key) : (user.permissionGrants ?? []).map((grant) => grant.permission.key),
-    permissions: user.role.code === RoleCode.SUPER_ADMIN ? PERMISSION_DEFINITIONS.map(({ key, label }) => ({ key, label })) : (user.permissionGrants ?? []).map((grant) => grant.permission),
+    canAccessAdmin: user.role.code === RoleCode.SUPER_ADMIN || (user.role.code !== RoleCode.DELIVERY_RIDER && (user.permissionGrants ?? []).some((grant) => grant.permission.key !== "POS")),
+    canAccessPos: user.role.code === RoleCode.SUPER_ADMIN || (user.role.code !== RoleCode.DELIVERY_RIDER && (user.permissionGrants ?? []).some((grant) => grant.permission.key === "POS")),
+    permissionKeys: user.role.code === RoleCode.SUPER_ADMIN ? PERMISSION_DEFINITIONS.map((permission) => permission.key) : user.role.code === RoleCode.DELIVERY_RIDER ? [] : (user.permissionGrants ?? []).map((grant) => grant.permission.key),
+    permissions: user.role.code === RoleCode.SUPER_ADMIN ? PERMISSION_DEFINITIONS.map(({ key, label }) => ({ key, label })) : user.role.code === RoleCode.DELIVERY_RIDER ? [] : (user.permissionGrants ?? []).map((grant) => grant.permission),
     branchId: primaryBranch?.branchId ?? "",
     branchName: primaryBranch?.branch.name ?? "",
     branches: branches.map((branch) => ({
@@ -670,7 +670,7 @@ function validatePermissionKeys(requestedKeys?: string[]) {
 }
 
 async function replaceUserPermissions(userId: string, roleCode: RoleCode, requestedKeys?: string[]) {
-  if (roleCode === RoleCode.SUPER_ADMIN) {
+  if (roleCode === RoleCode.SUPER_ADMIN || roleCode === RoleCode.DELIVERY_RIDER) {
     await prisma.userPermission.deleteMany({ where: { userId } });
     return;
   }
@@ -5801,10 +5801,15 @@ router.get("/delivery-events", async (req, res, next) => {
   }
 });
 
-router.get("/delivery-riders", async (_req, res, next) => {
+router.get("/delivery-riders", async (req, res, next) => {
   try {
-    const riders = await prisma.deliveryRider.findMany({ orderBy: [{ isActive: "desc" }, { name: "asc" }] });
-    return res.json({ riders: riders.map(serializeDeliveryRider) });
+    const branchContext = await resolveBranchContext(req);
+    const riders = await prisma.user.findMany({
+      where: { role: { code: RoleCode.DELIVERY_RIDER }, branchAccesses: { some: { branchId: branchContext.branchId } } },
+      orderBy: [{ isActive: "desc" }, { name: "asc" }],
+      select: { id: true, name: true, phone: true, isActive: true, createdAt: true, updatedAt: true }
+    });
+    return res.json({ riders: riders.map((rider) => serializeDeliveryRider({ ...rider, phone: rider.phone ?? "" })) });
   } catch (error) {
     return next(error);
   }
@@ -5812,22 +5817,7 @@ router.get("/delivery-riders", async (_req, res, next) => {
 
 router.post("/delivery-riders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
   try {
-    const payload = deliveryRiderWriteSchema.parse(req.body);
-    const rider = await prisma.deliveryRider.create({
-      data: {
-        name: payload.name,
-        phone: normalizePakistanMobile(payload.phone),
-        isActive: payload.isActive ?? true
-      }
-    });
-    await writeAuditLog({
-      actorId: req.user!.id,
-      action: "delivery.rider_created",
-      entityType: "delivery_rider",
-      entityId: rider.id,
-      payload: { name: rider.name, phone: rider.phone }
-    });
-    return res.status(201).json({ rider: serializeDeliveryRider(rider) });
+    return res.status(409).json({ message: "Create delivery riders from the Users tab using the Rider role." });
   } catch (error) {
     return next(error);
   }
@@ -5835,24 +5825,7 @@ router.post("/delivery-riders", authorize(RoleCode.SUPER_ADMIN), async (req, res
 
 router.patch("/delivery-riders/:id", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
   try {
-    const payload = deliveryRiderPatchSchema.parse(req.body);
-    const riderId = z.string().cuid().parse(req.params.id);
-    const rider = await prisma.deliveryRider.update({
-      where: { id: riderId },
-      data: {
-        ...(payload.name !== undefined ? { name: payload.name } : {}),
-        ...(payload.phone !== undefined ? { phone: normalizePakistanMobile(payload.phone) } : {}),
-        ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {})
-      }
-    });
-    await writeAuditLog({
-      actorId: req.user!.id,
-      action: rider.isActive ? "delivery.rider_updated" : "delivery.rider_deactivated",
-      entityType: "delivery_rider",
-      entityId: rider.id,
-      payload: { name: rider.name, phone: rider.phone, isActive: rider.isActive }
-    });
-    return res.json({ rider: serializeDeliveryRider(rider) });
+    return res.status(409).json({ message: "Edit delivery riders from the Users tab." });
   } catch (error) {
     return next(error);
   }
@@ -5860,16 +5833,7 @@ router.patch("/delivery-riders/:id", authorize(RoleCode.SUPER_ADMIN), async (req
 
 router.delete("/delivery-riders/:id", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
   try {
-    const riderId = z.string().cuid().parse(req.params.id);
-    const rider = await prisma.deliveryRider.update({ where: { id: riderId }, data: { isActive: false } });
-    await writeAuditLog({
-      actorId: req.user!.id,
-      action: "delivery.rider_deactivated",
-      entityType: "delivery_rider",
-      entityId: rider.id,
-      payload: { name: rider.name, phone: rider.phone }
-    });
-    return res.json({ deleted: true });
+    return res.status(409).json({ message: "Deactivate delivery riders from the Users tab." });
   } catch (error) {
     return next(error);
   }
@@ -7109,23 +7073,27 @@ router.get("/users", async (req, res, next) => {
 router.post("/users", async (req, res, next) => {
   try {
     const payload = userWriteSchema.parse(req.body);
+    if (payload.roleCode === "DELIVERY_RIDER" && !payload.phone?.trim()) {
+      return res.status(400).json({ message: "WhatsApp number is required for Rider accounts." });
+    }
     const role = await prisma.role.findUniqueOrThrow({ where: { code: payload.roleCode as RoleCode } });
     const passwordHash = await hashPassword(payload.password);
     const username = (payload.username?.trim().toLowerCase() || buildUniqueUsername(payload.email || payload.name || "staff")).trim();
     const email = payload.email?.trim().toLowerCase() || `${username}@pocket.local`;
-    const permissionKeys = payload.roleCode === "SUPER_ADMIN" ? PERMISSION_DEFINITIONS.map((permission) => permission.key) : (payload.permissionKeys ?? []);
+    const permissionKeys = payload.roleCode === "SUPER_ADMIN" || payload.roleCode === "DELIVERY_RIDER" ? [] : (payload.permissionKeys ?? []);
     validatePermissionKeys(permissionKeys);
+    const phone = payload.roleCode === "DELIVERY_RIDER" ? normalizePakistanMobile(payload.phone!) : payload.phone?.trim() || null;
     const user = await prisma.user.create({
       data: {
         roleId: role.id,
         name: payload.name?.trim() || username,
         username,
         email,
-        phone: payload.phone?.trim() || null,
+        phone,
         passwordHash,
         isActive: payload.isActive ?? true,
-        canAccessAdmin: role.code === RoleCode.SUPER_ADMIN || permissionKeys.some((key) => key !== "POS"),
-        canAccessPos: role.code === RoleCode.SUPER_ADMIN || permissionKeys.includes("POS")
+        canAccessAdmin: role.code === RoleCode.SUPER_ADMIN || (role.code !== RoleCode.DELIVERY_RIDER && permissionKeys.some((key) => key !== "POS")),
+        canAccessPos: role.code === RoleCode.SUPER_ADMIN || (role.code !== RoleCode.DELIVERY_RIDER && permissionKeys.includes("POS"))
       },
       include: { role: true }
     });
@@ -7171,9 +7139,16 @@ router.patch("/users/:id", async (req, res, next) => {
     const role =
       payload.roleCode !== undefined ? await prisma.role.findUniqueOrThrow({ where: { code: payload.roleCode as RoleCode } }) : null;
 
+    const nextRoleCode = role?.code ?? current.role.code;
+    if (nextRoleCode === RoleCode.DELIVERY_RIDER && !((payload.phone ?? current.phone)?.trim())) {
+      return res.status(400).json({ message: "WhatsApp number is required for Rider accounts." });
+    }
+
     const nextPermissionKeys = role?.code === RoleCode.SUPER_ADMIN
       ? PERMISSION_DEFINITIONS.map((permission) => permission.key)
-      : payload.permissionKeys;
+      : role?.code === RoleCode.DELIVERY_RIDER
+        ? []
+        : payload.permissionKeys;
     if (nextPermissionKeys !== undefined) validatePermissionKeys(nextPermissionKeys);
     const user = await prisma.user.update({
       where: { id: current.id },
@@ -7187,10 +7162,12 @@ router.patch("/users/:id", async (req, res, next) => {
                 `${(payload.username ?? current.username).trim().toLowerCase()}@pocket.local`
             }
           : {}),
-        ...(payload.phone !== undefined ? { phone: payload.phone?.trim() || null } : {}),
+        ...(payload.phone !== undefined
+          ? { phone: nextRoleCode === RoleCode.DELIVERY_RIDER ? normalizePakistanMobile(payload.phone) : payload.phone.trim() || null }
+          : {}),
         ...(role ? { roleId: role.id } : {}),
         ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
-        ...(nextPermissionKeys !== undefined ? { canAccessAdmin: nextPermissionKeys.some((key) => key !== "POS"), canAccessPos: nextPermissionKeys.includes("POS") } : {}),
+        ...(nextPermissionKeys !== undefined ? { canAccessAdmin: nextRoleCode === RoleCode.SUPER_ADMIN || (nextRoleCode !== RoleCode.DELIVERY_RIDER && nextPermissionKeys.some((key) => key !== "POS")), canAccessPos: nextRoleCode === RoleCode.SUPER_ADMIN || (nextRoleCode !== RoleCode.DELIVERY_RIDER && nextPermissionKeys.includes("POS")) } : {}),
         ...(payload.password !== undefined ? { passwordHash: await hashPassword(payload.password) } : {})
       },
       include: { role: true }

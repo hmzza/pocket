@@ -177,10 +177,15 @@ router.get("/orders", async (req, res, next) => {
   }
 });
 
-router.get("/delivery-riders", async (_req, res, next) => {
+router.get("/delivery-riders", async (req, res, next) => {
   try {
-    const riders = await prisma.deliveryRider.findMany({
-      where: { isActive: true },
+    const branchContext = await resolveBranchContext(req);
+    const riders = await prisma.user.findMany({
+      where: {
+        role: { code: RoleCode.DELIVERY_RIDER },
+        isActive: true,
+        branchAccesses: { some: { branchId: branchContext.branchId } }
+      },
       orderBy: { name: "asc" },
       select: { id: true, name: true, phone: true }
     });

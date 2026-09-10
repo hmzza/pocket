@@ -14,6 +14,7 @@ enum RoleCode {
   ADMIN
   SUPER_ADMIN
   POS_STAFF
+  DELIVERY_RIDER
 }
 
 enum DiscountType {
@@ -114,6 +115,7 @@ model User {
   cashierOrders            Order[]                @relation("CashierOrder")
   acceptedDeliveryOrders   Order[]                @relation("DeliveryAcceptedBy")
   dispatchedDeliveryOrders Order[]                @relation("DeliveryDispatchedBy")
+  assignedDeliveryOrders  Order[]                @relation("DeliveryAssignedRider")
   reviews                  Review[]
   favorites                Favorite[]
   notifications            Notification[]
@@ -457,6 +459,7 @@ model Order {
   riderName               String?
   riderPhone              String?
   riderAssignedAt         DateTime?
+  riderId                 String?
   acceptedById            String?
   acceptedAt              DateTime?
   dispatchedById          String?
@@ -467,6 +470,7 @@ model Order {
   cashier                 User?         @relation("CashierOrder", fields: [cashierId], references: [id])
   acceptedBy              User?         @relation("DeliveryAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
   dispatchedBy            User?         @relation("DeliveryDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
+  rider                   User?         @relation("DeliveryAssignedRider", fields: [riderId], references: [id], onDelete: SetNull)
   branch                  Branch        @relation(fields: [branchId], references: [id])
   address                 Address?      @relation(fields: [addressId], references: [id])
   coupon                  Coupon?       @relation(fields: [couponId], references: [id])
@@ -476,6 +480,7 @@ model Order {
   @@index([branchId, status, placedAt])
   @@index([branchId, paymentStatus])
   @@index([branchId, serviceType, status, placedAt])
+  @@index([riderId])
 }
 
 model OrderItem {

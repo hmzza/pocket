@@ -1,20 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bike, ChevronDown, KeyRound, PencilLine, Plus, Search, Trash2 } from "lucide-react";
+import { ChevronDown, KeyRound, PencilLine, Plus, Search, Trash2 } from "lucide-react";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { createAdminDeliveryRider, createAdminUser, deleteAdminDeliveryRider, deleteAdminUser, fetchAdminBranches, fetchAdminDeliveryRiders, fetchAdminPermissions, fetchAdminUsers, updateAdminDeliveryRider, updateAdminUser } from "@/lib/admin-client";
-import type { AdminUser, Branch, DeliveryRider } from "@/lib/types";
+import { createAdminUser, deleteAdminUser, fetchAdminBranches, fetchAdminPermissions, fetchAdminUsers, updateAdminUser } from "@/lib/admin-client";
+import type { AdminUser, Branch } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type UserFormState = {
   username: string;
   password: string;
-  roleCode: "SUPER_ADMIN" | "POS_STAFF" | "";
+  roleCode: "SUPER_ADMIN" | "POS_STAFF" | "DELIVERY_RIDER" | "";
   branchId: string;
+  phone: string;
   permissionKeys: string[];
 };
 
@@ -23,12 +24,14 @@ const emptyForm: UserFormState = {
   password: "",
   roleCode: "POS_STAFF",
   branchId: "",
+  phone: "",
   permissionKeys: []
 };
 
 const roleOptions: Array<{ value: UserFormState["roleCode"]; label: string; description: string }> = [
   { value: "SUPER_ADMIN", label: "Super Admin", description: "Full platform access." },
-  { value: "POS_STAFF", label: "Staff", description: "Only the selected tabs and POS access." }
+  { value: "POS_STAFF", label: "Staff", description: "Only the selected tabs and POS access." },
+  { value: "DELIVERY_RIDER", label: "Rider", description: "Delivery contact with no dashboard access." }
 ];
 
 function formatRelativeDate(value: string) {
@@ -42,7 +45,6 @@ function formatRelativeDate(value: string) {
 
 export function UserManagement() {
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [riders, setRiders] = useState<DeliveryRider[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [permissions, setPermissions] = useState<Array<{ key: string; label: string; routePrefix: string; permissionGroup: string; sortOrder: number }>>([]);
   const [loading, setLoading] = useState(true);
@@ -54,10 +56,6 @@ export function UserManagement() {
   const [error, setError] = useState("");
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [permissionDraft, setPermissionDraft] = useState<string[]>([]);
-  const [editingRider, setEditingRider] = useState<DeliveryRider | null>(null);
-  const [riderName, setRiderName] = useState("");
-  const [riderPhone, setRiderPhone] = useState("");
-  const [savingRider, setSavingRider] = useState(false);
 
   async function loadUsers() {
     try {
@@ -89,14 +87,6 @@ export function UserManagement() {
     }
   }
 
-  async function loadRiders() {
-    try {
-      setRiders(await fetchAdminDeliveryRiders());
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load delivery riders.");
-    }
-  }
-
   useEffect(() => {
     void loadUsers();
   }, [search]);
@@ -104,7 +94,6 @@ export function UserManagement() {
   useEffect(() => {
     void loadBranches();
     void loadPermissions();
-    void loadRiders();
   }, []);
 
   const counts = useMemo(() => {
@@ -129,6 +118,7 @@ export function UserManagement() {
       password: "",
       roleCode: user.roleCode === "CUSTOMER" ? "POS_STAFF" : user.roleCode,
       branchId: user.branchId ?? branches[0]?.id ?? "",
+      phone: user.phone ?? "",
       permissionKeys: user.permissionKeys ?? []
     });
     setPermissionDraft(user.permissionKeys ?? []);
@@ -171,7 +161,8 @@ export function UserManagement() {
           username: form.username,
           roleCode: form.roleCode,
           branchId: form.roleCode === "SUPER_ADMIN" ? "" : form.branchId,
-          permissionKeys: form.roleCode === "SUPER_ADMIN" ? [] : form.permissionKeys,
+          phone: form.phone,
+          permissionKeys: form.roleCode === "SUPER_ADMIN" || form.roleCode === "DELIVERY_RIDER" ? [] : form.permissionKeys,
           ...(form.password.trim() ? { password: form.password } : {})
         });
         setNotice("User updated.");
@@ -181,7 +172,8 @@ export function UserManagement() {
           password: form.password,
           roleCode: form.roleCode,
           branchId: form.roleCode === "SUPER_ADMIN" ? "" : form.branchId,
-          permissionKeys: form.roleCode === "SUPER_ADMIN" ? [] : form.permissionKeys
+          phone: form.phone,
+          permissionKeys: form.roleCode === "SUPER_ADMIN" || form.roleCode === "DELIVERY_RIDER" ? [] : form.permissionKeys
         });
         setNotice("User created.");
       }
@@ -211,48 +203,6 @@ export function UserManagement() {
     }
   }
 
-  function openRiderForm(rider?: DeliveryRider) {
-    setEditingRider(rider ?? null);
-    setRiderName(rider?.name ?? "");
-    setRiderPhone(rider?.phone ?? "");
-  }
-
-  async function saveRider() {
-    setSavingRider(true);
-    setError("");
-    try {
-      if (!riderName.trim() || !riderPhone.trim()) {
-        throw new Error("Rider name and WhatsApp number are required.");
-      }
-      if (editingRider) {
-        await updateAdminDeliveryRider(editingRider.id, { name: riderName, phone: riderPhone, isActive: true });
-        setNotice("Rider updated.");
-      } else {
-        await createAdminDeliveryRider({ name: riderName, phone: riderPhone });
-        setNotice("Rider added.");
-      }
-      openRiderForm();
-      await loadRiders();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to save rider.");
-    } finally {
-      setSavingRider(false);
-    }
-  }
-
-  async function removeRider(rider: DeliveryRider) {
-    if (!window.confirm(`Remove ${rider.name} from delivery assignments? Existing orders will keep their rider history.`)) return;
-    setError("");
-    try {
-      await deleteAdminDeliveryRider(rider.id);
-      setNotice("Rider removed from delivery assignments.");
-      if (editingRider?.id === rider.id) openRiderForm();
-      await loadRiders();
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to remove rider.");
-    }
-  }
-
   return (
     <div className="space-y-6">
       {notice ? <AdminToast message={notice} variant="success" onClose={() => setNotice("")} /> : null}
@@ -262,7 +212,7 @@ export function UserManagement() {
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Accounts</p>
           <p className="mt-2 text-3xl font-black text-pocket-navy">{users.length}</p>
-          <p className="mt-2 text-sm text-pocket-navy/60">Managed admin and staff accounts.</p>
+          <p className="mt-2 text-sm text-pocket-navy/60">Managed admin, staff, and rider accounts.</p>
         </Card>
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Active</p>
@@ -343,7 +293,7 @@ export function UserManagement() {
                 autoComplete="new-password"
               />
             </div>
-            {form.roleCode === "POS_STAFF" ? (
+            {form.roleCode !== "SUPER_ADMIN" ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Branch</label>
@@ -360,17 +310,16 @@ export function UserManagement() {
                     ))}
                   </select>
                 </div>
-                <div>
+                {form.roleCode === "POS_STAFF" ? <div>
                   <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Allowed sections</label>
-                  <button
-                    type="button"
-                    onClick={openPermissionPicker}
-                    className="flex h-11 w-full items-center justify-between rounded-xl border border-pocket-navy/10 bg-white px-3 text-left text-sm text-pocket-navy"
-                  >
+                  <button type="button" onClick={openPermissionPicker} className="flex h-11 w-full items-center justify-between rounded-xl border border-pocket-navy/10 bg-white px-3 text-left text-sm text-pocket-navy">
                     <span className="truncate">{form.permissionKeys.length ? `${form.permissionKeys.length} sections selected` : "Select sections"}</span>
                     <ChevronDown className="h-4 w-4 text-pocket-navy/50" />
                   </button>
-                </div>
+                </div> : <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">WhatsApp number</label>
+                  <Input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="WhatsApp number (03xx xxxxxxx)" inputMode="tel" />
+                </div>}
               </div>
             ) : null}
             <div className="flex flex-wrap gap-3">
@@ -468,46 +417,6 @@ export function UserManagement() {
           </div>
         </Card>
       </div>
-
-      <Card className="p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Delivery riders</p>
-            <h3 className="mt-2 text-xl font-black text-pocket-navy">Rider contacts</h3>
-            <p className="mt-1 text-sm text-pocket-navy/60">These are delivery contacts, not login accounts. Active riders appear when staff dispatch orders from Delivery and POS.</p>
-          </div>
-          <Button type="button" variant="outline" onClick={() => openRiderForm()}>
-            <Plus className="h-4 w-4" />Add rider
-          </Button>
-        </div>
-
-        <div className="mt-4 grid gap-3 rounded-xl bg-pocket-cream/60 p-3 md:grid-cols-[1fr_1fr_auto]">
-          <Input value={riderName} onChange={(event) => setRiderName(event.target.value)} placeholder="Rider name" />
-          <Input value={riderPhone} onChange={(event) => setRiderPhone(event.target.value)} placeholder="WhatsApp number (03xx xxxxxxx)" inputMode="tel" />
-          <div className="flex gap-2">
-            <Button type="button" onClick={() => void saveRider()} disabled={savingRider}>
-              <Bike className="h-4 w-4" />{savingRider ? "Saving..." : editingRider ? "Update rider" : "Add rider"}
-            </Button>
-            {editingRider ? <Button type="button" variant="outline" onClick={() => openRiderForm()}>Cancel</Button> : null}
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {riders.length ? riders.map((rider) => (
-            <div key={rider.id} className={cn("flex items-center justify-between gap-3 rounded-xl border border-pocket-navy/10 px-3 py-3", !rider.isActive && "bg-red-50/60 opacity-70")}>
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-pocket-navy">{rider.name}</p>
-                <p className="text-sm text-pocket-navy/60">{rider.phone}</p>
-                <p className="mt-1 text-xs font-semibold text-pocket-navy/50">{rider.isActive ? "Available for dispatch" : "Removed from dispatch"}</p>
-              </div>
-              <div className="flex shrink-0 gap-1">
-                <Button type="button" variant="outline" size="sm" onClick={() => openRiderForm(rider)}><PencilLine className="h-4 w-4" /><span className="sr-only">Edit {rider.name}</span></Button>
-                {rider.isActive ? <Button type="button" variant="outline" size="sm" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => void removeRider(rider)}><Trash2 className="h-4 w-4" /><span className="sr-only">Remove {rider.name}</span></Button> : null}
-              </div>
-            </div>
-          )) : <p className="text-sm text-pocket-navy/60">No riders added yet.</p>}
-        </div>
-      </Card>
 
       <div className="text-xs text-pocket-navy/60">
         Staff accounts are restricted to the routes you allow them to use. This screen only manages admin-side login accounts.

@@ -725,7 +725,7 @@ export type AdminUser = {
   username: string;
   email: string;
   phone?: string;
-  roleCode: "SUPER_ADMIN" | "POS_STAFF" | "CUSTOMER";
+  roleCode: "SUPER_ADMIN" | "POS_STAFF" | "DELIVERY_RIDER" | "CUSTOMER";
   roleLabel: string;
   isActive: boolean;
   canAccessAdmin: boolean;
