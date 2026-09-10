@@ -187,7 +187,7 @@ router.get("/delivery-riders", async (req, res, next) => {
         branchAccesses: { some: { branchId: branchContext.branchId } }
       },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, phone: true }
+      select: { id: true, name: true, phone: true, isActive: true }
     });
     return res.json({ riders });
   } catch (error) {
@@ -473,6 +473,13 @@ router.delete("/orders/:id", async (req, res, next) => {
           }))
         });
       }
+
+      // Delivery orders may reference guest customer/address/coupon rows with restrictive
+      // foreign keys. Detach those optional links before deleting only the order itself.
+      await transaction.order.update({
+        where: { id: currentOrder.id },
+        data: { customerId: null, addressId: null, couponId: null }
+      });
 
       await transaction.order.delete({
         where: { id: currentOrder.id }
