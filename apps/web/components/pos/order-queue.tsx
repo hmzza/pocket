@@ -288,14 +288,14 @@ function CompactOrderCard({
                   onClick={() => onChangeStatus(order, "DELIVERED")}
                 />
               ) : null}
-              {order.status === "OUT_FOR_DELIVERY" || (isDelivery && order.status === "WATCH_LATER") ? <OrderActionButton
+              <OrderActionButton
                 title="Delete delivery order"
                 label="Delete"
                 className="border-red-500 bg-red-500 text-white hover:bg-red-600"
                 icon={<Trash2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
                 disabled={busy}
                 onClick={() => onDelete(order)}
-              /> : null}
+              />
               {order.status === "OUT_FOR_DELIVERY" || (isDelivery && order.status === "WATCH_LATER") ? <OrderActionButton
                 title="Check delivery later"
                 label="Check later"
@@ -311,14 +311,6 @@ function CompactOrderCard({
                 </select>
                 <OrderActionButton title="Send WhatsApp" label="Send WhatsApp" className="border-white/80 bg-white text-blue-700 hover:bg-blue-50" icon={<ExternalLink className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />} disabled={busy || !selectedRiderId} onClick={() => onDispatchDelivery(order, selectedRiderId)} />
               </div> : <p className="text-[10px] font-semibold text-blue-50">Add an active rider in Users first.</p> : null}
-              {order.status !== "OUT_FOR_DELIVERY" ? <OrderActionButton
-                title="Cancel order"
-                label="Cancel"
-                className="border-red-500 bg-red-500 text-white hover:bg-red-600"
-                icon={<Trash2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
-                disabled={busy}
-                onClick={() => onChangeStatus(order, "CANCELLED")}
-              /> : null}
             </div>
           ) : (
           <div className={embedded ? "flex items-center justify-end gap-1" : "flex items-center justify-end gap-1"}>
