@@ -272,14 +272,10 @@ function ProductEditor({
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {recipeSummary ? (
             <div className="md:col-span-2 rounded-lg border border-pocket-navy/10 bg-pocket-cream/50 p-4">
-              <div className="grid gap-3 sm:grid-cols-4">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Recipe cost</p>
                   <p className="mt-1 text-lg font-black text-pocket-navy">{formatCurrency(recipeSummary.recipeCost)}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Packaging</p>
-                  <p className="mt-1 text-lg font-black text-pocket-navy">{formatCurrency(recipeSummary.packagingCost)}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Margin</p>

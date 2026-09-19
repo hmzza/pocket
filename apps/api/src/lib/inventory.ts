@@ -178,7 +178,7 @@ export async function readInventoryData(
   });
   const recipeProductIds = [...new Set([...productIds, ...dynamicMealProducts.map((product) => product.id)])];
 
-  const [productIngredients, packagingRules, products] = await Promise.all([
+  const [productIngredients, products] = await Promise.all([
     recipeProductIds.length
       ? client.productIngredient.findMany({
           where: { productId: { in: recipeProductIds }, ingredient: { isActive: true } },
@@ -187,15 +187,6 @@ export async function readInventoryData(
           }
         })
       : Promise.resolve([]),
-    client.packagingRule.findMany({
-      where: { packagingIngredient: { isActive: true } },
-      include: {
-        packagingIngredient: true
-      }
-    }).catch((error) => {
-      if (isMissingTableError(error)) return [];
-      throw error;
-    }),
     recipeProductIds.length
       ? client.product.findMany({
           where: { id: { in: recipeProductIds } },
@@ -228,10 +219,6 @@ export async function readInventoryData(
   for (const recipe of productIngredients) {
     collectIngredientIds(recipe.ingredient);
   }
-  for (const rule of packagingRules) {
-    neededIngredientIds.add(rule.packagingIngredientId);
-  }
-
   if (neededIngredientIds.size) {
     await client.branchInventory.createMany({
       data: Array.from(neededIngredientIds).map((ingredientId) => ({
@@ -251,7 +238,7 @@ export async function readInventoryData(
     }
   });
 
-  return { productIngredients, packagingRules, products, branchInventories };
+  return { productIngredients, products, branchInventories };
 }
 
 type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
@@ -262,26 +249,23 @@ type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
  */
 export function computeInventoryChanges({
   productIngredients,
-  packagingRules,
   products,
   branchInventories,
   items,
   mode,
-  serviceType = ServiceType.DELIVERY
 }: {
   productIngredients: InventoryData["productIngredients"];
-  packagingRules: InventoryData["packagingRules"];
   products: InventoryData["products"];
   branchInventories: InventoryData["branchInventories"];
   items: InventoryOrderItem[];
   mode: "consume" | "return";
-  serviceType?: ServiceType | string;
 }): InventoryChange[] {
   const totals = new Map<string, number>();
 
   function addIngredientUsage(ingredient: any, quantity: number, seen = new Set<string>()) {
     if (!ingredient) return;
     if (ingredient.isActive === false) return;
+    if (ingredient.type === "PACKAGING") return;
     if (ingredient.type === "PREPARED" && ingredient.preparedComponents?.length && !seen.has(ingredient.id)) {
       const nextSeen = new Set(seen);
       nextSeen.add(ingredient.id);
@@ -305,7 +289,6 @@ export function computeInventoryChanges({
 
   const ingredientById = new Map(productIngredients.map((entry) => [entry.ingredientId, entry.ingredient]));
   const productById = new Map(products.map((product) => [product.id, product]));
-  const productCategoryById = new Map(products.map((product) => [product.id, product.categoryId]));
   const thelaFriesProduct = products.find((product) => product.slug === THELA_FRIES_SLUG);
   const mealAddOnProductByName = new Map(
     products
@@ -317,74 +300,13 @@ export function computeInventoryChanges({
       .filter((product) => product.category && BEVERAGE_CATEGORY_SLUGS.includes(product.category.slug as typeof BEVERAGE_CATEGORY_SLUGS[number]))
       .map((product) => [product.id, product])
   );
-  const productQuantities = new Map<string, number>();
-  const categoryQuantities = new Map<string, number>();
-  let orderQuantity = 0;
-
-  function addPackagingRuleUsage(rule: InventoryData["packagingRules"][number], itemCount: number) {
-    if (itemCount <= 0) return;
-    const quantity = Number(rule.quantity);
-    const needed = rule.quantityMode === "PER_ITEM_STEP"
-      ? quantity * Math.ceil(itemCount / Math.max(1, rule.itemStep ?? 1))
-      : quantity * itemCount;
-    if (needed <= 0) return;
-    totals.set(
-      rule.packagingIngredientId,
-      roundQuantity((totals.get(rule.packagingIngredientId) ?? 0) + needed)
-    );
-  }
-
-  function addProductPackagingInput(productId: string, quantity: number) {
-    productQuantities.set(productId, (productQuantities.get(productId) ?? 0) + quantity);
-    const categoryId = productCategoryById.get(productId);
-    if (categoryId) {
-      categoryQuantities.set(categoryId, (categoryQuantities.get(categoryId) ?? 0) + quantity);
-    }
-    orderQuantity += quantity;
-  }
-
-  function addPackagingUsage() {
-    const matchingRules = packagingRules.filter((rule) => rule.serviceType === serviceType || rule.serviceType === "DEFAULT");
-    for (const rule of matchingRules) {
-      const hasSpecificForScope = packagingRules.some((candidate) =>
-        candidate.serviceType === serviceType &&
-        candidate.productId === rule.productId &&
-        candidate.categoryId === rule.categoryId &&
-        candidate.packagingIngredientId === rule.packagingIngredientId
-      );
-      if (rule.serviceType === "DEFAULT" && hasSpecificForScope) continue;
-      if (rule.productId) {
-        addPackagingRuleUsage(rule, productQuantities.get(rule.productId) ?? 0);
-      } else if (rule.categoryId) {
-        addPackagingRuleUsage(rule, categoryQuantities.get(rule.categoryId) ?? 0);
-      } else {
-        addPackagingRuleUsage(rule, orderQuantity);
-      }
-    }
-  }
-
-  function addLegacyPackagingUsage(productId: string, multiplier: number) {
-    for (const recipe of recipeByProduct.get(productId) ?? []) {
-      const ingredient = ingredientById.get(recipe.ingredientId);
-      if (ingredient?.type !== "PACKAGING") continue;
-      totals.set(
-        recipe.ingredientId,
-        roundQuantity((totals.get(recipe.ingredientId) ?? 0) + recipe.quantityNeeded * multiplier)
-      );
-    }
-  }
-
   function addProductRecipeUsage(productId: string, quantity: number) {
     const product = productById.get(productId);
     const isMealProduct = product?.category?.slug === MEAL_CATEGORY_SLUG;
     const recipeProductId = isMealProduct
       ? thelaFriesProduct?.id
       : productId;
-    const packagingProductId = isMealProduct
-      ? thelaFriesProduct?.id
-      : productId;
-
-    if (!recipeProductId || !packagingProductId) {
+    if (!recipeProductId) {
       return;
     }
 
@@ -394,8 +316,6 @@ export function computeInventoryChanges({
         addIngredientUsage(ingredient, recipe.quantityNeeded * quantity);
       }
     }
-    addLegacyPackagingUsage(recipeProductId, quantity);
-    addProductPackagingInput(packagingProductId, quantity);
   }
 
   const inventoryBySku = new Map(branchInventories.map((entry) => [entry.ingredient.sku, entry]));
@@ -437,7 +357,7 @@ export function computeInventoryChanges({
 
       for (const component of components) {
         const inventory = inventoryBySku.get(component.ingredientSku);
-        if (!inventory) continue;
+        if (!inventory || inventory.ingredient.type === "PACKAGING") continue;
         totals.set(
           inventory.ingredientId,
           roundQuantity((totals.get(inventory.ingredientId) ?? 0) + component.quantity * item.quantity)
@@ -445,8 +365,6 @@ export function computeInventoryChanges({
       }
     }
   }
-
-  addPackagingUsage();
 
   if (!totals.size) {
     return [];
@@ -551,7 +469,7 @@ export async function applyOrderInventory({
       ]).filter((value): value is string => Boolean(value))
     )
   ];
-  const { productIngredients, packagingRules, products, branchInventories } = await readInventoryData(transaction, branchId, productIds);
-  const changes = computeInventoryChanges({ productIngredients, packagingRules, products, branchInventories, items, mode, serviceType });
+  const { productIngredients, products, branchInventories } = await readInventoryData(transaction, branchId, productIds);
+  const changes = computeInventoryChanges({ productIngredients, products, branchInventories, items, mode });
   await applyInventoryChanges({ transaction, changes, orderId, actorId, mode });
 }

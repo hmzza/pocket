@@ -969,51 +969,27 @@ function buildProductCostSummary(product: any) {
   const recipeItems: IngredientCostLine[] = (product.productIngredients ?? []).flatMap((entry: any) =>
     buildIngredientCostLines(entry.ingredient, parseDecimal(entry.quantityNeeded))
   );
-  const packagingRuleItems: PackagingRuleCostLine[] = (product.packagingRules ?? []).flatMap((rule: any) => {
-    const ingredient = rule.packagingIngredient;
-    if (ingredient?.isActive === false) return [];
-    const quantity = parseDecimal(rule.quantity);
-    const unitCost = parseDecimal(ingredient?.costPerUnit);
-    return [{
-      ingredientId: rule.packagingIngredientId,
-      ingredientName: ingredient?.name ?? "Unknown packaging",
-      ingredientType: ingredient?.type ?? "PACKAGING",
-      unit: ingredient?.unit ?? "",
-      quantity,
-      unitCost,
-      cost: roundMoney(quantity * unitCost),
-      calories: 0,
-      source: "packaging-rule" as const,
-      serviceType: rule.serviceType
-    }];
-  });
-
-  const legacyPackagingCost = recipeItems
-    .filter((entry) => entry.ingredientType === "PACKAGING")
-    .reduce((sum, entry) => sum + entry.cost, 0);
-  const packagingRuleCost = packagingRuleItems.reduce((sum, entry) => sum + entry.cost, 0);
   const recipeCost = recipeItems
     .filter((entry) => entry.ingredientType !== "PACKAGING")
     .reduce((sum, entry) => sum + entry.cost, 0);
-  const packagingCost = legacyPackagingCost + packagingRuleCost;
-  const totalCost = recipeCost + packagingCost;
+  const packagingCost = 0;
+  const totalCost = recipeCost;
   const calories = recipeItems.reduce((sum, entry) => sum + entry.calories, 0);
   const salePrice = parseDecimal(product.branchPricing?.[0]?.price ?? product.basePrice);
-  const configuredFoodPackagingCost = product.foodPackagingCost == null ? totalCost : parseDecimal(product.foodPackagingCost);
-  const profit = salePrice - configuredFoodPackagingCost;
+  const profit = salePrice - totalCost;
 
   return {
     recipeCost: roundMoney(recipeCost),
     packagingCost: roundMoney(packagingCost),
-    totalCost: roundMoney(configuredFoodPackagingCost),
-    foodPackagingCost: roundMoney(configuredFoodPackagingCost),
+    totalCost: roundMoney(totalCost),
+    foodPackagingCost: roundMoney(totalCost),
     salePrice: roundMoney(salePrice),
     grossProfit: roundMoney(profit),
     marginPercent: salePrice ? Number(((profit / salePrice) * 100).toFixed(1)) : 0,
     calories,
-    linkedIngredients: recipeItems.length + packagingRuleItems.length,
-    items: recipeItems,
-    packagingRules: packagingRuleItems
+    linkedIngredients: recipeItems.filter((entry) => entry.ingredientType !== "PACKAGING").length,
+    items: recipeItems.filter((entry) => entry.ingredientType !== "PACKAGING"),
+    packagingRules: []
   };
 }
 
@@ -1048,6 +1024,41 @@ async function recalculateInventoryBalances(branchInventoryId: string) {
       lowStockAlert: balance <= parseDecimal(inventory.ingredient.reorderLevel)
     }
   });
+}
+
+async function recalculateIngredientAverageCost(branchInventoryId: string) {
+  const inventory = await prisma.branchInventory.findUnique({
+    where: { id: branchInventoryId },
+    include: { ingredient: true }
+  });
+  if (!inventory) throw new Error("Inventory item not found.");
+
+  const purchases = await prisma.inventoryTransaction.findMany({
+    where: {
+      branchInventoryId,
+      type: InventoryTransactionType.PURCHASE,
+      purchaseCost: { not: null },
+      quantity: { gt: 0 }
+    },
+    select: { quantity: true, purchaseCost: true }
+  });
+  const quantity = purchases.reduce((sum, entry) => sum + parseDecimal(entry.quantity), 0);
+  const value = purchases.reduce((sum, entry) => sum + parseDecimal(entry.purchaseCost), 0);
+  if (quantity <= 0) {
+    const hasOpeningStock = await prisma.inventoryTransaction.findFirst({
+      where: { branchInventoryId, referenceType: "OPENING" },
+      select: { id: true }
+    });
+    if (!hasOpeningStock) {
+      await prisma.ingredient.update({ where: { id: inventory.ingredientId }, data: { costPerUnit: 0 } });
+      return 0;
+    }
+    return parseDecimal(inventory.ingredient.costPerUnit);
+  }
+
+  const averageCost = Number((value / quantity).toFixed(2));
+  await prisma.ingredient.update({ where: { id: inventory.ingredientId }, data: { costPerUnit: averageCost } });
+  return averageCost;
 }
 
 function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda" | "delivery"): Prisma.OrderWhereInput {
@@ -2672,7 +2683,7 @@ const inventoryItemSchema = z.object({
   name: z.string().min(2).max(80),
   unit: z.string().min(1).max(20),
   type: z.enum(INVENTORY_ITEM_TYPES).default("RAW"),
-  reorderLevel: z.number().nonnegative(),
+  reorderLevel: z.number().nonnegative().default(0),
   costPerUnit: z.number().nonnegative().default(0),
   caloriesPerUnit: z.number().nonnegative().default(0),
   openingStock: z.number().nonnegative().default(0)
@@ -2709,7 +2720,6 @@ const inventoryMovementSchema = z
     action: z.enum(["PURCHASE", "ADJUSTMENT", "WASTAGE", "RETURN", "CLOSING"]),
     quantity: z.number().optional(),
     countedQuantity: z.number().nonnegative().optional(),
-    vendorName: z.string().trim().max(120).optional(),
     purchaseDate: z.string().datetime().optional(),
     purchaseCost: z.number().nonnegative().optional(),
     wastageReason: z.enum(["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"]).optional(),
@@ -3267,9 +3277,14 @@ router.post("/inventory/transactions", async (req, res, next) => {
       quantityDelta = Math.abs(payload.quantity ?? 0);
       type = InventoryTransactionType.PURCHASE;
       if (payload.purchaseCost && quantityDelta > 0) {
+        const existingQuantity = parseDecimal(inventory.quantityOnHand);
+        const existingCost = parseDecimal(inventory.ingredient.costPerUnit);
+        const averageCost = existingQuantity > 0
+          ? (existingQuantity * existingCost + payload.purchaseCost) / (existingQuantity + quantityDelta)
+          : payload.purchaseCost / quantityDelta;
         await prisma.ingredient.update({
           where: { id: payload.ingredientId },
-          data: { costPerUnit: Number((payload.purchaseCost / quantityDelta).toFixed(2)) }
+          data: { costPerUnit: Number(averageCost.toFixed(2)) }
         });
       }
     } else if (payload.action === "WASTAGE") {
@@ -3293,7 +3308,6 @@ router.post("/inventory/transactions", async (req, res, next) => {
         actorId: req.user!.id,
         note,
         referenceType: payload.action === "CLOSING" ? "DAILY_CLOSING" : "MANUAL",
-        vendorName: payload.action === "PURCHASE" ? payload.vendorName : undefined,
         purchaseDate: payload.action === "PURCHASE" && payload.purchaseDate ? new Date(payload.purchaseDate) : undefined,
         purchaseCost: payload.action === "PURCHASE" ? payload.purchaseCost : undefined,
         wastageReason: payload.action === "WASTAGE" ? payload.wastageReason : undefined
@@ -3353,7 +3367,6 @@ const packagingRulesUpdateSchema = z.object({
 const transactionUpdateSchema = z.object({
   quantity: z.number().optional(),
   note: z.string().max(240).optional(),
-  vendorName: z.string().trim().max(120).optional(),
   purchaseDate: z.string().datetime().nullable().optional(),
   purchaseCost: z.number().nonnegative().nullable().optional(),
   wastageReason: z.enum(["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"]).nullable().optional()
@@ -5407,7 +5420,6 @@ router.patch("/inventory/transactions/:id", async (req, res, next) => {
       data: {
         ...(typeof payload.quantity === "number" ? { quantity: payload.quantity } : {}),
         ...(typeof payload.note === "string" ? { note: payload.note.trim() || null } : {}),
-        ...(typeof payload.vendorName === "string" ? { vendorName: payload.vendorName.trim() || null } : {}),
         ...(payload.purchaseDate !== undefined ? { purchaseDate: payload.purchaseDate ? new Date(payload.purchaseDate) : null } : {}),
         ...(payload.purchaseCost !== undefined ? { purchaseCost: payload.purchaseCost } : {}),
         ...(payload.wastageReason !== undefined ? { wastageReason: payload.wastageReason } : {}),
@@ -5421,7 +5433,6 @@ router.patch("/inventory/transactions/:id", async (req, res, next) => {
             previous: {
               quantity: parseDecimal(current.quantity),
               note: current.note,
-              vendorName: current.vendorName,
               purchaseDate: current.purchaseDate?.toISOString() ?? null,
               purchaseCost: parseDecimal(current.purchaseCost),
               wastageReason: current.wastageReason
@@ -5433,6 +5444,9 @@ router.patch("/inventory/transactions/:id", async (req, res, next) => {
     });
 
     await recalculateInventoryBalances(current.branchInventoryId);
+    if (current.type === InventoryTransactionType.PURCHASE) {
+      await recalculateIngredientAverageCost(current.branchInventoryId);
+    }
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -6123,10 +6137,7 @@ const expenseSchema = z.object({
   category: z.string().min(2).max(60),
   amount: z.number().positive(),
   paymentSource: z.enum(MONEY_SOURCES),
-  expenseDate: z.string().datetime(),
-  vendor: z.string().max(100).optional().or(z.literal("")),
-  billReference: z.string().max(100).optional().or(z.literal("")),
-  notes: z.string().max(500).optional().or(z.literal(""))
+  expenseDate: z.string().datetime()
 });
 
 const stockPurchaseSchema = z.object({
@@ -6136,10 +6147,7 @@ const stockPurchaseSchema = z.object({
   purchaseQuantity: z.number().positive(),
   amount: z.number().positive(),
   paymentSource: z.enum(MONEY_SOURCES),
-  purchaseDate: z.string().datetime(),
-  vendor: z.string().max(100).optional().or(z.literal("")),
-  billReference: z.string().max(100).optional().or(z.literal("")),
-  note: z.string().max(500).optional().or(z.literal(""))
+  purchaseDate: z.string().datetime()
 });
 
 const stockPurchaseUpdateSchema = z.object({
@@ -6147,10 +6155,7 @@ const stockPurchaseUpdateSchema = z.object({
   purchaseQuantity: z.number().positive().optional(),
   amount: z.number().positive().optional(),
   paymentSource: z.enum(MONEY_SOURCES).optional(),
-  purchaseDate: z.string().datetime().optional(),
-  vendor: z.string().max(100).optional().or(z.literal("")),
-  billReference: z.string().max(100).optional().or(z.literal("")),
-  note: z.string().max(500).optional().or(z.literal(""))
+  purchaseDate: z.string().datetime().optional()
 });
 
 const fixedExpenseSchema = z.object({
@@ -6212,9 +6217,7 @@ function buildExpenseWhere(query: z.infer<typeof expenseQuerySchema>, range: Ret
       ? {
           OR: [
             { title: { contains: query.search, mode: "insensitive" as const } },
-            { vendor: { contains: query.search, mode: "insensitive" as const } },
-            { billReference: { contains: query.search, mode: "insensitive" as const } },
-            { notes: { contains: query.search, mode: "insensitive" as const } }
+            { category: { contains: query.search, mode: "insensitive" as const } }
           ]
         }
       : {})
@@ -6593,10 +6596,7 @@ router.post("/expenses", async (req, res, next) => {
         paymentSource: payload.paymentSource,
         // Store expenses at the canonical 6AM business-day boundary. This
         // keeps reporting stable even when clients send a calendar timestamp.
-        expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start,
-        vendor: payload.vendor?.trim() || undefined,
-        billReference: payload.billReference?.trim() || undefined,
-        notes: payload.notes?.trim() || undefined
+        expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start
       },
       include: {
         branch: true,
@@ -6650,9 +6650,6 @@ router.patch("/expenses/:id", async (req, res, next) => {
         ...(payload.expenseDate
           ? { expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start }
           : {}),
-        ...(payload.vendor !== undefined ? { vendor: payload.vendor?.trim() || null } : {}),
-        ...(payload.billReference !== undefined ? { billReference: payload.billReference?.trim() || null } : {}),
-        ...(payload.notes !== undefined ? { notes: payload.notes?.trim() || null } : {}),
         createdById: req.user!.id
       },
       include: {
@@ -6728,13 +6725,8 @@ router.patch("/expenses/stock-purchases/:id", async (req, res, next) => {
           purchaseUnitLabel: unitLabel,
           purchaseCost: amount,
           purchaseDate,
-          vendorName: payload.vendor !== undefined ? payload.vendor.trim() || null : stockTransaction.vendorName,
-          note: payload.note !== undefined ? payload.note.trim() || null : stockTransaction.note
+          note: stockTransaction.note
         }
-      });
-      await transaction.ingredient.update({
-        where: { id: ingredient.id },
-        data: { costPerUnit: Number((amount / baseQuantity).toFixed(2)) }
       });
       return transaction.expense.update({
         where: { id: existing.id },
@@ -6742,9 +6734,6 @@ router.patch("/expenses/stock-purchases/:id", async (req, res, next) => {
           amount,
           paymentSource: payload.paymentSource ?? existing.paymentSource,
           expenseDate,
-          vendor: payload.vendor !== undefined ? payload.vendor.trim() || null : existing.vendor,
-          billReference: payload.billReference !== undefined ? payload.billReference.trim() || null : existing.billReference,
-          notes: payload.note !== undefined ? payload.note.trim() || null : existing.notes,
           createdById: req.user!.id
         },
         include: { branch: true, createdBy: true }
@@ -6752,6 +6741,7 @@ router.patch("/expenses/stock-purchases/:id", async (req, res, next) => {
     });
 
     await recalculateInventoryBalances(stockTransaction.branchInventoryId);
+    await recalculateIngredientAverageCost(stockTransaction.branchInventoryId);
     await writeAuditLog({
       actorId: req.user!.id,
       action: "expense.stock_purchase_update",
@@ -6791,6 +6781,7 @@ router.delete("/expenses/:id", async (req, res, next) => {
 
     if (expense.stockTransaction) {
       await recalculateInventoryBalances(expense.stockTransaction.branchInventoryId);
+      await recalculateIngredientAverageCost(expense.stockTransaction.branchInventoryId);
     }
 
     await writeAuditLog({
@@ -6906,18 +6897,21 @@ router.post("/expenses/stock-purchases", async (req, res, next) => {
         type: InventoryTransactionType.PURCHASE,
         actorId: req.user!.id,
         referenceType: "STOCK_PURCHASE",
-        vendorName: payload.vendor?.trim() || undefined,
         purchaseDate,
         purchaseCost: payload.amount,
         purchaseQuantity: payload.purchaseQuantity,
         purchaseUnitId: purchaseUnit?.id,
         purchaseUnitLabel: unitLabel,
-        note: payload.note?.trim() || undefined
       });
 
+      const existingQuantity = parseDecimal(inventory.quantityOnHand);
+      const existingCost = parseDecimal(inventory.ingredient.costPerUnit);
+      const averageCost = existingQuantity > 0
+        ? (existingQuantity * existingCost + payload.amount) / (existingQuantity + baseQuantity)
+        : payload.amount / baseQuantity;
       await transaction.ingredient.update({
         where: { id: payload.ingredientId },
-        data: { costPerUnit: Number((payload.amount / baseQuantity).toFixed(2)) }
+        data: { costPerUnit: Number(averageCost.toFixed(2)) }
       });
 
       const expense = await transaction.expense.create({
@@ -6929,9 +6923,6 @@ router.post("/expenses/stock-purchases", async (req, res, next) => {
           amount: payload.amount,
           paymentSource: payload.paymentSource,
           expenseDate,
-          vendor: payload.vendor?.trim() || undefined,
-          billReference: payload.billReference?.trim() || undefined,
-          notes: payload.note?.trim() || undefined,
           stockTransactionId: stock.transactionId
         },
         include: { branch: true, createdBy: true }

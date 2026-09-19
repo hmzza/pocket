@@ -88,9 +88,9 @@ const mealOptionGroups = {
       { id: "classic-meal-mango", name: "Fries + Mango Shake", priceDelta: 450 },
       { id: "classic-meal-oreo", name: "Fries + Oreo Shake", priceDelta: 450 },
       { id: "classic-meal-strawberry", name: "Fries + Strawberry Shake", priceDelta: 450 },
-      { id: "classic-meal-kiwi", name: "Fries + Kiwi Passion", priceDelta: 550 },
-      { id: "classic-meal-cherry", name: "Fries + Strawberry Cherry", priceDelta: 550 },
-      { id: "classic-meal-watermelon", name: "Fries + Watermelon Guava", priceDelta: 550 }
+      { id: "classic-meal-kiwi", name: "Fries + Kiwi Passion", priceDelta: 250 },
+      { id: "classic-meal-cherry", name: "Fries + Strawberry Cherry", priceDelta: 250 },
+      { id: "classic-meal-watermelon", name: "Fries + Watermelon Guava", priceDelta: 250 }
     ]
   } satisfies AddOnGroup,
   spicy: {
@@ -108,9 +108,9 @@ const mealOptionGroups = {
       { id: "spicy-meal-mango", name: "Fries + Mango Shake", priceDelta: 450 },
       { id: "spicy-meal-oreo", name: "Fries + Oreo Shake", priceDelta: 450 },
       { id: "spicy-meal-strawberry", name: "Fries + Strawberry Shake", priceDelta: 450 },
-      { id: "spicy-meal-kiwi", name: "Fries + Kiwi Passion", priceDelta: 550 },
-      { id: "spicy-meal-cherry", name: "Fries + Strawberry Cherry", priceDelta: 550 },
-      { id: "spicy-meal-watermelon", name: "Fries + Watermelon Guava", priceDelta: 550 }
+      { id: "spicy-meal-kiwi", name: "Fries + Kiwi Passion", priceDelta: 250 },
+      { id: "spicy-meal-cherry", name: "Fries + Strawberry Cherry", priceDelta: 250 },
+      { id: "spicy-meal-watermelon", name: "Fries + Watermelon Guava", priceDelta: 250 }
     ]
   } satisfies AddOnGroup,
   rocket: {
@@ -128,9 +128,9 @@ const mealOptionGroups = {
       { id: "rocket-meal-mango", name: "Fries + Mango Shake", priceDelta: 450 },
       { id: "rocket-meal-oreo", name: "Fries + Oreo Shake", priceDelta: 450 },
       { id: "rocket-meal-strawberry", name: "Fries + Strawberry Shake", priceDelta: 450 },
-      { id: "rocket-meal-kiwi", name: "Fries + Kiwi Passion", priceDelta: 550 },
-      { id: "rocket-meal-cherry", name: "Fries + Strawberry Cherry", priceDelta: 550 },
-      { id: "rocket-meal-watermelon", name: "Fries + Watermelon Guava", priceDelta: 550 }
+      { id: "rocket-meal-kiwi", name: "Fries + Kiwi Passion", priceDelta: 250 },
+      { id: "rocket-meal-cherry", name: "Fries + Strawberry Cherry", priceDelta: 250 },
+      { id: "rocket-meal-watermelon", name: "Fries + Watermelon Guava", priceDelta: 250 }
     ]
   } satisfies AddOnGroup
 };
