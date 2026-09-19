@@ -31,7 +31,7 @@ export function mealOptionNameFor(productName: string, categorySlug: string) {
 export function mealPriceForCategory(categorySlug: string) {
   if (categorySlug === "soft-drinks") return MEAL_BASE_PRICE;
   if (categorySlug === "ice-cream-shakes") return 450;
-  if (categorySlug === "chillers") return 550;
+  if (categorySlug === "chillers") return 250;
   return 0;
 }
 

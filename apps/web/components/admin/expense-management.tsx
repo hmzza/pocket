@@ -7,7 +7,6 @@ import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   createAdminExpense,
   createAdminStockPurchase,
@@ -16,12 +15,11 @@ import {
   fetchAdminExpenses,
   fetchAdminInventory,
   fetchAdminSettings,
-  fetchAdminVendors,
   updateAdminExpense,
   updateAdminStockPurchase,
   updateAdminSetting
 } from "@/lib/admin-client";
-import type { AdminExpense, AdminExpenseData, AdminInventoryData, AdminInventoryItem, AdminRangePreset, AdminVendor } from "@/lib/types";
+import type { AdminExpense, AdminExpenseData, AdminInventoryData, AdminInventoryItem, AdminRangePreset } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue, toPakistanDateIso } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
@@ -82,9 +80,6 @@ type ExpenseFormState = {
   amount: string;
   paymentSource: (typeof MONEY_SOURCES)[number]["value"] | "";
   expenseDate: string;
-  vendor: string;
-  billReference: string;
-  notes: string;
 };
 
 type StockPurchaseFormState = {
@@ -94,9 +89,6 @@ type StockPurchaseFormState = {
   amount: string;
   paymentSource: (typeof MONEY_SOURCES)[number]["value"] | "";
   purchaseDate: string;
-  vendor: string;
-  billReference: string;
-  note: string;
 };
 
 type ExpenseEntryMode = "OTHER" | "STOCK";
@@ -109,9 +101,6 @@ function createEmptyExpenseForm(): ExpenseFormState {
     amount: "",
     paymentSource: "",
     expenseDate: getCurrentBusinessDateKey(),
-    vendor: "",
-    billReference: "",
-    notes: ""
   };
 }
 
@@ -123,9 +112,6 @@ function createEmptyStockPurchaseForm(): StockPurchaseFormState {
     amount: "",
     paymentSource: "",
     purchaseDate: getCurrentBusinessDateKey(),
-    vendor: "",
-    billReference: "",
-    note: ""
   };
 }
 
@@ -137,9 +123,6 @@ function mapExpenseToForm(expense: AdminExpense): ExpenseFormState {
     amount: String(expense.amount),
     paymentSource: expense.paymentSource ?? "CASH",
     expenseDate: toBusinessDateInputValue(expense.expenseDate),
-    vendor: expense.vendor ?? "",
-    billReference: expense.billReference ?? "",
-    notes: expense.notes ?? ""
   };
 }
 
@@ -161,14 +144,11 @@ function ExpenseEditor({
   editingExpense,
   titleOptions,
   titleChoice,
-  vendorOptions,
   categoryOptions,
   onAddCategory,
   onTitleChoiceChange,
   saving,
   onChange,
-  onVendorChoiceChange,
-  vendorChoice,
   mode,
   onModeChange,
   onClose,
@@ -179,14 +159,11 @@ function ExpenseEditor({
   editingExpense: AdminExpense | null;
   titleOptions: string[];
   titleChoice: string;
-  vendorOptions: string[];
   categoryOptions: string[];
   onAddCategory: (category: string) => void | Promise<void>;
   onTitleChoiceChange: (nextTitle: string) => void;
   saving: boolean;
   onChange: (next: ExpenseFormState) => void;
-  onVendorChoiceChange: (next: string) => void;
-  vendorChoice: string;
   mode: ExpenseEntryMode;
   onModeChange: (mode: ExpenseEntryMode) => void;
   onClose: () => void;
@@ -269,33 +246,6 @@ function ExpenseEditor({
               {MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
             </select>
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Vendor</label>
-            <select
-              value={vendorChoice}
-              onChange={(event) => onVendorChoiceChange(event.target.value)}
-              className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
-            >
-              <option value="">Select vendor</option>
-              {vendorOptions.map((vendor) => (
-                <option key={vendor} value={vendor}>
-                  {vendor}
-                </option>
-              ))}
-              <option value="__custom__">Other / custom</option>
-            </select>
-            {vendorChoice === "__custom__" ? (
-              <Input value={value.vendor ?? ""} onChange={(event) => onChange({ ...value, vendor: event.target.value })} placeholder="Capital Fresh Foods" />
-            ) : null}
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Bill reference</label>
-            <Input value={value.billReference} onChange={(event) => onChange({ ...value, billReference: event.target.value })} placeholder="INV-1001" />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <label className="text-sm font-semibold text-pocket-navy">Notes</label>
-            <Textarea value={value.notes} onChange={(event) => onChange({ ...value, notes: event.target.value })} placeholder="Any supporting detail for finance and closing." />
-          </div>
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
@@ -311,11 +261,55 @@ function ExpenseEditor({
   );
 }
 
+function SearchableExpenseInventorySelect({
+  items,
+  value,
+  disabled,
+  onChange
+}: {
+  items: AdminInventoryItem[];
+  value: string;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = items.find((item) => item.ingredientId === value);
+  const visible = items.filter((item) => `${item.name} ${item.sku} ${item.type}`.toLowerCase().includes(search.toLowerCase())).slice(0, 80);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button type="button" disabled={disabled} onClick={() => setOpen((current) => !current)} className="flex h-11 w-full items-center justify-between rounded-md border border-pocket-navy/15 bg-white px-3 text-left text-sm disabled:cursor-not-allowed disabled:bg-pocket-cream">
+        <span className={selected ? "truncate" : "text-pocket-navy/50"}>{selected ? `${selected.name} (${selected.unit})` : "Select item"}</span>
+        <span className="ml-2 text-pocket-navy/50">⌄</span>
+      </button>
+      {open ? (
+        <div className="absolute z-30 mt-2 w-full rounded-md border border-pocket-navy/15 bg-white p-2 shadow-panel">
+          <Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search items" />
+          <div className="mt-2 max-h-56 overflow-y-auto">
+            {visible.map((item) => <button key={item.ingredientId} type="button" onClick={() => { onChange(item.ingredientId); setOpen(false); setSearch(""); }} className="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm hover:bg-pocket-cream"><span>{item.name}</span><span className="text-xs text-pocket-navy/50">{item.unit}</span></button>)}
+            {!visible.length ? <p className="px-3 py-2 text-sm text-pocket-navy/50">No matching items.</p> : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StockPurchaseEditor({
   open,
   value,
   items,
-  vendorOptions,
   editingExpense,
   saving,
   onChange,
@@ -326,7 +320,6 @@ function StockPurchaseEditor({
   open: boolean;
   value: StockPurchaseFormState;
   items: AdminInventoryItem[];
-  vendorOptions: string[];
   editingExpense: AdminExpense | null;
   saving: boolean;
   onChange: (next: StockPurchaseFormState) => void;
@@ -334,11 +327,8 @@ function StockPurchaseEditor({
   onClose: () => void;
   onSubmit: () => void;
 }) {
-  const [itemSearch, setItemSearch] = useState("");
-  const [customVendor, setCustomVendor] = useState(Boolean(value.vendor && !vendorOptions.includes(value.vendor)));
   if (!open) return null;
   const selectedItem = items.find((item) => item.ingredientId === value.ingredientId) ?? null;
-  const filteredItems = items.filter((item) => `${item.name} ${item.sku} ${item.type}`.toLowerCase().includes(itemSearch.toLowerCase())).slice(0, 80);
   const selectedUnit = selectedItem?.purchaseUnits.find((unit) => unit.id === value.purchaseUnitId);
 
   return (
@@ -355,11 +345,7 @@ function StockPurchaseEditor({
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-semibold text-pocket-navy">Inventory item</label>
-            <Input value={itemSearch} onChange={(event) => setItemSearch(event.target.value)} placeholder="Search inventory item" />
-            <select value={value.ingredientId} disabled={Boolean(editingExpense)} onChange={(event) => onChange({ ...value, ingredientId: event.target.value, purchaseUnitId: "" })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
-              <option value="">Select item</option>
-              {filteredItems.map((item) => <option key={item.ingredientId} value={item.ingredientId}>{item.name} ({item.unit})</option>)}
-            </select>
+            <SearchableExpenseInventorySelect items={items} value={value.ingredientId} disabled={Boolean(editingExpense)} onChange={(ingredientId) => onChange({ ...value, ingredientId, purchaseUnitId: "" })} />
             {selectedItem?.type === "PACKAGING" ? <p className="text-xs text-pocket-navy/55">Packaging has stock and cost but no calories.</p> : null}
           </div>
           <div className="space-y-2">
@@ -389,23 +375,6 @@ function StockPurchaseEditor({
             <label className="text-sm font-semibold text-pocket-navy">Purchase date</label>
             <Input type="date" value={value.purchaseDate} onChange={(event) => onChange({ ...value, purchaseDate: event.target.value })} />
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Vendor</label>
-            <select value={customVendor ? "__custom__" : value.vendor} onChange={(event) => { const isCustom = event.target.value === "__custom__"; setCustomVendor(isCustom); onChange({ ...value, vendor: isCustom ? "" : event.target.value }); }} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
-              <option value="">Select vendor</option>
-              {vendorOptions.map((vendor) => <option key={vendor} value={vendor}>{vendor}</option>)}
-              <option value="__custom__">Other / custom</option>
-            </select>
-            {customVendor ? <Input value={value.vendor} onChange={(event) => onChange({ ...value, vendor: event.target.value })} placeholder="Other vendor name" /> : null}
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Bill reference</label>
-            <Input value={value.billReference} onChange={(event) => onChange({ ...value, billReference: event.target.value })} placeholder="Optional" />
-          </div>
-          <div className="space-y-2 md:col-span-2">
-            <label className="text-sm font-semibold text-pocket-navy">Note</label>
-            <Textarea value={value.note} onChange={(event) => onChange({ ...value, note: event.target.value })} placeholder="Optional purchase detail" />
-          </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -418,7 +387,6 @@ function StockPurchaseEditor({
 
 export function ExpenseManagement() {
   const [data, setData] = useState<AdminExpenseData | null>(null);
-  const [vendors, setVendors] = useState<AdminVendor[]>([]);
   const [inventory, setInventory] = useState<AdminInventoryData | null>(null);
   const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
   const [expenseTitles, setExpenseTitles] = useState<string[]>([]);
@@ -440,7 +408,6 @@ export function ExpenseManagement() {
   const [formDateEdited, setFormDateEdited] = useState(false);
   const lastBusinessDateRef = useRef(getCurrentBusinessDateKey());
   const [titleChoice, setTitleChoice] = useState("");
-  const [vendorChoice, setVendorChoice] = useState("");
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [deletingId, setDeletingId] = useState("");
@@ -492,7 +459,7 @@ export function ExpenseManagement() {
 
     async function loadMetadata() {
       try {
-        const [settings, vendorData, inventoryData] = await Promise.all([fetchAdminSettings(), fetchAdminVendors(), fetchAdminInventory()]);
+        const [settings, inventoryData] = await Promise.all([fetchAdminSettings(), fetchAdminInventory()]);
         if (cancelled) return;
 
         const savedCategorySetting = settings.find((setting) => setting.key === EXPENSE_CATEGORY_SETTING_KEY);
@@ -501,7 +468,6 @@ export function ExpenseManagement() {
         const savedTitleSetting = settings.find((setting) => setting.key === EXPENSE_TITLE_SETTING_KEY);
         const savedTitles = Array.isArray(savedTitleSetting?.value) ? savedTitleSetting.value.map((entry) => String(entry).trim()).filter(Boolean) : [];
         setExpenseTitles(savedTitles);
-        setVendors(vendorData.vendors);
         setInventory(inventoryData);
         if (typeof window !== "undefined") {
           const params = new URLSearchParams(window.location.search);
@@ -557,7 +523,7 @@ export function ExpenseManagement() {
       .filter((expense) => {
       const matchesSearch =
         !search ||
-        `${expense.title} ${expense.category} ${expense.vendor ?? ""} ${expense.billReference ?? ""}`.toLowerCase().includes(search.toLowerCase());
+        `${expense.title} ${expense.category}`.toLowerCase().includes(search.toLowerCase());
       return matchesSearch;
       })
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
@@ -569,12 +535,6 @@ export function ExpenseManagement() {
   }, [data, expenseCategories, form.category]);
 
   const titleOptions = useMemo(() => [...new Set([...DEFAULT_EXPENSE_TITLES, ...expenseTitles])].sort((left, right) => left.localeCompare(right)), [expenseTitles]);
-
-  const vendorOptions = useMemo(() => {
-    return [...new Set(vendors.map((vendor) => vendor.vendorName).filter(Boolean).concat(form.vendor && vendorChoice === "__custom__" ? [form.vendor] : []))].sort((left, right) =>
-      left.localeCompare(right)
-    );
-  }, [form.vendor, vendorChoice, vendors]);
 
   const stockItems = useMemo(
     () => (inventory?.items ?? []).filter((item) => item.isActive && item.type !== "PREPARED"),
@@ -590,7 +550,6 @@ export function ExpenseManagement() {
       category: categoryOptions[0] ?? "Inventory"
     });
     setTitleChoice("");
-    setVendorChoice("");
     setEntryMode("OTHER");
     setStockForm(createEmptyStockPurchaseForm());
     setEditorOpen(true);
@@ -608,9 +567,6 @@ export function ExpenseManagement() {
         amount: String(expense.amount),
         paymentSource: expense.paymentSource,
         purchaseDate: toBusinessDateInputValue(expense.stockPurchase.purchaseDate ?? expense.expenseDate),
-        vendor: expense.vendor ?? "",
-        billReference: expense.billReference ?? "",
-        note: expense.notes ?? ""
       });
       setEditorOpen(true);
       return;
@@ -619,7 +575,6 @@ export function ExpenseManagement() {
     setFormDateEdited(true);
     setForm(mapExpenseToForm(expense));
     setTitleChoice(titleOptions.includes(expense.title) ? expense.title : "__custom__");
-    setVendorChoice(expense.vendor && vendorOptions.includes(expense.vendor) ? expense.vendor : expense.vendor ? "__custom__" : "");
     setEntryMode("OTHER");
     setEditorOpen(true);
   }
@@ -657,9 +612,6 @@ export function ExpenseManagement() {
         amount: Number(stockForm.amount),
         paymentSource: stockForm.paymentSource,
         purchaseDate: new Date(`${stockForm.purchaseDate}T12:00:00+05:00`).toISOString(),
-        vendor: stockForm.vendor.trim() || undefined,
-        billReference: stockForm.billReference.trim() || undefined,
-        note: stockForm.note.trim() || undefined
       };
       if (editingExpense) await updateAdminStockPurchase(editingExpense.id, payload);
       else await createAdminStockPurchase(payload);
@@ -679,7 +631,6 @@ export function ExpenseManagement() {
 
   async function submitExpense() {
     const nextCategory = form.category.trim();
-    const nextVendor = vendorChoice === "__custom__" ? form.vendor.trim() : vendorChoice.trim();
     if (!form.branchId || !form.title.trim() || !nextCategory || !form.amount || !form.expenseDate || !form.paymentSource) {
       setError("Title, category, amount, paid from, and date are required.");
       return;
@@ -695,9 +646,6 @@ export function ExpenseManagement() {
         amount: Number(form.amount),
         paymentSource: form.paymentSource,
         expenseDate: new Date(`${form.expenseDate}T12:00:00+05:00`).toISOString(),
-        vendor: nextVendor || undefined,
-        billReference: form.billReference.trim() || undefined,
-        notes: form.notes.trim() || undefined
       };
 
       if (editingExpense) {
@@ -786,7 +734,6 @@ export function ExpenseManagement() {
           open={editorOpen}
           value={stockForm}
           items={stockItems}
-          vendorOptions={vendorOptions}
           editingExpense={editingExpense}
           saving={saving}
           onChange={setStockForm}
@@ -801,7 +748,6 @@ export function ExpenseManagement() {
           editingExpense={editingExpense}
           titleOptions={titleOptions}
           titleChoice={titleChoice}
-          vendorOptions={vendorOptions}
           categoryOptions={categoryOptions}
           onAddCategory={(nextCategory) => void addExpenseCategory(nextCategory)}
           onTitleChoiceChange={setTitleChoice}
@@ -814,8 +760,6 @@ export function ExpenseManagement() {
             }
             setForm(next);
           }}
-          onVendorChoiceChange={setVendorChoice}
-          vendorChoice={vendorChoice}
           onClose={() => setEditorOpen(false)}
           onSubmit={() => void submitExpense()}
         />
@@ -956,7 +900,7 @@ export function ExpenseManagement() {
               </option>
             ))}
           </select>
-          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search title, vendor, or bill reference" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search title or category" />
         </div>
       </Card>
 
@@ -1025,11 +969,8 @@ export function ExpenseManagement() {
                           </p>
                           <p>Paid from: {MONEY_SOURCES.find((source) => source.value === expense.paymentSource)?.label ?? expense.paymentSource}</p>
                           {expense.stockPurchase ? <p>Added: {expense.stockPurchase.purchaseQuantity} {expense.stockPurchase.purchaseUnitLabel} ({expense.stockPurchase.baseQuantity} base units)</p> : null}
-                          {expense.vendor ? <p>Vendor: {expense.vendor}</p> : null}
-                          {expense.billReference ? <p>Bill: {expense.billReference}</p> : null}
                           {expense.createdByName ? <p>Logged by: {expense.createdByName}</p> : null}
                         </div>
-                        {expense.notes ? <p className="text-sm text-pocket-navy/60">{expense.notes}</p> : null}
                       </div>
                       <div className="flex items-center gap-3">
                         <p className="text-2xl font-black text-pocket-orange">{formatCurrency(expense.amount)}</p>
