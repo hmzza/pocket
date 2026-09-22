@@ -348,7 +348,10 @@ export function computeInventoryChanges({
         continue;
       }
 
-      const optionRecipe = OPTION_RECIPE_BY_NAME[addOn.optionName];
+      const canonicalOptionName = addOn.optionName.includes(":")
+        ? addOn.optionName.slice(addOn.optionName.lastIndexOf(":") + 1).trim()
+        : addOn.optionName;
+      const optionRecipe = OPTION_RECIPE_BY_NAME[addOn.optionName] ?? OPTION_RECIPE_BY_NAME[canonicalOptionName];
       if (!optionRecipe) continue;
 
       const components = addOn.optionName.startsWith("Fries + ")
