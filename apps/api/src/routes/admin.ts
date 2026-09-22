@@ -1045,15 +1045,8 @@ async function recalculateIngredientAverageCost(branchInventoryId: string) {
   const quantity = purchases.reduce((sum, entry) => sum + parseDecimal(entry.quantity), 0);
   const value = purchases.reduce((sum, entry) => sum + parseDecimal(entry.purchaseCost), 0);
   if (quantity <= 0) {
-    const hasOpeningStock = await prisma.inventoryTransaction.findFirst({
-      where: { branchInventoryId, referenceType: "OPENING" },
-      select: { id: true }
-    });
-    if (!hasOpeningStock) {
-      await prisma.ingredient.update({ where: { id: inventory.ingredientId }, data: { costPerUnit: 0 } });
-      return 0;
-    }
-    return parseDecimal(inventory.ingredient.costPerUnit);
+    await prisma.ingredient.update({ where: { id: inventory.ingredientId }, data: { costPerUnit: 0 } });
+    return 0;
   }
 
   const averageCost = Number((value / quantity).toFixed(2));
@@ -3276,17 +3269,6 @@ router.post("/inventory/transactions", async (req, res, next) => {
     } else if (payload.action === "PURCHASE") {
       quantityDelta = Math.abs(payload.quantity ?? 0);
       type = InventoryTransactionType.PURCHASE;
-      if (payload.purchaseCost && quantityDelta > 0) {
-        const existingQuantity = parseDecimal(inventory.quantityOnHand);
-        const existingCost = parseDecimal(inventory.ingredient.costPerUnit);
-        const averageCost = existingQuantity > 0
-          ? (existingQuantity * existingCost + payload.purchaseCost) / (existingQuantity + quantityDelta)
-          : payload.purchaseCost / quantityDelta;
-        await prisma.ingredient.update({
-          where: { id: payload.ingredientId },
-          data: { costPerUnit: Number(averageCost.toFixed(2)) }
-        });
-      }
     } else if (payload.action === "WASTAGE") {
       quantityDelta = -Math.abs(payload.quantity ?? 0);
       type = InventoryTransactionType.WASTAGE;
@@ -3313,6 +3295,10 @@ router.post("/inventory/transactions", async (req, res, next) => {
         wastageReason: payload.action === "WASTAGE" ? payload.wastageReason : undefined
       })
     );
+
+    if (payload.action === "PURCHASE") {
+      await recalculateIngredientAverageCost(updatedInventory.id);
+    }
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -6904,16 +6890,6 @@ router.post("/expenses/stock-purchases", async (req, res, next) => {
         purchaseUnitLabel: unitLabel,
       });
 
-      const existingQuantity = parseDecimal(inventory.quantityOnHand);
-      const existingCost = parseDecimal(inventory.ingredient.costPerUnit);
-      const averageCost = existingQuantity > 0
-        ? (existingQuantity * existingCost + payload.amount) / (existingQuantity + baseQuantity)
-        : payload.amount / baseQuantity;
-      await transaction.ingredient.update({
-        where: { id: payload.ingredientId },
-        data: { costPerUnit: Number(averageCost.toFixed(2)) }
-      });
-
       const expense = await transaction.expense.create({
         data: {
           branchId: payload.branchId,
@@ -6935,6 +6911,8 @@ router.post("/expenses/stock-purchases", async (req, res, next) => {
 
       return { expense, stock, baseQuantity, unitLabel };
     });
+
+    await recalculateIngredientAverageCost(inventory.id);
 
     await writeAuditLog({
       actorId: req.user!.id,
