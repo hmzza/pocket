@@ -178,7 +178,7 @@ export async function readInventoryData(
   });
   const recipeProductIds = [...new Set([...productIds, ...dynamicMealProducts.map((product) => product.id)])];
 
-  const [productIngredients, products] = await Promise.all([
+  const [productIngredients, products, ingredientComponents] = await Promise.all([
     recipeProductIds.length
       ? client.productIngredient.findMany({
           where: { productId: { in: recipeProductIds }, ingredient: { isActive: true } },
@@ -202,7 +202,15 @@ export async function readInventoryData(
             }
           }
         })
-      : Promise.resolve([])
+      : Promise.resolve([]),
+    client.ingredientComponent.findMany({
+      where: {
+        parentIngredient: { isActive: true },
+        componentIngredient: { isActive: true }
+      },
+      include: { componentIngredient: true },
+      orderBy: { componentIngredient: { name: "asc" } }
+    })
   ]);
 
   const neededIngredientIds = new Set<string>();
@@ -218,6 +226,22 @@ export async function readInventoryData(
 
   for (const recipe of productIngredients) {
     collectIngredientIds(recipe.ingredient);
+  }
+  const componentsByParent = new Map<string, typeof ingredientComponents>();
+  for (const component of ingredientComponents) {
+    const entries = componentsByParent.get(component.parentIngredientId) ?? [];
+    entries.push(component);
+    componentsByParent.set(component.parentIngredientId, entries);
+  }
+  const pendingIngredientIds = [...neededIngredientIds];
+  for (let index = 0; index < pendingIngredientIds.length; index += 1) {
+    const parentId = pendingIngredientIds[index]!;
+    for (const component of componentsByParent.get(parentId) ?? []) {
+      if (!neededIngredientIds.has(component.componentIngredientId)) {
+        neededIngredientIds.add(component.componentIngredientId);
+        pendingIngredientIds.push(component.componentIngredientId);
+      }
+    }
   }
   if (neededIngredientIds.size) {
     await client.branchInventory.createMany({
@@ -238,7 +262,7 @@ export async function readInventoryData(
     }
   });
 
-  return { productIngredients, products, branchInventories };
+  return { productIngredients, products, ingredientComponents, branchInventories };
 }
 
 type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
@@ -262,18 +286,12 @@ export function computeInventoryChanges({
 }): InventoryChange[] {
   const totals = new Map<string, number>();
 
-  function addIngredientUsage(ingredient: any, quantity: number, seen = new Set<string>()) {
+  function addIngredientUsage(ingredient: any, quantity: number) {
     if (!ingredient) return;
     if (ingredient.isActive === false) return;
     if (ingredient.type === "PACKAGING") return;
-    if (ingredient.type === "PREPARED" && ingredient.preparedComponents?.length && !seen.has(ingredient.id)) {
-      const nextSeen = new Set(seen);
-      nextSeen.add(ingredient.id);
-      for (const component of ingredient.preparedComponents) {
-        addIngredientUsage(component.componentIngredient, quantity * Number(component.quantityNeeded), nextSeen);
-      }
-      return;
-    }
+    // A prep item is a finished-stock ingredient at order time. Its raw
+    // components are produced only when the finished prep stock is short.
     totals.set(ingredient.id, roundQuantity((totals.get(ingredient.id) ?? 0) + quantity));
   }
 
@@ -448,12 +466,187 @@ export async function applyInventoryChanges({
   });
 }
 
+type PrepComponent = {
+  parentIngredientId: string;
+  componentIngredientId: string;
+  quantityNeeded: Prisma.Decimal | number;
+  componentIngredient: { id: string; name: string; unit: string; type: string; isActive: boolean };
+};
+
+type UnitSpec = { family: "mass" | "volume" | "count" | "unknown"; factor: number };
+
+function getUnitSpec(unit: string): UnitSpec {
+  const normalized = unit.trim().toLowerCase();
+  if (normalized === "kg") return { family: "mass", factor: 1000 };
+  if (normalized === "g" || normalized === "gram" || normalized === "grams") return { family: "mass", factor: 1 };
+  if (normalized === "litre" || normalized === "liter" || normalized === "l") return { family: "volume", factor: 1000 };
+  if (normalized === "ml" || normalized === "millilitre" || normalized === "milliliter") return { family: "volume", factor: 1 };
+  if (["pieces", "piece", "bottles", "bottle", "slices", "slice", "loafs", "loaf", "biscuit", "biscuits", "packets", "packet", "glass", "scoop"].includes(normalized)) {
+    return { family: "count", factor: 1 };
+  }
+  return { family: "unknown", factor: 1 };
+}
+
+export function calculateCompatibleBatchOutputQuantity(
+  prepUnit: string,
+  components: Array<{ quantityNeeded: number; unit: string }>
+) {
+  const outputUnit = getUnitSpec(prepUnit);
+  if (outputUnit.family === "unknown") return 0;
+  return roundQuantity(components
+    .filter((component) => getUnitSpec(component.unit).family === outputUnit.family)
+    .reduce((total, component) => {
+      const componentUnit = getUnitSpec(component.unit);
+      return total + component.quantityNeeded * componentUnit.factor / outputUnit.factor;
+    }, 0));
+}
+
+function calculatePrepBatchOutput(
+  prep: { id: string; name: string; unit: string },
+  components: PrepComponent[],
+  ingredientById: Map<string, { unit: string }>
+) {
+  const outputUnit = getUnitSpec(prep.unit);
+  const compatibleComponents = components.filter((component) => {
+    const ingredient = ingredientById.get(component.componentIngredientId) ?? component.componentIngredient;
+    const componentUnit = getUnitSpec(ingredient.unit);
+    return outputUnit.family !== "unknown" && componentUnit.family === outputUnit.family;
+  });
+
+  if (!compatibleComponents.length) {
+    throw new Error(`Cannot calculate a complete batch for ${prep.name}. Add at least one recipe component using a compatible ${prep.unit} unit.`);
+  }
+  return calculateCompatibleBatchOutputQuantity(prep.unit, compatibleComponents.map((component) => ({
+    quantityNeeded: Number(component.quantityNeeded),
+    unit: (ingredientById.get(component.componentIngredientId) ?? component.componentIngredient).unit
+  })));
+}
+
+async function reverseAutomaticPrepProduction({
+  transaction,
+  branchId,
+  orderId,
+  actorId
+}: {
+  transaction: Prisma.TransactionClient;
+  branchId: string;
+  orderId: string;
+  actorId?: string | null;
+}) {
+  const productionTransactions = await transaction.inventoryTransaction.findMany({
+    where: {
+      referenceType: "PREP_AUTO_BATCH",
+      referenceId: orderId,
+      branchInventory: { branchId }
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  for (const productionTransaction of productionTransactions) {
+    await recordInventoryChange({
+      transaction,
+      branchId,
+      ingredientId: (await transaction.branchInventory.findUniqueOrThrow({ where: { id: productionTransaction.branchInventoryId } })).ingredientId,
+      quantityDelta: roundQuantity(-Number(productionTransaction.quantity)),
+      type: InventoryTransactionType.RETURN,
+      actorId,
+      note: "Reverse automatic full prep batch for order",
+      referenceType: "PREP_AUTO_BATCH_REVERSAL",
+      referenceId: orderId
+    });
+  }
+
+  if (productionTransactions.length) {
+    await transaction.inventoryTransaction.updateMany({
+      where: { id: { in: productionTransactions.map((entry) => entry.id) } },
+      data: { referenceType: "PREP_AUTO_BATCH_REVERSED" }
+    });
+  }
+}
+
+async function produceRequiredPrepBatches({
+  transaction,
+  branchId,
+  orderId,
+  actorId,
+  requiredByIngredientId,
+  ingredientComponents,
+  branchInventories
+}: {
+  transaction: Prisma.TransactionClient;
+  branchId: string;
+  orderId: string;
+  actorId?: string | null;
+  requiredByIngredientId: Map<string, number>;
+  ingredientComponents: PrepComponent[];
+  branchInventories: Array<{ id: string; ingredientId: string; quantityOnHand: Prisma.Decimal; ingredient: { id: string; name: string; unit: string; type: string; isActive: boolean } }>;
+}) {
+  const stock = new Map(branchInventories.map((entry) => [entry.ingredientId, Number(entry.quantityOnHand)]));
+  const inventoryByIngredientId = new Map(branchInventories.map((entry) => [entry.ingredientId, entry]));
+  const ingredientById = new Map(branchInventories.map((entry) => [entry.ingredientId, entry.ingredient]));
+  const recipeByPrepId = new Map<string, PrepComponent[]>();
+  for (const component of ingredientComponents) {
+    const recipe = recipeByPrepId.get(component.parentIngredientId) ?? [];
+    recipe.push(component);
+    recipeByPrepId.set(component.parentIngredientId, recipe);
+  }
+  const building = new Set<string>();
+
+  async function moveStock(ingredientId: string, quantityDelta: number, note: string) {
+    const inventory = inventoryByIngredientId.get(ingredientId);
+    if (!inventory) throw new Error("Inventory item is missing for an automatic prep batch.");
+    const updated = await recordInventoryChange({
+      transaction,
+      branchId,
+      ingredientId,
+      quantityDelta,
+      type: quantityDelta >= 0 ? InventoryTransactionType.ADJUSTMENT : InventoryTransactionType.CONSUMPTION,
+      actorId,
+      note,
+      referenceType: "PREP_AUTO_BATCH",
+      referenceId: orderId
+    });
+    stock.set(ingredientId, roundQuantity((stock.get(ingredientId) ?? 0) + quantityDelta));
+    inventoryByIngredientId.set(ingredientId, { ...inventory, quantityOnHand: updated.quantityOnHand });
+  }
+
+  async function ensurePrepStock(prepId: string, requiredQuantity: number) {
+    const prep = ingredientById.get(prepId);
+    const recipe = recipeByPrepId.get(prepId) ?? [];
+    if (!prep || prep.type !== "PREPARED" || !recipe.length || requiredQuantity <= 0) return;
+    if ((stock.get(prepId) ?? 0) >= requiredQuantity) return;
+    if (building.has(prepId)) throw new Error(`Circular prep recipe detected for ${prep.name}.`);
+
+    const batchOutput = calculatePrepBatchOutput(prep, recipe, ingredientById);
+    const deficit = Math.max(0, requiredQuantity - (stock.get(prepId) ?? 0));
+    const batchCount = Math.max(1, Math.ceil(deficit / batchOutput));
+    building.add(prepId);
+    try {
+      for (const component of recipe) {
+        const componentQuantity = roundQuantity(Number(component.quantityNeeded) * batchCount);
+        const componentIngredient = ingredientById.get(component.componentIngredientId);
+        if (!componentIngredient || componentIngredient.isActive === false || componentIngredient.type === "PACKAGING") continue;
+        if (componentIngredient.type === "PREPARED") {
+          await ensurePrepStock(componentIngredient.id, componentQuantity);
+        }
+        await moveStock(componentIngredient.id, -componentQuantity, `Automatic full ${prep.name} batch for order`);
+      }
+      await moveStock(prepId, roundQuantity(batchOutput * batchCount), `Automatic full ${prep.name} batch for order`);
+    } finally {
+      building.delete(prepId);
+    }
+  }
+
+  for (const [ingredientId, requiredQuantity] of requiredByIngredientId) {
+    const ingredient = ingredientById.get(ingredientId);
+    if (ingredient?.type === "PREPARED") await ensurePrepStock(ingredientId, requiredQuantity);
+  }
+}
+
 /**
  * Backwards-compatible helper: reads, computes, and applies an order's
- * inventory adjustment within a single transaction. Used by non-POS callers
- * (catalog/customer checkout, admin cancellations) where the extra in-txn
- * reads are acceptable. The POS hot path splits these steps to keep reads
- * out of the transaction — see routes/pos.ts.
+ * inventory adjustment within a single transaction. All order channels use
+ * this path so automatic prep production and its reversal stay consistent.
  */
 export async function applyOrderInventory({
   transaction,
@@ -472,7 +665,31 @@ export async function applyOrderInventory({
       ]).filter((value): value is string => Boolean(value))
     )
   ];
-  const { productIngredients, products, branchInventories } = await readInventoryData(transaction, branchId, productIds);
-  const changes = computeInventoryChanges({ productIngredients, products, branchInventories, items, mode });
-  await applyInventoryChanges({ transaction, changes, orderId, actorId, mode });
+  const inventoryData = await readInventoryData(transaction, branchId, productIds);
+  const changes = computeInventoryChanges({ ...inventoryData, items, mode });
+
+  if (mode === "return") {
+    await applyInventoryChanges({ transaction, changes, orderId, actorId, mode });
+    await reverseAutomaticPrepProduction({ transaction, branchId, orderId, actorId });
+    return;
+  }
+
+  const requiredByIngredientId = new Map<string, number>();
+  for (const change of changes) {
+    const inventory = inventoryData.branchInventories.find((entry) => entry.id === change.branchInventoryId);
+    if (inventory) requiredByIngredientId.set(inventory.ingredientId, Math.abs(change.quantityDelta));
+  }
+  await produceRequiredPrepBatches({
+    transaction,
+    branchId,
+    orderId,
+    actorId,
+    requiredByIngredientId,
+    ingredientComponents: inventoryData.ingredientComponents as PrepComponent[],
+    branchInventories: inventoryData.branchInventories
+  });
+
+  const refreshedData = await readInventoryData(transaction, branchId, productIds);
+  const refreshedChanges = computeInventoryChanges({ ...refreshedData, items, mode });
+  await applyInventoryChanges({ transaction, changes: refreshedChanges, orderId, actorId, mode });
 }

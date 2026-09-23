@@ -8,7 +8,7 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { env } from "../config.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { signReceiptToken } from "../lib/receipt-token.js";
-import { applyInventoryChanges, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
+import { applyOrderInventory, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
 import {
   BEVERAGE_CATEGORY_SLUGS,
   MEAL_BASE_PRICE,
@@ -956,12 +956,13 @@ router.post("/checkout", async (req, res, next) => {
           include: posOrderInclude
         });
 
-        await applyInventoryChanges({
+        await applyOrderInventory({
           transaction,
-          changes: orderPayload.consumeChanges,
+          branchId: payload.branchId,
           orderId: createdOrder.id,
           actorId: req.user!.id,
-          mode: "consume"
+          mode: "consume",
+          items: orderPayload.normalizedItems
         });
 
         return createdOrder;
@@ -1051,30 +1052,14 @@ router.patch("/orders/:orderId", async (req, res, next) => {
         priceDelta: Number(addOn.priceDelta)
       }))
     }));
-    const oldProductIds = [
-      ...new Set(
-        oldItems.flatMap((item) => [
-          item.productId,
-          ...(item.bundleComponents ?? []).map((component) => component.productId)
-        ]).filter((value): value is string => Boolean(value))
-      )
-    ];
-    const oldInventoryData = await readInventoryData(prisma, existingOrder.branchId, oldProductIds);
-    const returnChanges = computeInventoryChanges({
-      productIngredients: oldInventoryData.productIngredients,
-      products: oldInventoryData.products,
-      branchInventories: oldInventoryData.branchInventories,
-      items: oldItems,
-      mode: "return",
-    });
-
     const updatedOrder = await prisma.$transaction(async (transaction) => {
-      await applyInventoryChanges({
+      await applyOrderInventory({
         transaction,
-        changes: returnChanges,
+        branchId: existingOrder.branchId,
         orderId: existingOrder.id,
         actorId: req.user!.id,
-        mode: "return"
+        mode: "return",
+        items: oldItems
       });
 
       await transaction.orderItemAddOn.deleteMany({
@@ -1155,12 +1140,13 @@ router.patch("/orders/:orderId", async (req, res, next) => {
         include: posOrderInclude
       });
 
-      await applyInventoryChanges({
+      await applyOrderInventory({
         transaction,
-        changes: orderPayload.consumeChanges,
+        branchId: existingOrder.branchId,
         orderId: existingOrder.id,
         actorId: req.user!.id,
-        mode: "consume"
+        mode: "consume",
+        items: orderPayload.normalizedItems
       });
 
       return order;
