@@ -11,7 +11,7 @@ import { buildUniqueUsername } from "../lib/username.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
-import { applyOrderInventory, recordInventoryChange } from "../lib/inventory.js";
+import { applyOrderInventory, calculateCompatibleBatchOutputQuantity, recordInventoryChange } from "../lib/inventory.js";
 import { CANONICAL_MEAL_PRODUCT_SLUG, MEAL_BASE_PRICE, MEAL_CATEGORY_SLUG, THELA_FRIES_SLUG, syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
@@ -4970,9 +4970,10 @@ router.delete("/investments/payments/:id", async (req, res, next) => {
   }
 });
 
-router.get("/inventory/recipes", async (_req, res, next) => {
+router.get("/inventory/recipes", async (req, res, next) => {
   try {
-    const [ingredients, preparedItems, products] = await Promise.all([
+    const branchContext = await resolveBranchContext(req);
+    const [ingredients, preparedItems, products, preparedStockRows] = await Promise.all([
       prisma.ingredient.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
       prisma.ingredient.findMany({
         where: { type: "PREPARED", isActive: true },
@@ -5001,8 +5002,30 @@ router.get("/inventory/recipes", async (_req, res, next) => {
           }
         },
         orderBy: { name: "asc" }
+      }),
+      prisma.branchInventory.findMany({
+        where: { branchId: branchContext.branchId, ingredient: { type: "PREPARED", isActive: true } },
+        select: { ingredientId: true, quantityOnHand: true }
       })
     ]);
+
+    const branchStock = new Map(preparedStockRows.map((entry) => [entry.ingredientId, parseDecimal(entry.quantityOnHand)]));
+    const lastProduction = await prisma.inventoryTransaction.findMany({
+      where: {
+        referenceType: "PREP_AUTO_BATCH",
+        type: InventoryTransactionType.ADJUSTMENT,
+        quantity: { gt: 0 },
+        branchInventory: { branchId: branchContext.branchId, ingredient: { type: "PREPARED", isActive: true } }
+      },
+      include: { branchInventory: { select: { ingredientId: true } } },
+      orderBy: { createdAt: "desc" }
+    });
+    const lastProductionByIngredient = new Map<string, string>();
+    for (const entry of lastProduction) {
+      if (!lastProductionByIngredient.has(entry.branchInventory.ingredientId)) {
+        lastProductionByIngredient.set(entry.branchInventory.ingredientId, entry.createdAt.toISOString());
+      }
+    }
 
     return res.json({
       ingredients: ingredients.map((ingredient) => ({
@@ -5031,6 +5054,9 @@ router.get("/inventory/recipes", async (_req, res, next) => {
           caloriesPerUnit: parseDecimal(ingredient.caloriesPerUnit),
           totalCost: roundMoney(components.reduce((sum, component) => sum + component.cost, 0)),
           totalCalories: components.reduce((sum, component) => sum + component.calories, 0),
+          quantityOnHand: branchStock.get(ingredient.id) ?? 0,
+          batchQuantity: calculateCompatibleBatchOutputQuantity(ingredient.unit, components.map((component) => ({ quantityNeeded: component.quantityNeeded, unit: component.unit }))),
+          lastAutoProductionAt: lastProductionByIngredient.get(ingredient.id) ?? null,
           components
         };
       }),
@@ -5129,6 +5155,12 @@ router.patch("/inventory/recipes/products/:id", async (req, res, next) => {
       }
     }
     await prisma.$transaction(async (transaction) => {
+      await transaction.productIngredient.deleteMany({
+        where: {
+          productId: req.params.id,
+          ...(ingredientIds.length ? { ingredientId: { notIn: ingredientIds } } : {})
+        }
+      });
       for (const component of payload.components) {
         await transaction.productIngredient.upsert({
           where: {
@@ -5183,6 +5215,38 @@ router.patch("/inventory/recipes/prepared/:id", async (req, res, next) => {
       }
     }
     await prisma.$transaction(async (transaction) => {
+      const existingComponents = await transaction.ingredientComponent.findMany({
+        select: { parentIngredientId: true, componentIngredientId: true }
+      });
+      const graph = new Map<string, string[]>();
+      for (const component of existingComponents) {
+        const entries = graph.get(component.parentIngredientId) ?? [];
+        entries.push(component.componentIngredientId);
+        graph.set(component.parentIngredientId, entries);
+      }
+      graph.set(req.params.id, ingredientIds);
+      const visiting = new Set<string>();
+      const visited = new Set<string>();
+      const visit = (node: string): boolean => {
+        if (visiting.has(node)) return true;
+        if (visited.has(node)) return false;
+        visiting.add(node);
+        for (const child of graph.get(node) ?? []) {
+          if (visit(child)) return true;
+        }
+        visiting.delete(node);
+        visited.add(node);
+        return false;
+      };
+      if (visit(req.params.id)) {
+        throw Object.assign(new Error("Prep recipes cannot contain circular ingredient references."), { statusCode: 400 });
+      }
+      await transaction.ingredientComponent.deleteMany({
+        where: {
+          parentIngredientId: req.params.id,
+          ...(ingredientIds.length ? { componentIngredientId: { notIn: ingredientIds } } : {})
+        }
+      });
       for (const component of payload.components) {
         await transaction.ingredientComponent.upsert({
           where: {

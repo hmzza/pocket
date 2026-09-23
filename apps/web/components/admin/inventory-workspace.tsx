@@ -1,6 +1,7 @@
 "use client";
 
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChefHat, ClipboardList, History, Minus, Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -49,7 +50,7 @@ const SERVICE_TYPE_LABELS: Record<(typeof SERVICE_TYPES)[number], string> = {
 const TABS: Array<{ id: InventoryTab; label: string; icon: typeof ClipboardList }> = [
   { id: "stock", label: "Stock", icon: ClipboardList },
   { id: "prep", label: "Prep Items", icon: ChefHat },
-  { id: "recipes", label: "Recipes & Costing", icon: ChefHat },
+  { id: "recipes", label: "Retail Items", icon: ChefHat },
   { id: "wastage", label: "Wastage", icon: Trash2 },
   { id: "logs", label: "Stock Logs", icon: History }
 ];
@@ -82,8 +83,16 @@ type LogEditState = {
 type RecipeEditState = {
   mode: "product" | "prepared" | "packaging";
   id: string;
-  components: Array<{ ingredientId: string; quantityNeeded: string; serviceType?: string }>;
+  components: Array<{ rowId: string; ingredientId: string; quantityNeeded: string; serviceType?: string }>;
 };
+
+function newRecipeRow(ingredientId = "", quantityNeeded = "") {
+  return {
+    rowId: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+    ingredientId,
+    quantityNeeded
+  };
+}
 
 type RuleFormState = {
   id: string;
@@ -338,26 +347,46 @@ function SearchableInventorySelect({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0, width: 0 });
   const selected = items.find((item) => item.id === value);
   const visible = items.filter((item) => `${item.name} ${item.unit}`.toLowerCase().includes(search.toLowerCase())).slice(0, 80);
 
   useEffect(() => {
     if (!open) return;
-    const close = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    const updatePosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setPopoverPosition({
+        top: rect.bottom + 8,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8)),
+        width: rect.width
+      });
     };
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !popoverRef.current?.contains(target)) setOpen(false);
+    };
+    updatePosition();
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
   }, [open]);
 
   const control = (
       <div ref={rootRef} className="relative">
-        <button type="button" aria-label={label ?? placeholder} onClick={() => setOpen((current) => !current)} className="flex h-11 w-full items-center justify-between rounded-md border border-pocket-navy/15 bg-white px-3 text-left text-sm text-pocket-navy">
+        <button ref={buttonRef} type="button" aria-label={label ?? placeholder} onClick={() => setOpen((current) => !current)} className="flex h-11 w-full items-center justify-between rounded-md border border-pocket-navy/15 bg-white px-3 text-left text-sm text-pocket-navy">
           <span className={selected ? "truncate" : "text-pocket-navy/50"}>{selected ? `${selected.name} (${selected.quantityOnHand ?? 0} ${selected.unit})` : placeholder}</span>
           <span className="ml-2 text-pocket-navy/50">⌄</span>
         </button>
-        {open ? (
-          <div className="absolute z-30 mt-2 w-full rounded-md border border-pocket-navy/15 bg-white p-2 shadow-panel">
+        {open && typeof document !== "undefined" ? createPortal(
+          <div ref={popoverRef} style={{ top: popoverPosition.top, left: popoverPosition.left, width: popoverPosition.width }} className="fixed z-[100] rounded-md border border-pocket-navy/15 bg-white p-2 shadow-panel">
             <Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search items" />
             <div className="mt-2 max-h-56 overflow-y-auto">
               {visible.map((item) => (
@@ -367,7 +396,8 @@ function SearchableInventorySelect({
               ))}
               {!visible.length ? <p className="px-3 py-2 text-sm text-pocket-navy/50">No matching items.</p> : null}
             </div>
-          </div>
+          </div>,
+          document.body
         ) : null}
       </div>
   );
@@ -412,18 +442,18 @@ function RecipesSection({ data, ingredients, edit, setEdit, saving, onSave }: { 
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_1.1fr]">
       <Card className="p-5">
-        <p className="text-lg font-black text-pocket-navy">Recipes & Costing</p>
+        <p className="text-lg font-black text-pocket-navy">Retail Items</p>
         <div className="mt-4 space-y-4">
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Prepared items</p>
             {(data?.preparedItems ?? []).map((item) => (
-              <RecipeRow key={item.id} name={item.name} meta={`${formatCurrency(item.totalCost)} · ${item.components.length} components`} onEdit={() => setEdit({ mode: "prepared", id: item.id, components: item.components.map((component) => ({ ingredientId: component.ingredientId, quantityNeeded: String(component.quantityNeeded) })) })} />
+              <RecipeRow key={item.id} name={item.name} meta={`${formatCurrency(item.totalCost)} · ${item.components.length} components`} onEdit={() => setEdit({ mode: "prepared", id: item.id, components: item.components.map((component) => newRecipeRow(component.ingredientId, String(component.quantityNeeded))) })} />
             ))}
           </div>
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Menu products</p>
             {(data?.products ?? []).map((product) => (
-              <RecipeRow key={product.id} name={product.name} meta={`${formatCurrency(product.costSummary.totalCost)} cost · ${product.costSummary.marginPercent}% margin · ${product.costSummary.calories} cal`} onEdit={() => setEdit({ mode: "product", id: product.id, components: product.costSummary.items.map((component) => ({ ingredientId: component.ingredientId, quantityNeeded: String(component.quantity) })) })} />
+              <RecipeRow key={product.id} name={product.name} meta={`${formatCurrency(product.costSummary.totalCost)} cost · ${product.costSummary.marginPercent}% margin · ${product.costSummary.calories} cal`} onEdit={() => setEdit({ mode: "product", id: product.id, components: product.costSummary.items.map((component) => newRecipeRow(component.ingredientId, String(component.quantity))) })} />
             ))}
           </div>
         </div>
@@ -434,7 +464,7 @@ function RecipesSection({ data, ingredients, edit, setEdit, saving, onSave }: { 
           <>
             <div className="mt-4 space-y-3">
               {edit.components.map((component, index) => (
-                <div key={`${index}-${component.ingredientId}`} className="grid gap-3 md:grid-cols-[1fr_140px_auto]">
+                <div key={component.rowId} className="grid gap-3 md:grid-cols-[1fr_140px_auto]">
                   <select value={component.ingredientId} onChange={(event) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, ingredientId: event.target.value } : entry) } : current)} className="flex h-11 rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
                     <option value="">Select ingredient</option>
                     {ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name} ({ingredient.unit})</option>)}
@@ -445,7 +475,7 @@ function RecipesSection({ data, ingredients, edit, setEdit, saving, onSave }: { 
               ))}
             </div>
             <div className="mt-5 flex justify-between gap-3">
-              <Button variant="outline" onClick={() => setEdit((current) => current ? { ...current, components: [...current.components, { ingredientId: "", quantityNeeded: "" }] } : current)}><Plus className="h-4 w-4" />Add ingredient</Button>
+              <Button variant="outline" onClick={() => setEdit((current) => current ? { ...current, components: [...current.components, newRecipeRow()] } : current)}><Plus className="h-4 w-4" />Add ingredient</Button>
               <Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save recipe"}</Button>
             </div>
           </>
@@ -466,7 +496,7 @@ function RecipesCostingSection({ data, ingredients, edit, setEdit, saving, onSav
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_1.1fr]">
       <Card className="p-5">
-        <p className="text-lg font-black text-pocket-navy">Recipes & Costing</p>
+        <p className="text-lg font-black text-pocket-navy">Retail Items</p>
         <div className="mt-4 space-y-3">
           {(data?.products ?? []).map((product) => (
             <div key={product.id} className="rounded-lg border border-pocket-navy/10 p-3">
@@ -478,7 +508,7 @@ function RecipesCostingSection({ data, ingredients, edit, setEdit, saving, onSav
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setEdit({ mode: "product", id: product.id, components: product.costSummary.items.filter((component) => component.ingredientType !== "PACKAGING").map((component) => ({ ingredientId: component.ingredientId, quantityNeeded: String(component.quantity) })) })}>Food</Button>
+                  <Button size="sm" variant="outline" onClick={() => setEdit({ mode: "product", id: product.id, components: product.costSummary.items.filter((component) => component.ingredientType !== "PACKAGING").map((component) => newRecipeRow(component.ingredientId, String(component.quantity))) })}>Food</Button>
                 </div>
               </div>
             </div>
@@ -491,7 +521,7 @@ function RecipesCostingSection({ data, ingredients, edit, setEdit, saving, onSav
           <>
             <div className="mt-4 space-y-3">
               {edit.components.map((component, index) => (
-                <div key={`${index}-${component.ingredientId}`} className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_140px_44px]">
+                <div key={component.rowId} className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_140px_44px]">
                   <SearchableInventorySelect label={null} items={foodIngredients} value={component.ingredientId} onChange={(ingredientId) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, ingredientId } : entry) } : current)} placeholder="Select ingredient or prep item" />
                   <Input aria-label="Quantity needed" type="number" min="0" step="0.001" value={component.quantityNeeded} onChange={(event) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantityNeeded: event.target.value } : entry) } : current)} />
                   <Button type="button" variant="ghost" className="h-11 w-11 p-0 text-red-600 hover:bg-red-50 hover:text-red-700" title="Remove ingredient" aria-label="Remove ingredient" onClick={() => setEdit((current) => current ? { ...current, components: current.components.filter((_, entryIndex) => entryIndex !== index) } : current)}><Minus className="h-4 w-4" /></Button>
@@ -499,7 +529,7 @@ function RecipesCostingSection({ data, ingredients, edit, setEdit, saving, onSav
               ))}
             </div>
             <div className="mt-5 flex flex-wrap justify-between gap-3">
-              <Button variant="outline" onClick={() => setEdit((current) => current ? { ...current, components: [...current.components, { ingredientId: "", quantityNeeded: "" }] } : current)}><Plus className="h-4 w-4" />Add ingredient</Button>
+              <Button variant="outline" onClick={() => setEdit((current) => current ? { ...current, components: [...current.components, newRecipeRow()] } : current)}><Plus className="h-4 w-4" />Add ingredient</Button>
               <Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save recipe"}</Button>
             </div>
           </>
@@ -517,7 +547,12 @@ function PrepItemsSection({ data, ingredients, edit, setEdit, saving, onSave }: 
         <p className="text-lg font-black text-pocket-navy">Prep Items</p>
         <div className="mt-4 space-y-3">
           {(data?.preparedItems ?? []).map((item) => (
-            <RecipeRow key={item.id} name={item.name} meta={`${formatCurrency(item.totalCost)} · ${item.totalCalories} cal · ${item.components.length} components`} onEdit={() => setEdit({ mode: "prepared", id: item.id, components: item.components.map((component) => ({ ingredientId: component.ingredientId, quantityNeeded: String(component.quantityNeeded) })) })} />
+            <RecipeRow
+              key={item.id}
+              name={item.name}
+              meta={`Stock ${item.quantityOnHand} ${item.unit} · Batch ${item.batchQuantity} ${item.unit} · ${formatCurrency(item.totalCost)} · ${item.components.length} components${item.lastAutoProductionAt ? ` · Last made ${new Date(item.lastAutoProductionAt).toLocaleString("en-PK")}` : ""}`}
+              onEdit={() => setEdit({ mode: "prepared", id: item.id, components: item.components.map((component) => newRecipeRow(component.ingredientId, String(component.quantityNeeded))) })}
+            />
           ))}
         </div>
       </Card>
@@ -527,7 +562,7 @@ function PrepItemsSection({ data, ingredients, edit, setEdit, saving, onSave }: 
           <>
             <div className="mt-4 space-y-3">
               {preparedEdit.components.map((component, index) => (
-                <div key={`${index}-${component.ingredientId}`} className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_140px_44px]">
+                <div key={component.rowId} className="grid items-center gap-3 md:grid-cols-[minmax(0,1fr)_140px_44px]">
                   <SearchableInventorySelect label={null} items={ingredients.filter((ingredient) => ingredient.type !== "PACKAGING")} value={component.ingredientId} onChange={(ingredientId) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, ingredientId } : entry) } : current)} placeholder="Select ingredient or prep item" />
                   <Input aria-label="Quantity needed" type="number" min="0" step="0.001" value={component.quantityNeeded} onChange={(event) => setEdit((current) => current ? { ...current, components: current.components.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantityNeeded: event.target.value } : entry) } : current)} />
                   <Button type="button" variant="ghost" className="h-11 w-11 p-0 text-red-600 hover:bg-red-50 hover:text-red-700" title="Remove ingredient" aria-label="Remove ingredient" onClick={() => setEdit((current) => current ? { ...current, components: current.components.filter((_, entryIndex) => entryIndex !== index) } : current)}><Minus className="h-4 w-4" /></Button>
@@ -535,7 +570,7 @@ function PrepItemsSection({ data, ingredients, edit, setEdit, saving, onSave }: 
               ))}
             </div>
             <div className="mt-5 flex flex-wrap justify-between gap-3">
-              <Button variant="outline" onClick={() => setEdit((current) => current ? { ...current, components: [...current.components, { ingredientId: "", quantityNeeded: "" }] } : current)}><Plus className="h-4 w-4" />Add ingredient</Button>
+              <Button variant="outline" onClick={() => setEdit((current) => current ? { ...current, components: [...current.components, newRecipeRow()] } : current)}><Plus className="h-4 w-4" />Add ingredient</Button>
               <Button onClick={onSave} disabled={saving}>{saving ? "Saving..." : "Save prep recipe"}</Button>
             </div>
           </>

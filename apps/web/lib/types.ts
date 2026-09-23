@@ -285,6 +285,9 @@ export type AdminRecipeData = {
     caloriesPerUnit: number;
     totalCost: number;
     totalCalories: number;
+    quantityOnHand: number;
+    batchQuantity: number;
+    lastAutoProductionAt?: string | null;
     components: Array<{
       ingredientId: string;
       ingredientName: string;
