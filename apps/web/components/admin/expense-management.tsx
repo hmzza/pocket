@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, RefreshCcw, Receipt } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, RefreshCcw, Receipt, Search } from "lucide-react";
 import { FixedExpenseManagement } from "@/components/admin/fixed-expense-management";
-import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -15,6 +14,7 @@ import {
   fetchAdminExpenses,
   fetchAdminInventory,
   fetchAdminSettings,
+  fetchAdminExpenseTitleFavorites,
   updateAdminExpense,
   updateAdminStockPurchase,
   updateAdminSetting
@@ -23,34 +23,16 @@ import type { AdminExpense, AdminExpenseData, AdminInventoryData, AdminInventory
 import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue, toPakistanDateIso } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
+  { value: "yesterday", label: "Yesterday" },
   { value: "today", label: "Today" },
-  { value: "7d", label: "7 Days" },
-  { value: "30d", label: "30 Days" },
+  { value: "tomorrow", label: "Tomorrow" },
   { value: "month", label: "This Month" },
-  { value: "custom", label: "Custom" },
-  { value: "year", label: "This Year" }
+  { value: "year", label: "This Year" },
+  { value: "custom", label: "Custom" }
 ];
 
-const COMMON_EXPENSE_CATEGORIES = ["Inventory", "Utilities", "Rent", "Salaries", "Maintenance", "Marketing", "Delivery", "Misc"];
+const COMMON_EXPENSE_CATEGORIES = ["Utilities", "Rent", "Salaries", "Maintenance", "Marketing", "Delivery", "Packaging", "Misc"];
 const EXPENSE_CATEGORY_SETTING_KEY = "expense.categories";
-const EXPENSE_TITLE_SETTING_KEY = "expense.titles";
-const DEFAULT_EXPENSE_TITLES = [
-  "Rent",
-  "Salaries",
-  "Electricity",
-  "Gas",
-  "Internet",
-  "AC installment",
-  "Maintenance",
-  "Drinking water",
-  "Marketing",
-  "Breakfast",
-  "Miscellaneous",
-  "Cheese",
-  "Electricity bill",
-  "Boxes",
-  "Opening stock purchase"
-];
 const MONEY_SOURCES = [
   { value: "CASH", label: "Cash" },
   { value: "EASYPAISA", label: "Easypaisa" },
@@ -88,7 +70,8 @@ type StockPurchaseFormState = {
   purchaseQuantity: string;
   amount: string;
   paymentSource: (typeof MONEY_SOURCES)[number]["value"] | "";
-  purchaseDate: string;
+  receivedDate: string;
+  paymentDate: string;
 };
 
 type ExpenseEntryMode = "OTHER" | "STOCK";
@@ -97,7 +80,7 @@ function createEmptyExpenseForm(): ExpenseFormState {
   return {
     branchId: "",
     title: "",
-    category: "Inventory",
+    category: "",
     amount: "",
     paymentSource: "",
     expenseDate: getCurrentBusinessDateKey(),
@@ -111,7 +94,8 @@ function createEmptyStockPurchaseForm(): StockPurchaseFormState {
     purchaseQuantity: "",
     amount: "",
     paymentSource: "",
-    purchaseDate: getCurrentBusinessDateKey(),
+    receivedDate: getCurrentBusinessDateKey(),
+    paymentDate: getCurrentBusinessDateKey(),
   };
 }
 
@@ -138,15 +122,71 @@ function EntryModeTabs({ mode, onChange }: { mode: ExpenseEntryMode; onChange: (
   );
 }
 
+function SearchableExpenseTitleSelect({
+  options,
+  value,
+  onChange
+}: {
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+  const filtered = options.filter((title) => title.toLowerCase().includes(search.toLowerCase()));
+  const label = value === "__custom__" ? "Add custom title" : value || "Select an expense title";
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button type="button" onClick={() => setOpen((current) => !current)} className="flex h-11 w-full items-center justify-between rounded-md border border-pocket-navy/15 bg-white px-3 text-left text-sm text-pocket-charcoal focus:border-pocket-orange focus:outline-none focus:ring-2 focus:ring-pocket-orange/20">
+        <span className={value ? "text-pocket-charcoal" : "text-pocket-navy/50"}>{label}</span>
+        <ChevronDown className={`h-4 w-4 text-pocket-navy/50 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-20 overflow-hidden rounded-md border border-pocket-navy/15 bg-white shadow-panel">
+          <div className="flex items-center gap-2 border-b border-pocket-navy/10 px-3 py-2">
+            <Search className="h-4 w-4 text-pocket-navy/45" />
+            <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search favorite titles" className="h-8 min-w-0 flex-1 bg-transparent text-sm text-pocket-charcoal outline-none" />
+          </div>
+          <div className="max-h-52 overflow-y-auto p-1">
+            {filtered.map((title) => (
+              <button key={title} type="button" onClick={() => { onChange(title); setOpen(false); setSearch(""); }} className="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm text-pocket-navy hover:bg-pocket-cream">
+                <span>{title}</span>
+                {value === title ? <Check className="h-4 w-4 text-pocket-orange" /> : null}
+              </button>
+            ))}
+            {!filtered.length ? <p className="px-3 py-2 text-sm text-pocket-navy/50">No favorite titles.</p> : null}
+            <button type="button" onClick={() => { onChange("__custom__"); setOpen(false); setSearch(""); }} className="mt-1 flex w-full border-t border-pocket-navy/10 px-3 py-2 text-left text-sm font-bold text-pocket-orange hover:bg-pocket-cream">
+              + Add custom title
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ExpenseEditor({
   open,
   value,
   editingExpense,
   titleOptions,
   titleChoice,
+  addTitleToFavorites,
   categoryOptions,
   onAddCategory,
   onTitleChoiceChange,
+  onAddTitleToFavoritesChange,
   saving,
   onChange,
   mode,
@@ -159,9 +199,11 @@ function ExpenseEditor({
   editingExpense: AdminExpense | null;
   titleOptions: string[];
   titleChoice: string;
+  addTitleToFavorites: boolean;
   categoryOptions: string[];
   onAddCategory: (category: string) => void | Promise<void>;
   onTitleChoiceChange: (nextTitle: string) => void;
+  onAddTitleToFavoritesChange: (value: boolean) => void;
   saving: boolean;
   onChange: (next: ExpenseFormState) => void;
   mode: ExpenseEntryMode;
@@ -193,19 +235,14 @@ function ExpenseEditor({
           </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-semibold text-pocket-navy">Title</label>
-            <select
+            <SearchableExpenseTitleSelect
+              options={titleOptions}
               value={titleChoice}
-              onChange={(event) => {
-                const nextTitle = event.target.value;
+              onChange={(nextTitle) => {
                 onTitleChoiceChange(nextTitle);
                 onChange({ ...value, title: nextTitle === "__custom__" ? "" : nextTitle });
               }}
-              className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20"
-            >
-              <option value="">Select an expense title</option>
-              {titleOptions.map((title) => <option key={title} value={title}>{title}</option>)}
-              <option value="__custom__">+ Add custom title</option>
-            </select>
+            />
             {titleChoice === "__custom__" ? <Input value={value.title} onChange={(event) => onChange({ ...value, title: event.target.value })} placeholder="Enter custom expense title" /> : null}
           </div>
           <div className="space-y-2">
@@ -239,12 +276,15 @@ function ExpenseEditor({
             <label className="text-sm font-semibold text-pocket-navy">Amount</label>
             <Input type="number" min="0" step="0.01" value={value.amount} onChange={(event) => onChange({ ...value, amount: event.target.value })} />
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Paid from</label>
-            <select value={value.paymentSource} onChange={(event) => onChange({ ...value, paymentSource: event.target.value as ExpenseFormState["paymentSource"] })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20">
-              <option value="" disabled>Select payment source</option>
-              {MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
-            </select>
+          <div className="flex items-end gap-4 md:col-span-2">
+            <div className="min-w-0 flex-1 space-y-2">
+              <label className="text-sm font-semibold text-pocket-navy">Paid from</label>
+              <select value={value.paymentSource} onChange={(event) => onChange({ ...value, paymentSource: event.target.value as ExpenseFormState["paymentSource"] })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal outline-none transition focus:border-pocket-orange focus:ring-2 focus:ring-pocket-orange/20">
+                <option value="" disabled>Select payment source</option>
+                {MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
+              </select>
+            </div>
+            {titleChoice === "__custom__" ? <label className="flex h-11 shrink-0 items-center gap-2 text-sm font-semibold text-pocket-navy"><input type="checkbox" checked={addTitleToFavorites} onChange={(event) => onAddTitleToFavoritesChange(event.target.checked)} className="h-4 w-4 accent-pocket-orange" />Add to favorites</label> : null}
           </div>
         </div>
 
@@ -343,6 +383,14 @@ function StockPurchaseEditor({
         </div>
         <EntryModeTabs mode="STOCK" onChange={onModeChange} />
         <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Received date</label>
+            <Input type="date" value={value.receivedDate} onChange={(event) => onChange({ ...value, receivedDate: event.target.value })} />
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Payment date</label>
+            <Input type="date" value={value.paymentDate} onChange={(event) => onChange({ ...value, paymentDate: event.target.value })} />
+          </div>
           <div className="space-y-2 md:col-span-2">
             <label className="text-sm font-semibold text-pocket-navy">Inventory item</label>
             <SearchableExpenseInventorySelect items={items} value={value.ingredientId} disabled={Boolean(editingExpense)} onChange={(ingredientId) => onChange({ ...value, ingredientId, purchaseUnitId: "" })} />
@@ -370,10 +418,6 @@ function StockPurchaseEditor({
               <option value="" disabled>Select payment source</option>
               {MONEY_SOURCES.map((source) => <option key={source.value} value={source.value}>{source.label}</option>)}
             </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Purchase date</label>
-            <Input type="date" value={value.purchaseDate} onChange={(event) => onChange({ ...value, purchaseDate: event.target.value })} />
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">
@@ -412,6 +456,7 @@ export function ExpenseManagement() {
   const [exporting, setExporting] = useState(false);
   const [deletingId, setDeletingId] = useState("");
   const [fixedExpensesOpen, setFixedExpensesOpen] = useState(false);
+  const [addTitleToFavorites, setAddTitleToFavorites] = useState(false);
 
   async function loadExpenses(
     nextPreset = preset,
@@ -459,15 +504,13 @@ export function ExpenseManagement() {
 
     async function loadMetadata() {
       try {
-        const [settings, inventoryData] = await Promise.all([fetchAdminSettings(), fetchAdminInventory()]);
+        const [settings, inventoryData, favoriteTitles] = await Promise.all([fetchAdminSettings(), fetchAdminInventory(), fetchAdminExpenseTitleFavorites()]);
         if (cancelled) return;
 
         const savedCategorySetting = settings.find((setting) => setting.key === EXPENSE_CATEGORY_SETTING_KEY);
         const savedCategories = Array.isArray(savedCategorySetting?.value) ? savedCategorySetting.value.map((entry) => String(entry).trim()).filter(Boolean) : [];
         setExpenseCategories(savedCategories);
-        const savedTitleSetting = settings.find((setting) => setting.key === EXPENSE_TITLE_SETTING_KEY);
-        const savedTitles = Array.isArray(savedTitleSetting?.value) ? savedTitleSetting.value.map((entry) => String(entry).trim()).filter(Boolean) : [];
-        setExpenseTitles(savedTitles);
+        setExpenseTitles(favoriteTitles);
         setInventory(inventoryData);
         if (typeof window !== "undefined") {
           const params = new URLSearchParams(window.location.search);
@@ -492,6 +535,11 @@ export function ExpenseManagement() {
   useEffect(() => {
     void loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd);
   }, [preset, branchId, categoryFilter, selectedMonth, customStart, customEnd]);
+
+  useEffect(() => {
+    if (!branchId) return;
+    void fetchAdminExpenseTitleFavorites().then(setExpenseTitles).catch(() => undefined);
+  }, [branchId]);
 
   useEffect(() => {
     const checkBusinessDay = () => {
@@ -531,10 +579,12 @@ export function ExpenseManagement() {
 
   const categoryOptions = useMemo(() => {
     const fromData = data?.categories.map((entry) => entry.label) ?? [];
-    return [...new Set([...COMMON_EXPENSE_CATEGORIES, ...expenseCategories, ...fromData, ...(form.category ? [form.category] : [])])].sort((left, right) => left.localeCompare(right));
+    return [...new Set([...COMMON_EXPENSE_CATEGORIES, ...expenseCategories, ...fromData, ...(form.category ? [form.category] : [])])]
+      .filter((category) => !["inventory", "barf"].includes(category.toLowerCase()))
+      .sort((left, right) => left.localeCompare(right));
   }, [data, expenseCategories, form.category]);
 
-  const titleOptions = useMemo(() => [...new Set([...DEFAULT_EXPENSE_TITLES, ...expenseTitles])].sort((left, right) => left.localeCompare(right)), [expenseTitles]);
+  const titleOptions = useMemo(() => [...new Set(expenseTitles)].sort((left, right) => left.localeCompare(right)), [expenseTitles]);
 
   const stockItems = useMemo(
     () => (inventory?.items ?? []).filter((item) => item.isActive && item.type !== "PREPARED"),
@@ -547,9 +597,10 @@ export function ExpenseManagement() {
     setForm({
       ...createEmptyExpenseForm(),
       branchId: branchId || data?.branches[0]?.id || "",
-      category: categoryOptions[0] ?? "Inventory"
+      category: ""
     });
     setTitleChoice("");
+    setAddTitleToFavorites(false);
     setEntryMode("OTHER");
     setStockForm(createEmptyStockPurchaseForm());
     setEditorOpen(true);
@@ -566,7 +617,8 @@ export function ExpenseManagement() {
         purchaseQuantity: String(expense.stockPurchase.purchaseQuantity || expense.stockPurchase.baseQuantity),
         amount: String(expense.amount),
         paymentSource: expense.paymentSource,
-        purchaseDate: toBusinessDateInputValue(expense.stockPurchase.purchaseDate ?? expense.expenseDate),
+        receivedDate: toBusinessDateInputValue(expense.stockPurchase.receivedDate ?? expense.stockPurchase.purchaseDate ?? expense.expenseDate),
+        paymentDate: toBusinessDateInputValue(expense.stockPurchase.paymentDate ?? expense.expenseDate),
       });
       setEditorOpen(true);
       return;
@@ -575,6 +627,7 @@ export function ExpenseManagement() {
     setFormDateEdited(true);
     setForm(mapExpenseToForm(expense));
     setTitleChoice(titleOptions.includes(expense.title) ? expense.title : "__custom__");
+    setAddTitleToFavorites(false);
     setEntryMode("OTHER");
     setEditorOpen(true);
   }
@@ -597,8 +650,8 @@ export function ExpenseManagement() {
 
   async function submitStockPurchase() {
     const item = stockItems.find((entry) => entry.ingredientId === stockForm.ingredientId);
-    if (!item || !stockForm.purchaseQuantity || !stockForm.amount || !stockForm.paymentSource || !stockForm.purchaseDate) {
-      setError("Inventory item, purchase quantity, cost, paid from, and purchase date are required.");
+    if (!item || !stockForm.purchaseQuantity || !stockForm.amount || !stockForm.paymentSource || !stockForm.receivedDate || !stockForm.paymentDate) {
+      setError("Inventory item, purchase quantity, cost, paid from, received date, and payment date are required.");
       return;
     }
     setSaving(true);
@@ -611,7 +664,8 @@ export function ExpenseManagement() {
         purchaseQuantity: Number(stockForm.purchaseQuantity),
         amount: Number(stockForm.amount),
         paymentSource: stockForm.paymentSource,
-        purchaseDate: new Date(`${stockForm.purchaseDate}T12:00:00+05:00`).toISOString(),
+        receivedDate: new Date(`${stockForm.receivedDate}T12:00:00+05:00`).toISOString(),
+        paymentDate: new Date(`${stockForm.paymentDate}T12:00:00+05:00`).toISOString(),
       };
       if (editingExpense) await updateAdminStockPurchase(editingExpense.id, payload);
       else await createAdminStockPurchase(payload);
@@ -645,6 +699,7 @@ export function ExpenseManagement() {
         category: nextCategory,
         amount: Number(form.amount),
         paymentSource: form.paymentSource,
+        addToFavorites: titleChoice === "__custom__" && addTitleToFavorites,
         expenseDate: new Date(`${form.expenseDate}T12:00:00+05:00`).toISOString(),
       };
 
@@ -652,14 +707,6 @@ export function ExpenseManagement() {
         await updateAdminExpense(editingExpense.id, payload);
       } else {
         await createAdminExpense(payload);
-      }
-
-      if (titleChoice === "__custom__") {
-        const nextTitles = [...new Set([...expenseTitles, form.title.trim()])].sort((left, right) => left.localeCompare(right));
-        if (nextTitles.length !== expenseTitles.length) {
-          await updateAdminSetting(EXPENSE_TITLE_SETTING_KEY, nextTitles);
-          setExpenseTitles(nextTitles);
-        }
       }
 
       setEditorOpen(false);
@@ -748,9 +795,11 @@ export function ExpenseManagement() {
           editingExpense={editingExpense}
           titleOptions={titleOptions}
           titleChoice={titleChoice}
+          addTitleToFavorites={addTitleToFavorites}
           categoryOptions={categoryOptions}
           onAddCategory={(nextCategory) => void addExpenseCategory(nextCategory)}
           onTitleChoiceChange={setTitleChoice}
+          onAddTitleToFavoritesChange={setAddTitleToFavorites}
           saving={saving}
           mode={entryMode}
           onModeChange={(mode) => { setEntryMode(mode); if (mode === "STOCK") setStockForm(createEmptyStockPurchaseForm()); }}
@@ -908,31 +957,6 @@ export function ExpenseManagement() {
         <Card className="p-6 text-sm text-pocket-navy/60">Loading expenses...</Card>
       ) : (
         <>
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_360px]">
-            <SalesChart sales={data.series} title="Expense trend" description={`Recorded spend for ${data.range.label.toLowerCase()}.`} />
-            <Card className="p-5">
-              <p className="text-lg font-black text-pocket-navy">Category split</p>
-              <p className="text-sm text-pocket-navy/60">Which expense buckets are consuming the most cash.</p>
-              <div className="mt-4 space-y-3">
-                {data.categories.length ? (
-                  data.categories.map((entry) => (
-                    <div key={entry.label} className="rounded-xl border border-pocket-navy/10 px-4 py-3">
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="font-semibold text-pocket-navy">{entry.label}</p>
-                          <p className="text-sm text-pocket-navy/60">{entry.count} entries</p>
-                        </div>
-                        <p className="font-black text-pocket-orange">{formatCurrency(entry.amount)}</p>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-pocket-navy/60">No expenses in this period.</p>
-                )}
-              </div>
-            </Card>
-          </div>
-
           <Card className="p-5">
             <div className="flex items-center gap-3">
               <div className="grid h-11 w-11 place-items-center rounded-2xl bg-pocket-cream text-pocket-orange">
@@ -946,13 +970,13 @@ export function ExpenseManagement() {
             <div className="mt-5 space-y-3">
               {filteredExpenses.length ? (
                 filteredExpenses.map((expense) => (
-                  <div key={expense.id} className="rounded-xl border border-pocket-navy/10 p-4">
+                  <div key={expense.id} className={`rounded-xl border p-4 ${expense.stockPurchase ? "border-emerald-200 bg-emerald-50/60" : "border-pocket-navy/10 bg-white"}`}>
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="space-y-2">
                         <div>
-                          <p className="font-black text-pocket-navy">{expense.title}</p>
+                          <p className="font-black text-pocket-navy">{expense.stockPurchase?.ingredientName ?? expense.title.replace(/^Stock purchase:\s*/i, "")}</p>
                           <p className="text-sm text-pocket-navy/60">
-                            {expense.stockPurchase ? "Stock purchase" : expense.category}
+                            {expense.category}
                           </p>
                         </div>
                         <div className="grid gap-2 text-sm text-pocket-navy/70 sm:grid-cols-2">
@@ -967,6 +991,8 @@ export function ExpenseManagement() {
                               timeZone: "Asia/Karachi"
                             }).format(new Date(expense.createdAt))} PKT
                           </p>
+                          <p>{expense.stockPurchase ? `Payment date: ${toBusinessDateInputValue(expense.stockPurchase.paymentDate ?? expense.expenseDate)}` : `Expense date: ${toBusinessDateInputValue(expense.expenseDate)}`}</p>
+                          {expense.stockPurchase?.receivedDate ? <p>Received date: {toBusinessDateInputValue(expense.stockPurchase.receivedDate)}</p> : null}
                           <p>Paid from: {MONEY_SOURCES.find((source) => source.value === expense.paymentSource)?.label ?? expense.paymentSource}</p>
                           {expense.stockPurchase ? <p>Added: {expense.stockPurchase.purchaseQuantity} {expense.stockPurchase.purchaseUnitLabel} ({expense.stockPurchase.baseQuantity} base units)</p> : null}
                           {expense.createdByName ? <p>Logged by: {expense.createdByName}</p> : null}

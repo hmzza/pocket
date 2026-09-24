@@ -26,10 +26,27 @@ import {
   updateAdminProductRecipe
 } from "@/lib/admin-client";
 import type { AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminPackagingRuleData, AdminRecipeData } from "@/lib/types";
-import { formatCompactCurrency, formatCurrency, toBusinessDateInputValue } from "@/lib/utils";
+import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue, toPakistanDateIso } from "@/lib/utils";
+import type { AdminRangePreset } from "@/lib/types";
 
 type InventoryTab = "stock" | "prep" | "recipes" | "wastage" | "logs";
 type StockStatusFilter = "all" | "active" | "inactive";
+type LogPreset = AdminRangePreset;
+
+const LOG_PRESETS: Array<{ value: LogPreset; label: string }> = [
+  { value: "yesterday", label: "Yesterday" },
+  { value: "today", label: "Today" },
+  { value: "tomorrow", label: "Tomorrow" },
+  { value: "month", label: "This Month" },
+  { value: "year", label: "This Year" },
+  { value: "custom", label: "Custom" }
+];
+
+function shiftBusinessDateKey(value: string, days: number) {
+  const [year = 0, month = 1, day = 1] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
 
 const INVENTORY_UNITS = ["g", "kg", "ml", "litre", "bottles", "pieces", "slices", "loafs"];
 const ITEM_TYPES = ["RAW", "PREPARED", "PACKAGING", "RETAIL"] as const;
@@ -631,11 +648,17 @@ function RulesSection({ data, form, setForm, saving, onSubmit, onDelete }: { dat
   );
 }
 
-function LogsSection({ entries, edit, setEdit, saving, onSave }: { entries: AdminInventoryTransaction[]; edit: LogEditState | null; setEdit: Dispatch<SetStateAction<LogEditState | null>>; saving: boolean; onSave: () => void }) {
+function LogsSection({ entries, edit, setEdit, saving, onSave, preset, customStart, customEnd, onPresetChange, onCustomStartChange, onCustomEndChange }: { entries: AdminInventoryTransaction[]; edit: LogEditState | null; setEdit: Dispatch<SetStateAction<LogEditState | null>>; saving: boolean; onSave: () => void; preset: LogPreset; customStart: string; customEnd: string; onPresetChange: (value: LogPreset) => void; onCustomStartChange: (value: string) => void; onCustomEndChange: (value: string) => void }) {
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
       <Card className="p-5">
-        <p className="text-lg font-black text-pocket-navy">Stock Logs</p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-lg font-black text-pocket-navy">Stock Logs</p>
+          <div className="flex flex-wrap gap-2">
+            {LOG_PRESETS.map((option) => <button key={option.value} type="button" onClick={() => onPresetChange(option.value)} className={`rounded-full border px-3 py-1.5 text-xs font-bold ${preset === option.value ? "border-pocket-orange bg-pocket-orange text-white" : "border-pocket-navy/10 text-pocket-navy hover:bg-pocket-cream"}`}>{option.label}</button>)}
+          </div>
+        </div>
+        {preset === "custom" ? <div className="mt-3 grid gap-2 sm:grid-cols-2"><Input type="date" value={customStart} onChange={(event) => onCustomStartChange(event.target.value)} /><Input type="date" value={customEnd} onChange={(event) => onCustomEndChange(event.target.value)} /></div> : null}
         <div className="mt-4 space-y-3">
           {entries.map((entry) => (
             <div key={entry.id} className="rounded-lg border border-pocket-navy/10 p-3">
@@ -652,7 +675,7 @@ function LogsSection({ entries, edit, setEdit, saving, onSave }: { entries: Admi
         {!edit ? <p className="mt-3 text-sm text-pocket-navy/60">Pick a log entry to edit.</p> : (
           <div className="mt-4 space-y-3">
             <Field label="Quantity"><Input type="number" step="0.001" value={edit.quantity} onChange={(event) => setEdit((current) => current ? { ...current, quantity: event.target.value } : current)} /></Field>
-            <Field label="Purchase date"><Input type="date" value={edit.purchaseDate} onChange={(event) => setEdit((current) => current ? { ...current, purchaseDate: event.target.value } : current)} /></Field>
+            <Field label="Received date"><Input type="date" value={edit.purchaseDate} onChange={(event) => setEdit((current) => current ? { ...current, purchaseDate: event.target.value } : current)} /></Field>
             <Field label="Purchase cost"><Input type="number" min="0" step="0.01" value={edit.purchaseCost} onChange={(event) => setEdit((current) => current ? { ...current, purchaseCost: event.target.value } : current)} /></Field>
             <Field label="Wastage reason"><Input value={edit.wastageReason} onChange={(event) => setEdit((current) => current ? { ...current, wastageReason: event.target.value } : current)} /></Field>
             <div className="space-y-2"><label className="text-sm font-semibold text-pocket-navy">Note</label><Textarea value={edit.note} onChange={(event) => setEdit((current) => current ? { ...current, note: event.target.value } : current)} /></div>
@@ -680,11 +703,26 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [logEdit, setLogEdit] = useState<LogEditState | null>(null);
   const [recipeEdit, setRecipeEdit] = useState<RecipeEditState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [logPreset, setLogPreset] = useState<LogPreset>("today");
+  const [logCustomStart, setLogCustomStart] = useState(getCurrentBusinessDateKey());
+  const [logCustomEnd, setLogCustomEnd] = useState(getCurrentBusinessDateKey());
 
-  async function loadAll() {
+  async function loadAll(nextLogPreset = logPreset, nextStart = logCustomStart, nextEnd = logCustomEnd) {
     try {
       setError("");
-      const inventoryData = await fetchAdminInventory();
+      const today = getCurrentBusinessDateKey();
+      const range = nextLogPreset === "custom"
+          ? { start: nextStart, end: nextEnd }
+          : nextLogPreset === "yesterday"
+            ? { start: shiftBusinessDateKey(today, -1), end: shiftBusinessDateKey(today, -1) }
+            : nextLogPreset === "tomorrow"
+              ? { start: shiftBusinessDateKey(today, 1), end: shiftBusinessDateKey(today, 1) }
+              : nextLogPreset === "month"
+                ? { start: `${today.slice(0, 7)}-01`, end: today }
+                : nextLogPreset === "year"
+                  ? { start: `${today.slice(0, 4)}-01-01`, end: today }
+                  : { start: today, end: today };
+      const inventoryData = await fetchAdminInventory(undefined, { receivedStart: toPakistanDateIso(range.start), receivedEnd: toPakistanDateIso(range.end, true) });
       setData(inventoryData);
       setRecipes(await fetchAdminInventoryRecipes());
       const first = inventoryData.items.find((item) => item.isActive)?.ingredientId ?? "";
@@ -891,7 +929,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
       {activeTab === "prep" ? <PrepItemsSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
       {activeTab === "wastage" ? <WastageForm items={activeItems} form={wastageForm} setForm={setWastageForm} saving={saving} onSubmit={() => void submitWastage()} /> : null}
       {activeTab === "recipes" ? <RecipesCostingSection data={recipes} ingredients={recipes?.ingredients ?? []} edit={recipeEdit} setEdit={setRecipeEdit} saving={saving} onSave={() => void saveRecipe()} /> : null}
-      {activeTab === "logs" ? <LogsSection entries={data?.recentTransactions ?? []} edit={logEdit} setEdit={setLogEdit} saving={saving} onSave={() => void saveLogEdit()} /> : null}
+      {activeTab === "logs" ? <LogsSection entries={data?.recentTransactions ?? []} edit={logEdit} setEdit={setLogEdit} saving={saving} onSave={() => void saveLogEdit()} preset={logPreset} customStart={logCustomStart} customEnd={logCustomEnd} onPresetChange={(value) => { setLogPreset(value); void loadAll(value, logCustomStart, logCustomEnd); }} onCustomStartChange={(value) => { setLogCustomStart(value); if (logPreset === "custom") void loadAll("custom", value, logCustomEnd); }} onCustomEndChange={(value) => { setLogCustomEnd(value); if (logPreset === "custom") void loadAll("custom", logCustomStart, value); }} /> : null}
     </div>
   );
 }

@@ -123,7 +123,7 @@ export type TrackedOrder = {
   }>;
 };
 
-export type AdminRangePreset = "today" | "7d" | "30d" | "month" | "year" | "custom";
+export type AdminRangePreset = "today" | "yesterday" | "tomorrow" | "7d" | "30d" | "month" | "year" | "custom";
 export type AdminOrderSegment = "all" | "inshop" | "foodpanda" | "delivery";
 
 export type DashboardData = {
@@ -361,6 +361,8 @@ export type AdminExpense = {
     purchaseQuantity: number;
     purchaseUnitLabel: string;
     baseQuantity: number;
+    receivedDate?: string;
+    paymentDate?: string;
     purchaseDate?: string;
   } | null;
   createdByName?: string | null;

@@ -809,10 +809,17 @@ export async function updateAdminSetting(key: string, value: unknown) {
   return data.setting;
 }
 
-export async function fetchAdminInventory(branchId?: string): Promise<AdminInventoryData> {
+export async function fetchAdminExpenseTitleFavorites(): Promise<string[]> {
+  const data = await adminFetch<{ favorites: Array<{ title: string }> }>("/api/admin/expense-title-favorites");
+  return data.favorites.map((favorite) => favorite.title);
+}
+
+export async function fetchAdminInventory(branchId?: string, params?: { receivedStart?: string; receivedEnd?: string }): Promise<AdminInventoryData> {
   const searchParams = new URLSearchParams();
   const activeBranchId = selectedBranchIdOr(branchId);
   if (activeBranchId) searchParams.set("branchId", activeBranchId);
+  if (params?.receivedStart) searchParams.set("receivedStart", params.receivedStart);
+  if (params?.receivedEnd) searchParams.set("receivedEnd", params.receivedEnd);
   const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
   const data = await adminFetch<any>(`/api/admin/inventory${suffix}`);
 
@@ -1334,6 +1341,8 @@ export async function fetchAdminExpenses(params?: {
             purchaseQuantity: Number(expense.stockPurchase.purchaseQuantity),
             purchaseUnitLabel: expense.stockPurchase.purchaseUnitLabel,
             baseQuantity: Number(expense.stockPurchase.baseQuantity),
+            receivedDate: expense.stockPurchase.receivedDate ?? expense.stockPurchase.purchaseDate ?? undefined,
+            paymentDate: expense.stockPurchase.paymentDate ?? expense.expenseDate ?? undefined,
             purchaseDate: expense.stockPurchase.purchaseDate ?? undefined
           }
         : null,

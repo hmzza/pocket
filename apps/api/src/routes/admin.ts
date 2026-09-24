@@ -23,6 +23,7 @@ import {
   businessDayRange,
   businessMonthRange,
   businessYearRange,
+  addDateKeyDays,
   getBusinessDateKey,
   getBusinessWeekdayIndex,
   getPakistanHour,
@@ -38,7 +39,7 @@ const VENDORS_WORKBOOK_PATH = fileURLToPath(new URL("../../../../data/vendors.xl
 router.use(authenticate, authorize(RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF), requireAdminRoutePermission());
 
 const dashboardQueryBaseSchema = z.object({
-  preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
+  preset: z.enum(["today", "yesterday", "tomorrow", "7d", "30d", "month", "year", "custom"]).default("today"),
   start: z.string().datetime().optional(),
   end: z.string().datetime().optional(),
   monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional(),
@@ -132,6 +133,26 @@ function buildDashboardRange(query: z.infer<typeof dashboardQuerySchema>) {
         start,
         end: endOfDay(now),
         label: "Today (6AM-6AM)"
+      };
+    }
+    case "yesterday": {
+      const yesterday = addDateKeyDays(getBusinessDateKey(now), -1);
+      const range = businessDayRange(yesterday);
+      return {
+        preset: query.preset,
+        start: range.start,
+        end: range.end,
+        label: "Yesterday (6AM-6AM)"
+      };
+    }
+    case "tomorrow": {
+      const tomorrow = addDateKeyDays(getBusinessDateKey(now), 1);
+      const range = businessDayRange(tomorrow);
+      return {
+        preset: query.preset,
+        start: range.start,
+        end: range.end,
+        label: "Tomorrow (6AM-6AM)"
       };
     }
     case "30d": {
@@ -1206,6 +1227,45 @@ function buildSalesSeries(orders: Array<{ placedAt: Date; totalAmount: Prisma.De
       const sortKey = startOfPakistanMonth(order.placedAt).getTime();
       const bucket = ensureBucket(key, formatPakistanDate(new Date(sortKey), { month: "short", year: "numeric" }), sortKey);
       bucket.revenue += Number(order.totalAmount);
+      bucket.orders += 1;
+    }
+  }
+
+  return Array.from(buckets.values())
+    .sort((left, right) => left.sortKey - right.sortKey)
+    .map(({ label, revenue, orders }) => ({ label, revenue: Number(revenue.toFixed(2)), orders }));
+}
+
+function buildExpenseSeries(expenses: Array<{ expenseDate: Date; amount: Prisma.Decimal | number }>, start: Date, end: Date) {
+  const durationDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+  const buckets = new Map<string, { label: string; revenue: number; orders: number; sortKey: number }>();
+  const ensureBucket = (key: string, label: string, sortKey: number) => {
+    if (!buckets.has(key)) buckets.set(key, { label, revenue: 0, orders: 0, sortKey });
+    return buckets.get(key)!;
+  };
+
+  if (durationDays <= 2) {
+    for (let index = 0; index < 24; index += 1) {
+      const hour = (index + 6) % 24;
+      ensureBucket(String(hour), `${hour.toString().padStart(2, "0")}:00`, index);
+    }
+    for (const expense of expenses) {
+      const hour = getPakistanHour(expense.expenseDate);
+      const order = (hour - 6 + 24) % 24;
+      const bucket = ensureBucket(String(hour), `${hour.toString().padStart(2, "0")}:00`, order);
+      bucket.revenue += Number(expense.amount);
+      bucket.orders += 1;
+    }
+  } else {
+    for (let cursor = startOfDay(start); cursor <= end; cursor = addDays(cursor, 1)) {
+      const key = getPakistanDateKey(cursor);
+      ensureBucket(key, formatPakistanDate(cursor, { month: "short", day: "numeric" }), cursor.getTime());
+    }
+    for (const expense of expenses) {
+      const key = getPakistanDateKey(expense.expenseDate);
+      const sortKey = startOfDay(expense.expenseDate).getTime();
+      const bucket = ensureBucket(key, formatPakistanDate(expense.expenseDate, { month: "short", day: "numeric" }), sortKey);
+      bucket.revenue += Number(expense.amount);
       bucket.orders += 1;
     }
   }
@@ -2665,6 +2725,8 @@ const inventoryQuerySchema = z.object({
   branchId: z.string().cuid().optional(),
   search: z.string().trim().optional(),
   status: z.enum(["all", "active", "inactive"]).default("all"),
+  receivedStart: z.string().datetime().optional(),
+  receivedEnd: z.string().datetime().optional(),
   lowStock: z
     .union([z.literal("true"), z.literal("false"), z.boolean()])
     .optional()
@@ -2806,7 +2868,28 @@ router.get("/inventory", async (req, res, next) => {
         include: { ingredient: true }
       }),
       prisma.inventoryTransaction.findMany({
-        where: { branchInventory: { branchId: branchContext.branchId } },
+        where: {
+          branchInventory: { branchId: branchContext.branchId },
+          ...(query.receivedStart || query.receivedEnd
+            ? {
+                OR: [
+                  {
+                    purchaseDate: {
+                      ...(query.receivedStart ? { gte: new Date(query.receivedStart) } : {}),
+                      ...(query.receivedEnd ? { lte: new Date(query.receivedEnd) } : {})
+                    }
+                  },
+                  {
+                    purchaseDate: null,
+                    createdAt: {
+                      ...(query.receivedStart ? { gte: new Date(query.receivedStart) } : {}),
+                      ...(query.receivedEnd ? { lte: new Date(query.receivedEnd) } : {})
+                    }
+                  }
+                ]
+              }
+            : {})
+        },
         include: {
           actor: true,
           purchaseUnit: true,
@@ -6187,7 +6270,8 @@ const expenseSchema = z.object({
   category: z.string().min(2).max(60),
   amount: z.number().positive(),
   paymentSource: z.enum(MONEY_SOURCES),
-  expenseDate: z.string().datetime()
+  expenseDate: z.string().datetime(),
+  addToFavorites: z.boolean().optional()
 });
 
 const stockPurchaseSchema = z.object({
@@ -6197,7 +6281,16 @@ const stockPurchaseSchema = z.object({
   purchaseQuantity: z.number().positive(),
   amount: z.number().positive(),
   paymentSource: z.enum(MONEY_SOURCES),
-  purchaseDate: z.string().datetime()
+  receivedDate: z.string().datetime().optional(),
+  paymentDate: z.string().datetime().optional(),
+  purchaseDate: z.string().datetime().optional()
+}).superRefine((value, context) => {
+  if (!value.receivedDate && !value.purchaseDate) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["receivedDate"], message: "Received date is required." });
+  }
+  if (!value.paymentDate && !value.purchaseDate) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["paymentDate"], message: "Payment date is required." });
+  }
 });
 
 const stockPurchaseUpdateSchema = z.object({
@@ -6205,6 +6298,8 @@ const stockPurchaseUpdateSchema = z.object({
   purchaseQuantity: z.number().positive().optional(),
   amount: z.number().positive().optional(),
   paymentSource: z.enum(MONEY_SOURCES).optional(),
+  receivedDate: z.string().datetime().optional(),
+  paymentDate: z.string().datetime().optional(),
   purchaseDate: z.string().datetime().optional()
 });
 
@@ -6457,6 +6552,20 @@ router.delete("/fixed-expenses/:id", async (req, res, next) => {
   }
 });
 
+router.get("/expense-title-favorites", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const favorites = await prisma.expenseTitleFavorite.findMany({
+      where: { branchId: branchContext.branchId },
+      orderBy: { title: "asc" },
+      select: { id: true, title: true }
+    });
+    return res.json({ favorites });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/expenses", async (req, res, next) => {
   try {
     const query = expenseQuerySchema.parse(req.query);
@@ -6490,10 +6599,10 @@ router.get("/expenses", async (req, res, next) => {
       categoryTotals.set(categoryKey, existing);
     }
 
-    const series = buildSalesSeries(
+    const series = buildExpenseSeries(
       expenses.map((expense) => ({
-        placedAt: expense.expenseDate,
-        totalAmount: expense.amount
+        expenseDate: expense.expenseDate,
+        amount: expense.amount
       })),
       range.start,
       range.end
@@ -6544,6 +6653,8 @@ router.get("/expenses", async (req, res, next) => {
               purchaseQuantity: parseDecimal(expense.stockTransaction.purchaseQuantity),
               purchaseUnitLabel: expense.stockTransaction.purchaseUnitLabel ?? expense.stockTransaction.purchaseUnit?.name ?? expense.stockTransaction.branchInventory.ingredient.unit,
               baseQuantity: parseDecimal(expense.stockTransaction.quantity),
+              receivedDate: expense.stockTransaction.purchaseDate?.toISOString() ?? expense.expenseDate.toISOString(),
+              paymentDate: expense.expenseDate.toISOString(),
               purchaseDate: expense.stockTransaction.purchaseDate?.toISOString() ?? expense.expenseDate.toISOString()
             }
           : null,
@@ -6636,22 +6747,31 @@ router.post("/expenses", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const parsedPayload = expenseSchema.parse(req.body);
     const payload = { ...parsedPayload, branchId: branchContext.branchId };
-    const expense = await prisma.expense.create({
-      data: {
-        branchId: payload.branchId,
-        createdById: req.user!.id,
-        title: payload.title.trim(),
-        category: payload.category.trim(),
-        amount: payload.amount,
-        paymentSource: payload.paymentSource,
-        // Store expenses at the canonical 6AM business-day boundary. This
-        // keeps reporting stable even when clients send a calendar timestamp.
-        expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start
-      },
-      include: {
-        branch: true,
-        createdBy: true
+    const expense = await prisma.$transaction(async (transaction) => {
+      const created = await transaction.expense.create({
+        data: {
+          branchId: payload.branchId,
+          createdById: req.user!.id,
+          title: payload.title.trim(),
+          category: payload.category.trim(),
+          amount: payload.amount,
+          paymentSource: payload.paymentSource,
+          // Store expenses at the canonical 6AM business-day boundary. This
+          // keeps reporting stable even when clients send a calendar timestamp.
+          expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start
+        },
+        include: { branch: true, createdBy: true }
+      });
+
+      if (payload.addToFavorites) {
+        await transaction.expenseTitleFavorite.upsert({
+          where: { branchId_title: { branchId: branchContext.branchId, title: payload.title.trim() } },
+          create: { branchId: branchContext.branchId, title: payload.title.trim() },
+          update: {}
+        });
       }
+
+      return created;
     });
 
     await writeAuditLog({
@@ -6689,23 +6809,32 @@ router.patch("/expenses/:id", async (req, res, next) => {
         action: "update"
       }));
     }
-    const expense = await prisma.expense.update({
-      where: { id: req.params.id },
-      data: {
-        branchId: branchContext.branchId,
-        ...(payload.title ? { title: payload.title.trim() } : {}),
-        ...(payload.category ? { category: payload.category.trim() } : {}),
-        ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
-        ...(payload.paymentSource ? { paymentSource: payload.paymentSource } : {}),
-        ...(payload.expenseDate
-          ? { expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start }
-          : {}),
-        createdById: req.user!.id
-      },
-      include: {
-        branch: true,
-        createdBy: true
+    const expense = await prisma.$transaction(async (transaction) => {
+      const updated = await transaction.expense.update({
+        where: { id: req.params.id },
+        data: {
+          branchId: branchContext.branchId,
+          ...(payload.title ? { title: payload.title.trim() } : {}),
+          ...(payload.category ? { category: payload.category.trim() } : {}),
+          ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
+          ...(payload.paymentSource ? { paymentSource: payload.paymentSource } : {}),
+          ...(payload.expenseDate
+            ? { expenseDate: businessDayRange(getBusinessDateKey(new Date(payload.expenseDate))).start }
+            : {}),
+          createdById: req.user!.id
+        },
+        include: { branch: true, createdBy: true }
+      });
+
+      if (payload.addToFavorites && payload.title?.trim()) {
+        await transaction.expenseTitleFavorite.upsert({
+          where: { branchId_title: { branchId: branchContext.branchId, title: payload.title.trim() } },
+          create: { branchId: branchContext.branchId, title: payload.title.trim() },
+          update: {}
+        });
       }
+
+      return updated;
     });
 
     await writeAuditLog({
@@ -6759,10 +6888,18 @@ router.patch("/expenses/stock-purchases/:id", async (req, res, next) => {
 
     const purchaseQuantity = payload.purchaseQuantity ?? (parseDecimal(stockTransaction.purchaseQuantity) || parseDecimal(stockTransaction.quantity));
     const amount = payload.amount ?? parseDecimal(existing.amount);
-    const purchaseDate = payload.purchaseDate ? new Date(payload.purchaseDate) : stockTransaction.purchaseDate ?? existing.expenseDate;
+    const receivedDate = payload.receivedDate
+      ? businessDayRange(getBusinessDateKey(new Date(payload.receivedDate))).start
+      : payload.purchaseDate
+        ? businessDayRange(getBusinessDateKey(new Date(payload.purchaseDate))).start
+        : stockTransaction.purchaseDate ?? existing.expenseDate;
+    const paymentDate = payload.paymentDate
+      ? businessDayRange(getBusinessDateKey(new Date(payload.paymentDate))).start
+      : payload.purchaseDate
+        ? businessDayRange(getBusinessDateKey(new Date(payload.purchaseDate))).start
+        : existing.expenseDate;
     const baseQuantity = roundQuantity(purchaseQuantity * (purchaseUnit ? parseDecimal(purchaseUnit.quantityInBaseUnits) : 1));
     const unitLabel = purchaseUnit?.name ?? stockTransaction.purchaseUnitLabel ?? ingredient.unit;
-    const expenseDate = businessDayRange(getBusinessDateKey(purchaseDate)).start;
 
     const expense = await prisma.$transaction(async (transaction) => {
       await transaction.inventoryTransaction.update({
@@ -6774,7 +6911,7 @@ router.patch("/expenses/stock-purchases/:id", async (req, res, next) => {
           purchaseUnitId,
           purchaseUnitLabel: unitLabel,
           purchaseCost: amount,
-          purchaseDate,
+          purchaseDate: receivedDate,
           note: stockTransaction.note
         }
       });
@@ -6783,7 +6920,7 @@ router.patch("/expenses/stock-purchases/:id", async (req, res, next) => {
         data: {
           amount,
           paymentSource: payload.paymentSource ?? existing.paymentSource,
-          expenseDate,
+          expenseDate: paymentDate,
           createdById: req.user!.id
         },
         include: { branch: true, createdBy: true }
@@ -6797,7 +6934,7 @@ router.patch("/expenses/stock-purchases/:id", async (req, res, next) => {
       action: "expense.stock_purchase_update",
       entityType: "expense",
       entityId: expense.id,
-      payload: { ...payload, baseQuantity, purchaseUnitLabel: unitLabel }
+      payload: { ...payload, receivedDate: receivedDate.toISOString(), paymentDate: paymentDate.toISOString(), baseQuantity, purchaseUnitLabel: unitLabel }
     });
     return res.json({ expense });
   } catch (error) {
@@ -6934,8 +7071,8 @@ router.post("/expenses/stock-purchases", async (req, res, next) => {
 
     const conversion = purchaseUnit ? parseDecimal(purchaseUnit.quantityInBaseUnits) : 1;
     const baseQuantity = roundQuantity(payload.purchaseQuantity * conversion);
-    const purchaseDate = new Date(payload.purchaseDate);
-    const expenseDate = businessDayRange(getBusinessDateKey(purchaseDate)).start;
+    const receivedDate = businessDayRange(getBusinessDateKey(new Date(payload.receivedDate ?? payload.purchaseDate!))).start;
+    const paymentDate = businessDayRange(getBusinessDateKey(new Date(payload.paymentDate ?? payload.purchaseDate!))).start;
     const unitLabel = purchaseUnit?.name ?? inventory.ingredient.unit;
 
     const result = await prisma.$transaction(async (transaction) => {
@@ -6947,7 +7084,7 @@ router.post("/expenses/stock-purchases", async (req, res, next) => {
         type: InventoryTransactionType.PURCHASE,
         actorId: req.user!.id,
         referenceType: "STOCK_PURCHASE",
-        purchaseDate,
+        purchaseDate: receivedDate,
         purchaseCost: payload.amount,
         purchaseQuantity: payload.purchaseQuantity,
         purchaseUnitId: purchaseUnit?.id,
@@ -6962,7 +7099,7 @@ router.post("/expenses/stock-purchases", async (req, res, next) => {
           category: "Inventory",
           amount: payload.amount,
           paymentSource: payload.paymentSource,
-          expenseDate,
+          expenseDate: paymentDate,
           stockTransactionId: stock.transactionId
         },
         include: { branch: true, createdBy: true }
@@ -6983,7 +7120,7 @@ router.post("/expenses/stock-purchases", async (req, res, next) => {
       action: "expense.stock_purchase_create",
       entityType: "expense",
       entityId: result.expense.id,
-      payload: { ...payload, baseQuantity: result.baseQuantity, purchaseUnitLabel: result.unitLabel }
+      payload: { ...payload, receivedDate: receivedDate.toISOString(), paymentDate: paymentDate.toISOString(), baseQuantity: result.baseQuantity, purchaseUnitLabel: result.unitLabel }
     });
 
     return res.status(201).json({

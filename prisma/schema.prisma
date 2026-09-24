@@ -222,6 +222,7 @@ model Branch {
   investmentPayments InvestmentPayment[]
   coupons            Coupon[]
   userAccesses       UserBranchAccess[]
+  expenseTitleFavorites ExpenseTitleFavorite[]
 }
 
 model UserBranchAccess {
@@ -716,6 +717,17 @@ model Expense {
   createdBy              User?                   @relation("ExpenseActor", fields: [createdById], references: [id], onDelete: SetNull)
   fixedExpenseOccurrence FixedExpenseOccurrence?
   stockTransaction       InventoryTransaction?   @relation("StockPurchase", fields: [stockTransactionId], references: [id], onDelete: Cascade)
+}
+
+model ExpenseTitleFavorite {
+  id        String   @id @default(cuid())
+  branchId  String
+  title     String
+  createdAt DateTime @default(now())
+  branch    Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, title])
+  @@index([branchId])
 }
 
 model FixedExpense {
