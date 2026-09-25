@@ -61,6 +61,7 @@ async function adminFetch<T>(path: string, init?: RequestInit) {
 
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
+    cache: "no-store",
     headers,
     credentials: "include"
   });

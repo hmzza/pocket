@@ -105,12 +105,11 @@ export async function resolveBranchContext(req: Request): Promise<BranchContext>
     });
   }
 
+  // A branch id can remain in localStorage after a user signs out or after a
+  // Super Admin switches accounts. Never use that stale value for a staff
+  // request. Falling back to the user's primary branch prevents a harmless
+  // stale browser context from blanking operational pages until re-login.
   const requestedBranch = requestedBranchId ? access.branches.find((branch) => branch.id === requestedBranchId) : undefined;
-  if (requestedBranchId && !requestedBranch) {
-    throw httpError("You do not have access to the selected branch.", 403, {
-      requestedBranchId
-    });
-  }
 
   const selectedBranch =
     requestedBranch ??
