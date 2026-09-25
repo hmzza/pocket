@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, MonitorDown, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
@@ -48,38 +48,38 @@ export function AdminShell({ title, description, children }: { title: string; de
   const [ready, setReady] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function validateSession() {
-      try {
-        const nextSession = await fetchAdminSession();
-        if (
-          !cancelled &&
-          nextSession.user.role !== "SUPER_ADMIN" &&
-          !nextSession.user.permissions.some((permission) => permission !== "POS")
-        ) {
-          router.replace("/admin/login");
-          return;
-        }
-
-        if (!cancelled) {
-          setSession(nextSession);
-          setReady(true);
-        }
-      } catch {
-        if (!cancelled) {
-          router.replace("/admin/login");
-        }
+  const refreshSession = useCallback(async () => {
+    try {
+      const nextSession = await fetchAdminSession();
+      if (
+        nextSession.user.role !== "SUPER_ADMIN" &&
+        !nextSession.user.permissions.some((permission) => permission !== "POS")
+      ) {
+        router.replace("/admin/login");
+        return;
       }
-    }
 
-    void validateSession();
+      setSession(nextSession);
+      setReady(true);
+    } catch {
+      router.replace("/admin/login");
+    }
+  }, [router]);
+
+  useEffect(() => {
+    void refreshSession();
+
+    const refresh = () => void refreshSession();
+    const interval = window.setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
 
     return () => {
-      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
     };
-  }, [router]);
+  }, [refreshSession]);
 
   const isStaff = session?.user.role !== "SUPER_ADMIN";
   const activeLink = [...links].sort((first, second) => second.href.length - first.href.length).find((link) => pathname === link.href || pathname.startsWith(`${link.href}/`));
@@ -90,7 +90,7 @@ export function AdminShell({ title, description, children }: { title: string; de
       const firstAllowedLink = links.find((link) => session.user.permissions.includes(link.permissionKey));
       if (firstAllowedLink) router.replace(firstAllowedLink.href);
     }
-  }, [ready, restrictedForStaff, router]);
+  }, [pathname, ready, restrictedForStaff, router, session?.user.permissions]);
 
   const visibleLinks = useMemo(() => {
     if (!isStaff) {

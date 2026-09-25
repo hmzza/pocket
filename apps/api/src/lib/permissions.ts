@@ -103,6 +103,14 @@ export function requirePermission(permission: PermissionKey) {
 export function requireAdminRoutePermission() {
   return (req: Request, res: Response, next: NextFunction) => {
     if (req.user?.role === RoleCode.SUPER_ADMIN) return next();
+
+    // Expenses uses the inventory read model to populate its stock purchase
+    // selector. That read is required by the Expenses workflow, but it does
+    // not grant the rest of the Inventory section.
+    if (req.method === "GET" && req.path === "/inventory" && req.user?.permissions.includes("EXPENSES")) {
+      return next();
+    }
+
     const permission = resolveAdminPermission(`/api/admin${req.path}`);
     if (!permission) {
       if (req.path === "/branches" || req.path === "/permissions") return next();

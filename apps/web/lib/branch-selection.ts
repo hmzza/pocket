@@ -20,6 +20,8 @@ export function setSelectedBranchId(branchId: string) {
   } else {
     window.localStorage.removeItem(SELECTED_BRANCH_KEY);
   }
+
+  window.dispatchEvent(new CustomEvent("pocket:branch-changed", { detail: { branchId } }));
 }
 
 export function ensureSelectedBranchId(accessibleBranchIds: string[], fallbackBranchId?: string | null) {

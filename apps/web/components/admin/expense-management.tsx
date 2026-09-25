@@ -520,15 +520,25 @@ export function ExpenseManagement() {
             setEditorOpen(true);
           }
         }
-      } catch {
-        // Metadata is helpful but not required for the page to render.
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load stock purchase items.");
+        }
       }
     }
 
     void loadMetadata();
 
+    const refreshMetadata = () => void loadMetadata();
+    window.addEventListener("focus", refreshMetadata);
+    document.addEventListener("visibilitychange", refreshMetadata);
+    window.addEventListener("pocket:branch-changed", refreshMetadata);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", refreshMetadata);
+      document.removeEventListener("visibilitychange", refreshMetadata);
+      window.removeEventListener("pocket:branch-changed", refreshMetadata);
     };
   }, []);
 

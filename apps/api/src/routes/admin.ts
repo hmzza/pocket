@@ -2821,6 +2821,26 @@ router.get("/inventory", async (req, res, next) => {
   try {
     const query = inventoryQuerySchema.parse(req.query);
     const branchContext = await resolveBranchContext(req);
+
+    // Older branches may have been created before inventory initialization or
+    // may be missing rows for ingredients added later. Keep the branch read
+    // model complete without changing existing quantities or transactions.
+    const activeIngredients = await prisma.ingredient.findMany({
+      where: { isActive: true },
+      select: { id: true }
+    });
+    if (activeIngredients.length) {
+      await prisma.branchInventory.createMany({
+        data: activeIngredients.map((ingredient) => ({
+          branchId: branchContext.branchId,
+          ingredientId: ingredient.id,
+          quantityOnHand: 0,
+          lowStockAlert: false
+        })),
+        skipDuplicates: true
+      });
+    }
+
     const ingredientStatusWhere: Prisma.IngredientWhereInput =
       query.status === "active"
         ? { isActive: true }
