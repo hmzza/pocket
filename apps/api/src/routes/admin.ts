@@ -955,10 +955,32 @@ function buildIngredientCostLines(
   if (type === "PREPARED" && components.length && !seen.has(ingredient.id)) {
     const nextSeen = new Set(seen);
     nextSeen.add(ingredient.id);
+    const batchOutput = calculateCompatibleBatchOutputQuantity(
+      ingredient.unit ?? "",
+      components.map((component: any) => ({
+        quantityNeeded: parseDecimal(component.quantityNeeded),
+        unit: component.componentIngredient?.unit ?? ""
+      }))
+    );
+    if (batchOutput <= 0) {
+      const unitCost = parseDecimal(ingredient.costPerUnit);
+      return [{
+        ingredientId: ingredient.id,
+        ingredientName: ingredient.name ?? "Unknown prep item",
+        ingredientType: type,
+        unit: ingredient.unit ?? "",
+        quantity: roundQuantity(quantity),
+        unitCost,
+        cost: roundMoney(quantity * unitCost),
+        calories: Math.round(quantity * parseDecimal(ingredient.caloriesPerUnit)),
+        source
+      }];
+    }
+    const batchFraction = quantity / batchOutput;
     return components.flatMap((component: any) =>
       buildIngredientCostLines(
         component.componentIngredient,
-        quantity * parseDecimal(component.quantityNeeded),
+        parseDecimal(component.quantityNeeded) * batchFraction,
         "prep",
         nextSeen
       )
@@ -2750,7 +2772,8 @@ const inventoryItemUpdateSchema = z.object({
   type: z.enum(INVENTORY_ITEM_TYPES).optional(),
   reorderLevel: z.number().nonnegative().optional(),
   costPerUnit: z.number().nonnegative().optional(),
-  caloriesPerUnit: z.number().nonnegative().optional()
+  caloriesPerUnit: z.number().nonnegative().optional(),
+  openingStock: z.number().nonnegative().optional()
 });
 
 const purchaseUnitSchema = z.object({
@@ -2766,6 +2789,10 @@ const purchaseUnitsSchema = z.object({
 
 const inventoryItemStatusSchema = z.object({
   isActive: z.boolean()
+});
+
+const inventoryDeductionStatusSchema = z.object({
+  enabled: z.boolean()
 });
 
 const inventoryMovementSchema = z
@@ -3109,41 +3136,70 @@ router.post("/inventory/items", async (req, res, next) => {
 
 router.patch("/inventory/items/:id", async (req, res, next) => {
   try {
+    const branchContext = await resolveBranchContext(req);
     const payload = inventoryItemUpdateSchema.parse(req.body);
-    const ingredient = await prisma.ingredient.update({
-      where: { id: req.params.id },
-      data: {
-        ...(payload.name ? { name: payload.name.trim() } : {}),
-        ...(payload.unit ? { unit: payload.unit.trim() } : {}),
-        ...(payload.type ? { type: payload.type } : {}),
-        ...(typeof payload.reorderLevel === "number" ? { reorderLevel: payload.reorderLevel } : {}),
-        ...(typeof payload.costPerUnit === "number" ? { costPerUnit: payload.costPerUnit } : {}),
-        ...(payload.type === "PACKAGING"
-          ? { caloriesPerUnit: 0 }
-          : typeof payload.caloriesPerUnit === "number"
-            ? { caloriesPerUnit: payload.caloriesPerUnit }
-            : {})
-      }
-    });
-
-    if (typeof payload.reorderLevel === "number") {
-      const reorderLevel = payload.reorderLevel;
-      const branchInventories = await prisma.branchInventory.findMany({
-        where: { ingredientId: ingredient.id },
-        include: { ingredient: true }
+    const ingredient = await prisma.$transaction(async (transaction) => {
+      const updatedIngredient = await transaction.ingredient.update({
+        where: { id: req.params.id },
+        data: {
+          ...(payload.name ? { name: payload.name.trim() } : {}),
+          ...(payload.unit ? { unit: payload.unit.trim() } : {}),
+          ...(payload.type ? { type: payload.type } : {}),
+          ...(typeof payload.reorderLevel === "number" ? { reorderLevel: payload.reorderLevel } : {}),
+          ...(typeof payload.costPerUnit === "number" ? { costPerUnit: payload.costPerUnit } : {}),
+          ...(payload.type === "PACKAGING"
+            ? { caloriesPerUnit: 0 }
+            : typeof payload.caloriesPerUnit === "number"
+              ? { caloriesPerUnit: payload.caloriesPerUnit }
+              : {})
+        }
       });
 
-      await Promise.all(
-        branchInventories.map((entry) =>
-          prisma.branchInventory.update({
-            where: { id: entry.id },
-            data: {
-              lowStockAlert: parseDecimal(entry.quantityOnHand) <= reorderLevel
+      if (typeof payload.openingStock === "number") {
+        const inventory = await transaction.branchInventory.upsert({
+          where: {
+            branchId_ingredientId: {
+              branchId: branchContext.branchId,
+              ingredientId: updatedIngredient.id
             }
-          })
-        )
-      );
-    }
+          },
+          update: {},
+          create: {
+            branchId: branchContext.branchId,
+            ingredientId: updatedIngredient.id,
+            quantityOnHand: 0,
+            lowStockAlert: payload.openingStock <= parseDecimal(updatedIngredient.reorderLevel)
+          }
+        });
+        const correction = roundQuantity(payload.openingStock - parseDecimal(inventory.quantityOnHand));
+        if (correction !== 0) {
+          await recordInventoryChange({
+            transaction,
+            branchId: branchContext.branchId,
+            ingredientId: updatedIngredient.id,
+            quantityDelta: correction,
+            type: InventoryTransactionType.ADJUSTMENT,
+            actorId: req.user!.id,
+            note: "Current stock count corrected from item editor",
+            referenceType: "STOCK_COUNT_CORRECTION",
+            referenceId: updatedIngredient.id
+          });
+        }
+      }
+
+      if (typeof payload.reorderLevel === "number") {
+        const branchInventories = await transaction.branchInventory.findMany({
+          where: { ingredientId: updatedIngredient.id }
+        });
+        for (const entry of branchInventories) {
+          await transaction.branchInventory.update({
+            where: { id: entry.id },
+            data: { lowStockAlert: parseDecimal(entry.quantityOnHand) <= payload.reorderLevel }
+          });
+        }
+      }
+      return updatedIngredient;
+    });
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -5083,7 +5139,7 @@ router.get("/inventory/recipes", async (req, res, next) => {
         include: {
           preparedComponents: {
             where: { componentIngredient: { isActive: true } },
-            include: { componentIngredient: true },
+            include: { componentIngredient: { include: ingredientCostInclude } },
             orderBy: { componentIngredient: { name: "asc" } }
           }
         },
@@ -5092,11 +5148,32 @@ router.get("/inventory/recipes", async (req, res, next) => {
       prisma.product.findMany({
         include: {
           category: true,
-          branchPricing: true,
+          branchPricing: {
+            where: { branchId: branchContext.branchId },
+            select: { price: true }
+          },
           productIngredients: {
             where: { ingredient: { isActive: true } },
             include: { ingredient: { include: ingredientCostInclude } },
             orderBy: { ingredient: { name: "asc" } }
+          },
+          addOnGroups: {
+            where: { isActive: true },
+            orderBy: { sortOrder: "asc" },
+            include: {
+              options: {
+                where: { isActive: true },
+                orderBy: { sortOrder: "asc" },
+                include: {
+                  linkedProduct: { select: { id: true, name: true } },
+                  ingredientUsage: {
+                    where: { ingredient: { isActive: true } },
+                    include: { ingredient: true },
+                    orderBy: { ingredient: { name: "asc" } }
+                  }
+                }
+              }
+            }
           },
           packagingRules: {
             where: { packagingIngredient: { isActive: true } },
@@ -5146,19 +5223,23 @@ router.get("/inventory/recipes", async (req, res, next) => {
           ingredientName: component.componentIngredient.name,
           unit: component.componentIngredient.unit,
           quantityNeeded: parseDecimal(component.quantityNeeded),
-          cost: roundMoney(parseDecimal(component.quantityNeeded) * parseDecimal(component.componentIngredient.costPerUnit)),
-          calories: Math.round(parseDecimal(component.quantityNeeded) * parseDecimal(component.componentIngredient.caloriesPerUnit))
+          cost: roundMoney(buildIngredientCostLines(component.componentIngredient, parseDecimal(component.quantityNeeded), "prep")
+            .reduce((sum, line) => sum + line.cost, 0)),
+          calories: Math.round(buildIngredientCostLines(component.componentIngredient, parseDecimal(component.quantityNeeded), "prep")
+            .reduce((sum, line) => sum + line.calories, 0))
         }));
+        const batchQuantity = calculateCompatibleBatchOutputQuantity(ingredient.unit, components.map((component) => ({ quantityNeeded: component.quantityNeeded, unit: component.unit })));
+        const totalCost = roundMoney(components.reduce((sum, component) => sum + component.cost, 0));
         return {
           id: ingredient.id,
           name: ingredient.name,
           unit: ingredient.unit,
-          costPerUnit: parseDecimal(ingredient.costPerUnit),
+          costPerUnit: batchQuantity > 0 ? roundMoney(totalCost / batchQuantity) : parseDecimal(ingredient.costPerUnit),
           caloriesPerUnit: parseDecimal(ingredient.caloriesPerUnit),
-          totalCost: roundMoney(components.reduce((sum, component) => sum + component.cost, 0)),
+          totalCost,
           totalCalories: components.reduce((sum, component) => sum + component.calories, 0),
           quantityOnHand: branchStock.get(ingredient.id) ?? 0,
-          batchQuantity: calculateCompatibleBatchOutputQuantity(ingredient.unit, components.map((component) => ({ quantityNeeded: component.quantityNeeded, unit: component.unit }))),
+          batchQuantity,
           lastAutoProductionAt: lastProductionByIngredient.get(ingredient.id) ?? null,
           components
         };
@@ -5169,6 +5250,27 @@ router.get("/inventory/recipes", async (req, res, next) => {
         categoryName: product.category.name,
         basePrice: parseDecimal(product.basePrice),
         calories: product.calories,
+        recipeComponents: product.productIngredients.map((component) => ({
+          ingredientId: component.ingredientId,
+          ingredientName: component.ingredient.name,
+          ingredientType: component.ingredient.type,
+          unit: component.ingredient.unit,
+          quantityNeeded: parseDecimal(component.quantityNeeded)
+        })),
+        options: product.addOnGroups.flatMap((group) => group.options.map((option) => ({
+          id: option.id,
+          groupName: group.name,
+          name: option.name,
+          linkedProductId: option.linkedProductId,
+          linkedProductName: option.linkedProduct?.name ?? null,
+          components: option.ingredientUsage.map((usage) => ({
+            ingredientId: usage.ingredientId,
+            ingredientName: usage.ingredient.name,
+            ingredientType: usage.ingredient.type,
+            unit: usage.ingredient.unit,
+            quantityNeeded: parseDecimal(usage.quantityNeeded)
+          }))
+        }))),
         costSummary: buildProductCostSummary(product)
       }))
     });
@@ -5298,6 +5400,51 @@ router.patch("/inventory/recipes/products/:id", async (req, res, next) => {
   }
 });
 
+router.patch("/inventory/recipes/options/:id", async (req, res, next) => {
+  try {
+    const payload = recipeUpdateSchema.parse(req.body);
+    const option = await prisma.addOnOption.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, linkedProductId: true }
+    });
+    if (!option) return res.status(404).json({ message: "Option not found." });
+    if (option.linkedProductId && payload.components.length) {
+      return res.status(400).json({ message: "Linked-product options use the linked product recipe and cannot also have direct inventory usage." });
+    }
+    const ingredientIds = [...new Set(payload.components.map((component) => component.ingredientId))];
+    if (ingredientIds.length) {
+      const activeCount = await prisma.ingredient.count({
+        where: { id: { in: ingredientIds }, isActive: true, type: { not: "PACKAGING" } }
+      });
+      if (activeCount !== ingredientIds.length) {
+        return res.status(400).json({ message: "Option usage can contain only active food inventory items." });
+      }
+    }
+    await prisma.$transaction(async (transaction) => {
+      await transaction.addOnOptionIngredient.deleteMany({ where: { optionId: option.id } });
+      if (payload.components.length) {
+        await transaction.addOnOptionIngredient.createMany({
+          data: payload.components.map((component) => ({
+            optionId: option.id,
+            ingredientId: component.ingredientId,
+            quantityNeeded: component.quantityNeeded
+          }))
+        });
+      }
+    });
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "inventory.recipe_option_update",
+      entityType: "add_on_option",
+      entityId: option.id,
+      payload
+    });
+    return res.json({ ok: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.patch("/inventory/recipes/prepared/:id", async (req, res, next) => {
   try {
     const payload = recipeUpdateSchema.parse(req.body);
@@ -5315,6 +5462,23 @@ router.patch("/inventory/recipes/prepared/:id", async (req, res, next) => {
           entity: "ingredient",
           action: "recipe_update"
         }));
+      }
+    }
+    if (payload.components.length) {
+      const [prepItem, componentIngredients] = await Promise.all([
+        prisma.ingredient.findUnique({ where: { id: req.params.id }, select: { name: true, unit: true, type: true } }),
+        prisma.ingredient.findMany({ where: { id: { in: ingredientIds } }, select: { id: true, unit: true } })
+      ]);
+      if (!prepItem || prepItem.type !== "PREPARED") {
+        return res.status(400).json({ message: "Only prep items can have prep recipes." });
+      }
+      const unitById = new Map(componentIngredients.map((ingredient) => [ingredient.id, ingredient.unit]));
+      const batchOutput = calculateCompatibleBatchOutputQuantity(prepItem.unit, payload.components.map((component) => ({
+        quantityNeeded: component.quantityNeeded,
+        unit: unitById.get(component.ingredientId) ?? ""
+      })));
+      if (batchOutput <= 0) {
+        return res.status(400).json({ message: `Cannot calculate a complete batch for ${prepItem.name}. Add at least one component compatible with ${prepItem.unit}.` });
       }
     }
     await prisma.$transaction(async (transaction) => {
@@ -5698,11 +5862,25 @@ router.get("/orders", async (req, res, next) => {
 router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
-    const deletedCount = await prisma.order.count({ where: { branchId: branchContext.branchId } });
+    const orders = await prisma.order.findMany({
+      where: { branchId: branchContext.branchId },
+      include: { items: { include: { addOns: true, bundleComponents: true } } }
+    });
+    const deletedCount = orders.length;
     await prisma.$transaction(async (transaction) => {
-      await transaction.inventoryTransaction.deleteMany({
-        where: { referenceType: "ORDER", branchInventory: { branchId: branchContext.branchId } }
-      });
+      for (const order of orders) {
+        if (order.status !== OrderStatus.CANCELLED) {
+          await applyOrderInventory({
+            transaction,
+            branchId: order.branchId,
+            orderId: order.id,
+            actorId: req.user!.id,
+            items: order.items,
+            mode: "return",
+            serviceType: order.serviceType
+          });
+        }
+      }
       await transaction.order.deleteMany({ where: { branchId: branchContext.branchId } });
     }, INVENTORY_TRANSACTION_OPTIONS);
 
@@ -6292,6 +6470,75 @@ const expenseSchema = z.object({
   paymentSource: z.enum(MONEY_SOURCES),
   expenseDate: z.string().datetime(),
   addToFavorites: z.boolean().optional()
+});
+
+router.get("/inventory/deduction-status", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const control = await prisma.branchInventoryControl.findUnique({
+      where: { branchId: branchContext.branchId }
+    });
+    return res.json({
+      branchId: branchContext.branchId,
+      enabled: control?.orderDeductionEnabled ?? false,
+      generation: control?.generation ?? 0,
+      enabledAt: control?.enabledAt?.toISOString() ?? null,
+      canManage: req.user!.role === RoleCode.SUPER_ADMIN
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/inventory/deduction-status", authorize(RoleCode.SUPER_ADMIN), async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = inventoryDeductionStatusSchema.parse(req.body);
+    const control = await prisma.$transaction(async (transaction) => {
+      const current = await transaction.branchInventoryControl.findUnique({
+        where: { branchId: branchContext.branchId }
+      });
+      if (!current) {
+        return transaction.branchInventoryControl.create({
+          data: {
+            branchId: branchContext.branchId,
+            orderDeductionEnabled: payload.enabled,
+            generation: payload.enabled ? 1 : 0,
+            enabledAt: payload.enabled ? new Date() : null,
+            updatedById: req.user!.id
+          }
+        });
+      }
+      if (current.orderDeductionEnabled === payload.enabled) return current;
+      return transaction.branchInventoryControl.update({
+        where: { id: current.id },
+        data: {
+          orderDeductionEnabled: payload.enabled,
+          generation: payload.enabled ? { increment: 1 } : current.generation,
+          enabledAt: payload.enabled ? new Date() : null,
+          updatedById: req.user!.id
+        }
+      });
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: payload.enabled ? "inventory.order_deduction_enable" : "inventory.order_deduction_pause",
+      entityType: "branch_inventory_control",
+      entityId: control.id,
+      payload: { branchId: branchContext.branchId, enabled: payload.enabled, generation: control.generation }
+    });
+
+    return res.json({
+      branchId: control.branchId,
+      enabled: control.orderDeductionEnabled,
+      generation: control.generation,
+      enabledAt: control.enabledAt?.toISOString() ?? null,
+      canManage: true
+    });
+  } catch (error) {
+    return next(error);
+  }
 });
 
 const stockPurchaseSchema = z.object({

@@ -8,7 +8,7 @@ import { authenticate, authorize } from "../middleware/auth.js";
 import { env } from "../config.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { signReceiptToken } from "../lib/receipt-token.js";
-import { applyOrderInventory, computeInventoryChanges, readInventoryData } from "../lib/inventory.js";
+import { applyOrderInventory } from "../lib/inventory.js";
 import {
   BEVERAGE_CATEGORY_SLUGS,
   MEAL_BASE_PRICE,
@@ -318,12 +318,6 @@ function getProductIds(items: CheckoutPayload["items"]) {
   ];
 }
 
-function getBundleComponentProductIds(products: Array<{ bundleComponents?: Array<{ componentProductId: string }> }>) {
-  return [
-    ...new Set(products.flatMap((product) => (product.bundleComponents ?? []).map((component) => component.componentProductId)))
-  ];
-}
-
 async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
   await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
   const requestedProductIds = getProductIds(payload.items);
@@ -392,14 +386,6 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       throw Object.assign(new Error("Make It A Meal must contain exactly one Thela Fries bundle component."), { statusCode: 400 });
     }
   }
-  const dealChoiceProductIds = scopedProducts.flatMap((product) =>
-    isDealProduct(product)
-      ? product.addOnGroups.flatMap((group) => group.options.flatMap((option) => option.linkedProductId ? [option.linkedProductId] : []))
-      : []
-  );
-  const inventoryProductIds = [...new Set([...productIds, ...getBundleComponentProductIds(scopedProducts), ...dealChoiceProductIds])];
-  const inventoryData = await readInventoryData(prisma, payload.branchId, inventoryProductIds);
-
   const normalizedItems = payload.items.map((item) => {
     if (item.type === "manual") {
       return {
@@ -601,14 +587,6 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     : Math.min(subtotal, manualDiscountAmount);
   const totalAmount = Number(Math.max(0, subtotal - safeDiscountAmount).toFixed(2));
 
-  const consumeChanges = computeInventoryChanges({
-    productIngredients: inventoryData.productIngredients,
-    products: inventoryData.products,
-    branchInventories: inventoryData.branchInventories,
-    items: normalizedItems,
-    mode: "consume",
-  });
-
   return {
     branch,
     productIds,
@@ -619,8 +597,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     promotionDiscountAmount: appliedPromotionName ? safeDiscountAmount : 0,
     totalAmount,
     paidAmount: totalAmount,
-    changeDueAmount: 0,
-    consumeChanges
+    changeDueAmount: 0
   };
 }
 

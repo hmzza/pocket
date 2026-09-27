@@ -1,11 +1,11 @@
 import { InventoryTransactionType, Prisma, ServiceType, type PrismaClient } from "@prisma/client";
-import { OPTION_RECIPE_BY_NAME } from "./inventory-config.js";
-import { BEVERAGE_CATEGORY_SLUGS, MEAL_CATEGORY_SLUG, THELA_FRIES_SLUG, mealOptionNameFor } from "./meal-options.js";
+import { BEVERAGE_CATEGORY_SLUGS, MEAL_CATEGORY_SLUG, THELA_FRIES_SLUG } from "./meal-options.js";
 
 type InventoryOrderItem = {
   productId?: string | null;
   quantity: number;
   addOns?: Array<{
+    optionId?: string | null;
     optionName: string;
     linkedProductId?: string | null;
   }>;
@@ -42,14 +42,11 @@ type RecordInventoryChangeArgs = {
   purchaseUnitId?: string;
   purchaseUnitLabel?: string;
   wastageReason?: string;
+  inventoryApplicationId?: string;
 };
 
 function roundQuantity(value: number) {
   return Number(value.toFixed(3));
-}
-
-function isMissingTableError(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && ["P2021", "P2022"].includes(error.code);
 }
 
 export async function recordInventoryChange({
@@ -68,7 +65,8 @@ export async function recordInventoryChange({
   purchaseQuantity,
   purchaseUnitId,
   purchaseUnitLabel,
-  wastageReason
+  wastageReason,
+  inventoryApplicationId
 }: RecordInventoryChangeArgs) {
   const inventory = await transaction.branchInventory.findUnique({
     where: {
@@ -116,7 +114,8 @@ export async function recordInventoryChange({
       purchaseQuantity,
       purchaseUnitId,
       purchaseUnitLabel,
-      wastageReason
+      wastageReason,
+      inventoryApplicationId
     }
   });
 
@@ -156,29 +155,39 @@ export async function readInventoryData(
   branchId: string,
   productIds: string[]
 ) {
-  const dynamicMealProducts = await client.product.findMany({
-    where: {
-      isActive: true,
-      OR: [
-        { slug: THELA_FRIES_SLUG },
-        { category: { slug: { in: [...BEVERAGE_CATEGORY_SLUGS] } } }
-      ]
-    },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      categoryId: true,
-      category: {
-        select: {
-          slug: true
+  const [dynamicMealProducts, addOnOptions] = await Promise.all([
+    client.product.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { slug: THELA_FRIES_SLUG },
+          { category: { slug: { in: [...BEVERAGE_CATEGORY_SLUGS] } } }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        categoryId: true,
+        category: {
+          select: {
+            slug: true
+          }
         }
       }
-    }
-  });
-  const recipeProductIds = [...new Set([...productIds, ...dynamicMealProducts.map((product) => product.id)])];
+    }),
+    client.addOnOption.findMany({
+      where: { isActive: true },
+      select: { id: true, linkedProductId: true }
+    })
+  ]);
+  const recipeProductIds = [...new Set([
+    ...productIds,
+    ...dynamicMealProducts.map((product) => product.id),
+    ...addOnOptions.flatMap((option) => option.linkedProductId ? [option.linkedProductId] : [])
+  ])];
 
-  const [productIngredients, products, ingredientComponents] = await Promise.all([
+  const [productIngredients, products, ingredientComponents, optionIngredients] = await Promise.all([
     recipeProductIds.length
       ? client.productIngredient.findMany({
           where: { productId: { in: recipeProductIds }, ingredient: { isActive: true } },
@@ -210,6 +219,13 @@ export async function readInventoryData(
       },
       include: { componentIngredient: true },
       orderBy: { componentIngredient: { name: "asc" } }
+    }),
+    client.addOnOptionIngredient.findMany({
+      where: {
+        option: { isActive: true },
+        ingredient: { isActive: true }
+      },
+      include: { ingredient: { include: inventoryIngredientInclude } }
     })
   ]);
 
@@ -226,6 +242,9 @@ export async function readInventoryData(
 
   for (const recipe of productIngredients) {
     collectIngredientIds(recipe.ingredient);
+  }
+  for (const usage of optionIngredients) {
+    collectIngredientIds(usage.ingredient);
   }
   const componentsByParent = new Map<string, typeof ingredientComponents>();
   for (const component of ingredientComponents) {
@@ -262,7 +281,7 @@ export async function readInventoryData(
     }
   });
 
-  return { productIngredients, products, ingredientComponents, branchInventories };
+  return { productIngredients, products, ingredientComponents, optionIngredients, addOnOptions, branchInventories };
 }
 
 type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
@@ -274,12 +293,16 @@ type InventoryData = Awaited<ReturnType<typeof readInventoryData>>;
 export function computeInventoryChanges({
   productIngredients,
   products,
+  optionIngredients,
+  addOnOptions,
   branchInventories,
   items,
   mode,
 }: {
   productIngredients: InventoryData["productIngredients"];
   products: InventoryData["products"];
+  optionIngredients: InventoryData["optionIngredients"];
+  addOnOptions: InventoryData["addOnOptions"];
   branchInventories: InventoryData["branchInventories"];
   items: InventoryOrderItem[];
   mode: "consume" | "return";
@@ -306,18 +329,16 @@ export function computeInventoryChanges({
   }
 
   const ingredientById = new Map(productIngredients.map((entry) => [entry.ingredientId, entry.ingredient]));
+  for (const usage of optionIngredients) ingredientById.set(usage.ingredientId, usage.ingredient);
+  const optionUsageById = new Map<string, typeof optionIngredients>();
+  for (const usage of optionIngredients) {
+    const entries = optionUsageById.get(usage.optionId) ?? [];
+    entries.push(usage);
+    optionUsageById.set(usage.optionId, entries);
+  }
+  const optionById = new Map(addOnOptions.map((option) => [option.id, option]));
   const productById = new Map(products.map((product) => [product.id, product]));
   const thelaFriesProduct = products.find((product) => product.slug === THELA_FRIES_SLUG);
-  const mealAddOnProductByName = new Map(
-    products
-      .filter((product) => product.category && BEVERAGE_CATEGORY_SLUGS.includes(product.category.slug as typeof BEVERAGE_CATEGORY_SLUGS[number]))
-      .map((product) => [mealOptionNameFor(product.name, product.category!.slug), product])
-  );
-  const mealAddOnProductById = new Map(
-    products
-      .filter((product) => product.category && BEVERAGE_CATEGORY_SLUGS.includes(product.category.slug as typeof BEVERAGE_CATEGORY_SLUGS[number]))
-      .map((product) => [product.id, product])
-  );
   function addProductRecipeUsage(productId: string, quantity: number) {
     const product = productById.get(productId);
     const isMealProduct = product?.category?.slug === MEAL_CATEGORY_SLUG;
@@ -336,8 +357,6 @@ export function computeInventoryChanges({
     }
   }
 
-  const inventoryBySku = new Map(branchInventories.map((entry) => [entry.ingredient.sku, entry]));
-
   for (const item of items) {
     const bundledProductIds = new Set(
       (item.bundleComponents ?? []).flatMap((component) => component.productId ? [component.productId] : [])
@@ -352,37 +371,24 @@ export function computeInventoryChanges({
         continue;
       }
 
-      addProductRecipeUsage(component.productId, component.quantity);
+      addProductRecipeUsage(component.productId, component.quantity * item.quantity);
     }
 
     for (const addOn of item.addOns ?? []) {
-      if (addOn.linkedProductId && bundledProductIds.has(addOn.linkedProductId)) {
+      const linkedProductId = addOn.linkedProductId ?? (addOn.optionId ? optionById.get(addOn.optionId)?.linkedProductId : null);
+      if (linkedProductId && bundledProductIds.has(linkedProductId)) {
         continue;
       }
-      const dynamicMealAddOnProduct = (addOn.linkedProductId ? mealAddOnProductById.get(addOn.linkedProductId) : undefined)
-        ?? mealAddOnProductByName.get(addOn.optionName);
-      if (dynamicMealAddOnProduct) {
-        addProductRecipeUsage(dynamicMealAddOnProduct.id, item.quantity);
+      const linkedAddOnProduct = linkedProductId ? productById.get(linkedProductId) : undefined;
+      if (linkedAddOnProduct) {
+        addProductRecipeUsage(linkedAddOnProduct.id, item.quantity);
         continue;
       }
 
-      const canonicalOptionName = addOn.optionName.includes(":")
-        ? addOn.optionName.slice(addOn.optionName.lastIndexOf(":") + 1).trim()
-        : addOn.optionName;
-      const optionRecipe = OPTION_RECIPE_BY_NAME[addOn.optionName] ?? OPTION_RECIPE_BY_NAME[canonicalOptionName];
-      if (!optionRecipe) continue;
-
-      const components = addOn.optionName.startsWith("Fries + ")
-        ? optionRecipe.filter((component) => !["ING-FRIES", "ING-FRIES-MASALA"].includes(component.ingredientSku))
-        : optionRecipe;
-
-      for (const component of components) {
-        const inventory = inventoryBySku.get(component.ingredientSku);
-        if (!inventory || inventory.ingredient.type === "PACKAGING") continue;
-        totals.set(
-          inventory.ingredientId,
-          roundQuantity((totals.get(inventory.ingredientId) ?? 0) + component.quantity * item.quantity)
-        );
+      if (!addOn.optionId) continue;
+      for (const usage of optionUsageById.get(addOn.optionId) ?? []) {
+        if (usage.ingredient.type === "PACKAGING") continue;
+        addIngredientUsage(usage.ingredient, Number(usage.quantityNeeded) * item.quantity);
       }
     }
   }
@@ -420,13 +426,15 @@ export async function applyInventoryChanges({
   changes,
   orderId,
   actorId,
-  mode
+  mode,
+  inventoryApplicationId
 }: {
   transaction: Prisma.TransactionClient;
   changes: InventoryChange[];
   orderId: string;
   actorId?: string | null;
   mode: "consume" | "return";
+  inventoryApplicationId?: string;
 }) {
   if (!changes.length) {
     return;
@@ -461,7 +469,8 @@ export async function applyInventoryChanges({
       balanceAfter: change.balanceAfter,
       note,
       referenceType: "ORDER",
-      referenceId: orderId
+      referenceId: orderId,
+      inventoryApplicationId: inventoryApplicationId ?? null
     }))
   });
 }
@@ -522,48 +531,6 @@ function calculatePrepBatchOutput(
   })));
 }
 
-async function reverseAutomaticPrepProduction({
-  transaction,
-  branchId,
-  orderId,
-  actorId
-}: {
-  transaction: Prisma.TransactionClient;
-  branchId: string;
-  orderId: string;
-  actorId?: string | null;
-}) {
-  const productionTransactions = await transaction.inventoryTransaction.findMany({
-    where: {
-      referenceType: "PREP_AUTO_BATCH",
-      referenceId: orderId,
-      branchInventory: { branchId }
-    },
-    orderBy: { createdAt: "desc" }
-  });
-
-  for (const productionTransaction of productionTransactions) {
-    await recordInventoryChange({
-      transaction,
-      branchId,
-      ingredientId: (await transaction.branchInventory.findUniqueOrThrow({ where: { id: productionTransaction.branchInventoryId } })).ingredientId,
-      quantityDelta: roundQuantity(-Number(productionTransaction.quantity)),
-      type: InventoryTransactionType.RETURN,
-      actorId,
-      note: "Reverse automatic full prep batch for order",
-      referenceType: "PREP_AUTO_BATCH_REVERSAL",
-      referenceId: orderId
-    });
-  }
-
-  if (productionTransactions.length) {
-    await transaction.inventoryTransaction.updateMany({
-      where: { id: { in: productionTransactions.map((entry) => entry.id) } },
-      data: { referenceType: "PREP_AUTO_BATCH_REVERSED" }
-    });
-  }
-}
-
 async function produceRequiredPrepBatches({
   transaction,
   branchId,
@@ -571,7 +538,8 @@ async function produceRequiredPrepBatches({
   actorId,
   requiredByIngredientId,
   ingredientComponents,
-  branchInventories
+  branchInventories,
+  inventoryApplicationId
 }: {
   transaction: Prisma.TransactionClient;
   branchId: string;
@@ -580,6 +548,7 @@ async function produceRequiredPrepBatches({
   requiredByIngredientId: Map<string, number>;
   ingredientComponents: PrepComponent[];
   branchInventories: Array<{ id: string; ingredientId: string; quantityOnHand: Prisma.Decimal; ingredient: { id: string; name: string; unit: string; type: string; isActive: boolean } }>;
+  inventoryApplicationId: string;
 }) {
   const stock = new Map(branchInventories.map((entry) => [entry.ingredientId, Number(entry.quantityOnHand)]));
   const inventoryByIngredientId = new Map(branchInventories.map((entry) => [entry.ingredientId, entry]));
@@ -604,7 +573,8 @@ async function produceRequiredPrepBatches({
       actorId,
       note,
       referenceType: "PREP_AUTO_BATCH",
-      referenceId: orderId
+      referenceId: orderId,
+      inventoryApplicationId
     });
     stock.set(ingredientId, roundQuantity((stock.get(ingredientId) ?? 0) + quantityDelta));
     inventoryByIngredientId.set(ingredientId, { ...inventory, quantityOnHand: updated.quantityOnHand });
@@ -643,10 +613,24 @@ async function produceRequiredPrepBatches({
   }
 }
 
+type StoredInventoryEffect = { ingredientId: string; quantity: number };
+
+function parseStoredEffects(value: Prisma.JsonValue): StoredInventoryEffect[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const ingredientId = "ingredientId" in entry ? entry.ingredientId : undefined;
+    const quantity = "quantity" in entry ? entry.quantity : undefined;
+    return typeof ingredientId === "string" && typeof quantity === "number" && Number.isFinite(quantity)
+      ? [{ ingredientId, quantity }]
+      : [];
+  });
+}
+
 /**
- * Backwards-compatible helper: reads, computes, and applies an order's
- * inventory adjustment within a single transaction. All order channels use
- * this path so automatic prep production and its reversal stay consistent.
+ * The single gateway for order-originated stock changes. A missing branch
+ * control is intentionally treated as disabled, so deploys cannot start
+ * deducting stock before an administrator explicitly enables the branch.
  */
 export async function applyOrderInventory({
   transaction,
@@ -657,6 +641,92 @@ export async function applyOrderInventory({
   mode,
   serviceType
 }: ApplyOrderInventoryArgs) {
+  void serviceType;
+  await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${orderId}))`;
+
+  const [control, order] = await Promise.all([
+    transaction.branchInventoryControl.findUnique({ where: { branchId } }),
+    transaction.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, branchId: true, orderNumber: true, inventoryStatus: true }
+    })
+  ]);
+
+  if (!order) return;
+  if (order.branchId !== branchId) throw new Error("Order and inventory branch do not match.");
+
+  if (!control?.orderDeductionEnabled) {
+    if (order.inventoryStatus !== "SKIPPED") {
+      await transaction.order.update({ where: { id: orderId }, data: { inventoryStatus: "SKIPPED" } });
+    }
+    return;
+  }
+
+  const activeApplication = await transaction.orderInventoryApplication.findFirst({
+    where: {
+      orderId,
+      branchId,
+      generation: control.generation,
+      status: "APPLIED"
+    },
+    orderBy: { appliedAt: "desc" }
+  });
+
+  if (mode === "return") {
+    if (!activeApplication) return;
+    const storedEffects = parseStoredEffects(activeApplication.effects);
+    const existingIngredients = await transaction.ingredient.findMany({
+      where: { id: { in: storedEffects.map((effect) => effect.ingredientId) } },
+      select: { id: true }
+    });
+    const existingIngredientIds = new Set(existingIngredients.map((ingredient) => ingredient.id));
+
+    for (const effect of storedEffects) {
+      // A deliberately deleted stock item has no balance left to restore.
+      if (!existingIngredientIds.has(effect.ingredientId)) continue;
+      const inverseQuantity = roundQuantity(-effect.quantity);
+      if (!inverseQuantity) continue;
+      await recordInventoryChange({
+        transaction,
+        branchId,
+        ingredientId: effect.ingredientId,
+        quantityDelta: inverseQuantity,
+        type: inverseQuantity >= 0 ? InventoryTransactionType.RETURN : InventoryTransactionType.CONSUMPTION,
+        actorId,
+        note: "Exact order inventory reversal",
+        referenceType: "ORDER_INVENTORY_REVERSAL",
+        referenceId: orderId,
+        inventoryApplicationId: activeApplication.id
+      });
+    }
+    await transaction.orderInventoryApplication.update({
+      where: { id: activeApplication.id },
+      data: { status: "REVERSED", reversedAt: new Date() }
+    });
+    await transaction.order.update({ where: { id: orderId }, data: { inventoryStatus: "REVERSED" } });
+    return;
+  }
+
+  if (activeApplication || order.inventoryStatus === "SKIPPED") return;
+  if (order.inventoryStatus === "APPLIED") return;
+  if (order.inventoryStatus === "REVERSED") {
+    const latestApplication = await transaction.orderInventoryApplication.findFirst({
+      where: { orderId, branchId },
+      orderBy: { appliedAt: "desc" },
+      select: { generation: true }
+    });
+    if (!latestApplication || latestApplication.generation !== control.generation) return;
+  }
+
+  const application = await transaction.orderInventoryApplication.create({
+    data: {
+      branchId,
+      orderId,
+      orderNumber: order.orderNumber,
+      generation: control.generation,
+      effects: []
+    }
+  });
   const productIds = [
     ...new Set(
       items.flatMap((item) => [
@@ -667,12 +737,6 @@ export async function applyOrderInventory({
   ];
   const inventoryData = await readInventoryData(transaction, branchId, productIds);
   const changes = computeInventoryChanges({ ...inventoryData, items, mode });
-
-  if (mode === "return") {
-    await applyInventoryChanges({ transaction, changes, orderId, actorId, mode });
-    await reverseAutomaticPrepProduction({ transaction, branchId, orderId, actorId });
-    return;
-  }
 
   const requiredByIngredientId = new Map<string, number>();
   for (const change of changes) {
@@ -686,10 +750,37 @@ export async function applyOrderInventory({
     actorId,
     requiredByIngredientId,
     ingredientComponents: inventoryData.ingredientComponents as PrepComponent[],
-    branchInventories: inventoryData.branchInventories
+    branchInventories: inventoryData.branchInventories,
+    inventoryApplicationId: application.id
   });
 
   const refreshedData = await readInventoryData(transaction, branchId, productIds);
   const refreshedChanges = computeInventoryChanges({ ...refreshedData, items, mode });
-  await applyInventoryChanges({ transaction, changes: refreshedChanges, orderId, actorId, mode });
+  await applyInventoryChanges({
+    transaction,
+    changes: refreshedChanges,
+    orderId,
+    actorId,
+    mode,
+    inventoryApplicationId: application.id
+  });
+
+  const applicationTransactions = await transaction.inventoryTransaction.findMany({
+    where: { inventoryApplicationId: application.id },
+    select: {
+      quantity: true,
+      branchInventory: { select: { ingredientId: true } }
+    }
+  });
+  const effectTotals = new Map<string, number>();
+  for (const entry of applicationTransactions) {
+    const ingredientId = entry.branchInventory.ingredientId;
+    effectTotals.set(ingredientId, roundQuantity((effectTotals.get(ingredientId) ?? 0) + Number(entry.quantity)));
+  }
+  const effects = Array.from(effectTotals.entries()).map(([ingredientId, quantity]) => ({ ingredientId, quantity }));
+  await transaction.orderInventoryApplication.update({
+    where: { id: application.id },
+    data: { effects: effects as Prisma.InputJsonValue }
+  });
+  await transaction.order.update({ where: { id: orderId }, data: { inventoryStatus: "APPLIED" } });
 }
