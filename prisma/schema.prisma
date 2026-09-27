@@ -78,6 +78,18 @@ enum InventoryTransactionType {
   RETURN
 }
 
+enum OrderInventoryStatus {
+  PENDING
+  SKIPPED
+  APPLIED
+  REVERSED
+}
+
+enum InventoryApplicationStatus {
+  APPLIED
+  REVERSED
+}
+
 enum ContentStatus {
   DRAFT
   PUBLISHED
@@ -94,47 +106,48 @@ model Role {
 }
 
 model User {
-  id                       String                 @id @default(cuid())
+  id                       String                   @id @default(cuid())
   roleId                   String
   name                     String
-  username                 String                 @unique
-  email                    String                 @unique
-  phone                    String?                @unique
+  username                 String                   @unique
+  email                    String                   @unique
+  phone                    String?                  @unique
   passwordHash             String
   avatarUrl                String?
-  isActive                 Boolean                @default(true)
-  canAccessAdmin           Boolean                @default(false)
-  canAccessPos             Boolean                @default(false)
+  isActive                 Boolean                  @default(true)
+  canAccessAdmin           Boolean                  @default(false)
+  canAccessPos             Boolean                  @default(false)
   lastLoginAt              DateTime?
-  marketingOptIn           Boolean                @default(false)
-  createdAt                DateTime               @default(now())
-  updatedAt                DateTime               @updatedAt
-  role                     Role                   @relation(fields: [roleId], references: [id])
+  marketingOptIn           Boolean                  @default(false)
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  role                     Role                     @relation(fields: [roleId], references: [id])
   addresses                Address[]
   orders                   Order[]
-  cashierOrders            Order[]                @relation("CashierOrder")
-  acceptedDeliveryOrders   Order[]                @relation("DeliveryAcceptedBy")
-  dispatchedDeliveryOrders Order[]                @relation("DeliveryDispatchedBy")
-  assignedDeliveryOrders  Order[]                @relation("DeliveryAssignedRider")
+  cashierOrders            Order[]                  @relation("CashierOrder")
+  acceptedDeliveryOrders   Order[]                  @relation("DeliveryAcceptedBy")
+  dispatchedDeliveryOrders Order[]                  @relation("DeliveryDispatchedBy")
+  assignedDeliveryOrders   Order[]                  @relation("DeliveryAssignedRider")
   reviews                  Review[]
   favorites                Favorite[]
   notifications            Notification[]
   auditLogs                AuditLog[]
   cart                     ShoppingCart?
-  inventoryTransactions    InventoryTransaction[] @relation("InventoryActor")
-  expenses                 Expense[]              @relation("ExpenseActor")
-  fixedExpenses            FixedExpense[]         @relation("FixedExpenseActor")
-  moneyTransfers           MoneyTransfer[]        @relation("MoneyTransferActor")
-  moneyAdditions           MoneyAddition[]        @relation("MoneyAdditionActor")
-  dailyClosings            DailyClosing[]         @relation("DailyClosingActor")
-  openingBalances          OpeningBalance[]       @relation("OpeningBalanceActor")
-  foodpandaSettlements     FoodpandaSettlement[]  @relation("FoodpandaSettlementReceiver")
-  loans                    Loan[]                 @relation("LoanActor")
-  loanRepayments           LoanRepayment[]        @relation("LoanRepaymentActor")
-  investmentPartners       InvestmentPartner[]    @relation("InvestmentPartnerActor")
-  investmentCommitments    InvestmentCommitment[] @relation("InvestmentCommitmentActor")
-  investmentPayments       InvestmentPayment[]    @relation("InvestmentPaymentActor")
-  shareTransfersCreated    ShareTransfer[]        @relation("ShareTransferActor")
+  inventoryTransactions    InventoryTransaction[]   @relation("InventoryActor")
+  inventoryControlsUpdated BranchInventoryControl[] @relation("InventoryControlUpdater")
+  expenses                 Expense[]                @relation("ExpenseActor")
+  fixedExpenses            FixedExpense[]           @relation("FixedExpenseActor")
+  moneyTransfers           MoneyTransfer[]          @relation("MoneyTransferActor")
+  moneyAdditions           MoneyAddition[]          @relation("MoneyAdditionActor")
+  dailyClosings            DailyClosing[]           @relation("DailyClosingActor")
+  openingBalances          OpeningBalance[]         @relation("OpeningBalanceActor")
+  foodpandaSettlements     FoodpandaSettlement[]    @relation("FoodpandaSettlementReceiver")
+  loans                    Loan[]                   @relation("LoanActor")
+  loanRepayments           LoanRepayment[]          @relation("LoanRepaymentActor")
+  investmentPartners       InvestmentPartner[]      @relation("InvestmentPartnerActor")
+  investmentCommitments    InvestmentCommitment[]   @relation("InvestmentCommitmentActor")
+  investmentPayments       InvestmentPayment[]      @relation("InvestmentPaymentActor")
+  shareTransfersCreated    ShareTransfer[]          @relation("ShareTransferActor")
   branchAccesses           UserBranchAccess[]
   permissionGrants         UserPermission[]
 }
@@ -192,36 +205,38 @@ model RolePermission {
 }
 
 model Branch {
-  id                 String              @id @default(cuid())
-  slug               String              @unique
-  name               String
-  city               String
-  addressLine1       String
-  addressLine2       String?
-  phone              String
-  email              String?
-  latitude           Float?
-  longitude          Float?
-  deliveryFee        Decimal             @db.Decimal(10, 2)
-  isActive           Boolean             @default(true)
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  hours              BranchHours[]
-  products           BranchProduct[]
-  carts              ShoppingCart[]
-  orders             Order[]
-  inventories        BranchInventory[]
-  expenses           Expense[]
-  fixedExpenses      FixedExpense[]
-  moneyTransfers     MoneyTransfer[]
-  moneyAdditions     MoneyAddition[]
-  dailyClosings      DailyClosing[]
-  openingBalances    OpeningBalance[]
-  loans              Loan[]
-  loanRepayments     LoanRepayment[]
-  investmentPayments InvestmentPayment[]
-  coupons            Coupon[]
-  userAccesses       UserBranchAccess[]
+  id                    String                      @id @default(cuid())
+  slug                  String                      @unique
+  name                  String
+  city                  String
+  addressLine1          String
+  addressLine2          String?
+  phone                 String
+  email                 String?
+  latitude              Float?
+  longitude             Float?
+  deliveryFee           Decimal                     @db.Decimal(10, 2)
+  isActive              Boolean                     @default(true)
+  createdAt             DateTime                    @default(now())
+  updatedAt             DateTime                    @updatedAt
+  hours                 BranchHours[]
+  products              BranchProduct[]
+  carts                 ShoppingCart[]
+  orders                Order[]
+  inventories           BranchInventory[]
+  inventoryControl      BranchInventoryControl?
+  inventoryApplications OrderInventoryApplication[]
+  expenses              Expense[]
+  fixedExpenses         FixedExpense[]
+  moneyTransfers        MoneyTransfer[]
+  moneyAdditions        MoneyAddition[]
+  dailyClosings         DailyClosing[]
+  openingBalances       OpeningBalance[]
+  loans                 Loan[]
+  loanRepayments        LoanRepayment[]
+  investmentPayments    InvestmentPayment[]
+  coupons               Coupon[]
+  userAccesses          UserBranchAccess[]
   expenseTitleFavorites ExpenseTitleFavorite[]
 }
 
@@ -325,16 +340,17 @@ model AddOnGroup {
 }
 
 model AddOnOption {
-  id              String           @id @default(cuid())
+  id              String                  @id @default(cuid())
   groupId         String
   linkedProductId String?
   name            String
-  priceDelta      Decimal          @db.Decimal(10, 2)
-  isActive        Boolean          @default(true)
-  sortOrder       Int              @default(0)
-  group           AddOnGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  linkedProduct   Product?         @relation("LinkedAddOnProduct", fields: [linkedProductId], references: [id], onDelete: SetNull)
+  priceDelta      Decimal                 @db.Decimal(10, 2)
+  isActive        Boolean                 @default(true)
+  sortOrder       Int                     @default(0)
+  group           AddOnGroup              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  linkedProduct   Product?                @relation("LinkedAddOnProduct", fields: [linkedProductId], references: [id], onDelete: SetNull)
   orderItems      OrderItemAddOn[]
+  ingredientUsage AddOnOptionIngredient[]
 
   @@index([linkedProductId])
 }
@@ -426,33 +442,34 @@ model Coupon {
 }
 
 model Order {
-  id                      String        @id @default(cuid())
-  orderNumber             String        @unique
+  id                      String                      @id @default(cuid())
+  orderNumber             String                      @unique
   customerId              String?
   cashierId               String?
   branchId                String
   addressId               String?
   couponId                String?
-  status                  OrderStatus   @default(PENDING)
-  channel                 OrderChannel  @default(ONLINE)
-  serviceType             ServiceType   @default(DELIVERY)
+  status                  OrderStatus                 @default(PENDING)
+  channel                 OrderChannel                @default(ONLINE)
+  serviceType             ServiceType                 @default(DELIVERY)
   customerName            String?
   customerPhone           String?
   foodpandaOrderNumber    String?
   paymentMethod           PaymentMethod
-  paymentStatus           PaymentStatus @default(PENDING)
-  subtotal                Decimal       @db.Decimal(10, 2)
-  taxRate                 Decimal       @db.Decimal(5, 2)
-  taxAmount               Decimal       @db.Decimal(10, 2)
-  deliveryFee             Decimal       @db.Decimal(10, 2)
-  discountAmount          Decimal       @db.Decimal(10, 2)
+  paymentStatus           PaymentStatus               @default(PENDING)
+  inventoryStatus         OrderInventoryStatus        @default(PENDING)
+  subtotal                Decimal                     @db.Decimal(10, 2)
+  taxRate                 Decimal                     @db.Decimal(5, 2)
+  taxAmount               Decimal                     @db.Decimal(10, 2)
+  deliveryFee             Decimal                     @db.Decimal(10, 2)
+  discountAmount          Decimal                     @db.Decimal(10, 2)
   manualDiscountType      DiscountType?
-  manualDiscountValue     Decimal?      @db.Decimal(10, 2)
+  manualDiscountValue     Decimal?                    @db.Decimal(10, 2)
   promotionName           String?
-  promotionDiscountAmount Decimal?      @db.Decimal(10, 2)
-  cashReceivedAmount      Decimal?      @db.Decimal(10, 2)
-  changeDueAmount         Decimal?      @db.Decimal(10, 2)
-  totalAmount             Decimal       @db.Decimal(10, 2)
+  promotionDiscountAmount Decimal?                    @db.Decimal(10, 2)
+  cashReceivedAmount      Decimal?                    @db.Decimal(10, 2)
+  changeDueAmount         Decimal?                    @db.Decimal(10, 2)
+  totalAmount             Decimal                     @db.Decimal(10, 2)
   expectedDeliveryAt      DateTime?
   deliveryInstructions    String?
   deliverySector          String?
@@ -465,17 +482,18 @@ model Order {
   acceptedAt              DateTime?
   dispatchedById          String?
   dispatchedAt            DateTime?
-  placedAt                DateTime      @default(now())
-  updatedAt               DateTime      @updatedAt
-  customer                User?         @relation(fields: [customerId], references: [id])
-  cashier                 User?         @relation("CashierOrder", fields: [cashierId], references: [id])
-  acceptedBy              User?         @relation("DeliveryAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
-  dispatchedBy            User?         @relation("DeliveryDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
-  rider                   User?         @relation("DeliveryAssignedRider", fields: [riderId], references: [id], onDelete: SetNull)
-  branch                  Branch        @relation(fields: [branchId], references: [id])
-  address                 Address?      @relation(fields: [addressId], references: [id])
-  coupon                  Coupon?       @relation(fields: [couponId], references: [id])
+  placedAt                DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+  customer                User?                       @relation(fields: [customerId], references: [id])
+  cashier                 User?                       @relation("CashierOrder", fields: [cashierId], references: [id])
+  acceptedBy              User?                       @relation("DeliveryAcceptedBy", fields: [acceptedById], references: [id], onDelete: SetNull)
+  dispatchedBy            User?                       @relation("DeliveryDispatchedBy", fields: [dispatchedById], references: [id], onDelete: SetNull)
+  rider                   User?                       @relation("DeliveryAssignedRider", fields: [riderId], references: [id], onDelete: SetNull)
+  branch                  Branch                      @relation(fields: [branchId], references: [id])
+  address                 Address?                    @relation(fields: [addressId], references: [id])
+  coupon                  Coupon?                     @relation(fields: [couponId], references: [id])
   items                   OrderItem[]
+  inventoryApplications   OrderInventoryApplication[]
 
   @@index([branchId, placedAt])
   @@index([branchId, status, placedAt])
@@ -600,6 +618,7 @@ model Ingredient {
   usedInPreparedItems IngredientComponent[]    @relation("ComponentIngredient")
   packagingRuleUsage  PackagingRule[]          @relation("PackagingRuleIngredient")
   purchaseUnits       IngredientPurchaseUnit[]
+  addOnOptionUsage    AddOnOptionIngredient[]
   createdAt           DateTime                 @default(now())
   updatedAt           DateTime                 @updatedAt
 }
@@ -632,31 +651,66 @@ model BranchInventory {
   @@unique([branchId, ingredientId])
 }
 
+model BranchInventoryControl {
+  id                    String    @id @default(cuid())
+  branchId              String    @unique
+  orderDeductionEnabled Boolean   @default(false)
+  generation            Int       @default(0)
+  enabledAt             DateTime?
+  updatedById           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  branch                Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  updatedBy             User?     @relation("InventoryControlUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+model OrderInventoryApplication {
+  id           String                     @id @default(cuid())
+  branchId     String
+  orderId      String?
+  orderNumber  String
+  generation   Int
+  status       InventoryApplicationStatus @default(APPLIED)
+  effects      Json
+  appliedAt    DateTime                   @default(now())
+  reversedAt   DateTime?
+  branch       Branch                     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  order        Order?                     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  transactions InventoryTransaction[]
+
+  @@index([branchId, generation, status])
+  @@index([orderId, status])
+}
+
 model InventoryTransaction {
-  id                String                   @id @default(cuid())
-  branchInventoryId String
-  actorId           String?
-  type              InventoryTransactionType
-  quantity          Decimal                  @db.Decimal(10, 3)
-  balanceAfter      Decimal                  @db.Decimal(10, 3)
-  referenceType     String?
-  referenceId       String?
-  note              String?
-  vendorName        String?
-  purchaseDate      DateTime?
-  purchaseCost      Decimal?                 @db.Decimal(10, 2)
-  purchaseQuantity  Decimal?                 @db.Decimal(12, 6)
-  purchaseUnitId    String?
-  purchaseUnitLabel String?
-  wastageReason     String?
-  editedAt          DateTime?
-  editedById        String?
-  editHistory       Json?
-  createdAt         DateTime                 @default(now())
-  branchInventory   BranchInventory          @relation(fields: [branchInventoryId], references: [id], onDelete: Cascade)
-  actor             User?                    @relation("InventoryActor", fields: [actorId], references: [id], onDelete: SetNull)
-  purchaseUnit      IngredientPurchaseUnit?  @relation(fields: [purchaseUnitId], references: [id], onDelete: SetNull)
-  stockExpense      Expense?                 @relation("StockPurchase")
+  id                     String                     @id @default(cuid())
+  branchInventoryId      String
+  actorId                String?
+  type                   InventoryTransactionType
+  quantity               Decimal                    @db.Decimal(10, 3)
+  balanceAfter           Decimal                    @db.Decimal(10, 3)
+  referenceType          String?
+  referenceId            String?
+  note                   String?
+  vendorName             String?
+  purchaseDate           DateTime?
+  purchaseCost           Decimal?                   @db.Decimal(10, 2)
+  purchaseQuantity       Decimal?                   @db.Decimal(12, 6)
+  purchaseUnitId         String?
+  purchaseUnitLabel      String?
+  wastageReason          String?
+  editedAt               DateTime?
+  editedById             String?
+  editHistory            Json?
+  inventoryApplicationId String?
+  createdAt              DateTime                   @default(now())
+  branchInventory        BranchInventory            @relation(fields: [branchInventoryId], references: [id], onDelete: Cascade)
+  actor                  User?                      @relation("InventoryActor", fields: [actorId], references: [id], onDelete: SetNull)
+  purchaseUnit           IngredientPurchaseUnit?    @relation(fields: [purchaseUnitId], references: [id], onDelete: SetNull)
+  stockExpense           Expense?                   @relation("StockPurchase")
+  inventoryApplication   OrderInventoryApplication? @relation(fields: [inventoryApplicationId], references: [id], onDelete: SetNull)
+
+  @@index([inventoryApplicationId])
 }
 
 model ProductIngredient {
@@ -717,6 +771,17 @@ model Expense {
   createdBy              User?                   @relation("ExpenseActor", fields: [createdById], references: [id], onDelete: SetNull)
   fixedExpenseOccurrence FixedExpenseOccurrence?
   stockTransaction       InventoryTransaction?   @relation("StockPurchase", fields: [stockTransactionId], references: [id], onDelete: Cascade)
+}
+
+model AddOnOptionIngredient {
+  optionId       String
+  ingredientId   String
+  quantityNeeded Decimal     @db.Decimal(10, 3)
+  option         AddOnOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  ingredient     Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  @@id([optionId, ingredientId])
+  @@index([ingredientId])
 }
 
 model ExpenseTitleFavorite {
@@ -898,16 +963,16 @@ model MoneyAddition {
 }
 
 model InvestmentPartner {
-  id          String                 @id @default(cuid())
-  name        String
-  note        String?
-  createdById String?
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
-  createdBy   User?                  @relation("InvestmentPartnerActor", fields: [createdById], references: [id], onDelete: SetNull)
-  commitments InvestmentCommitment[]
-  transfersFrom ShareTransfer[]      @relation("ShareTransferFrom")
-  transfersTo   ShareTransfer[]      @relation("ShareTransferTo")
+  id            String                 @id @default(cuid())
+  name          String
+  note          String?
+  createdById   String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  createdBy     User?                  @relation("InvestmentPartnerActor", fields: [createdById], references: [id], onDelete: SetNull)
+  commitments   InvestmentCommitment[]
+  transfersFrom ShareTransfer[]        @relation("ShareTransferFrom")
+  transfersTo   ShareTransfer[]        @relation("ShareTransferTo")
 
   @@index([name])
 }

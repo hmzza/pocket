@@ -12,6 +12,7 @@ import {
   createAdminInventoryTransaction,
   deleteAdminInventoryItem,
   fetchAdminInventory,
+  fetchAdminInventoryDeductionStatus,
   fetchAdminInventoryForecast,
   fetchAdminInventoryRecipes,
   fetchAdminPackagingRules,
@@ -20,12 +21,14 @@ import {
   deleteAdminPackagingRule,
   updateAdminInventoryItem,
   updateAdminInventoryItemStatus,
+  updateAdminInventoryDeductionStatus,
   updateAdminInventoryTransaction,
   updateAdminProductPackagingRules,
   updateAdminPreparedRecipe,
+  updateAdminOptionRecipe,
   updateAdminProductRecipe
 } from "@/lib/admin-client";
-import type { AdminInventoryData, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminPackagingRuleData, AdminRecipeData } from "@/lib/types";
+import type { AdminInventoryData, AdminInventoryDeductionStatus, AdminInventoryForecast, AdminInventoryItem, AdminInventoryTransaction, AdminPackagingRuleData, AdminRecipeData } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue, toPakistanDateIso } from "@/lib/utils";
 import type { AdminRangePreset } from "@/lib/types";
 
@@ -98,7 +101,7 @@ type LogEditState = {
 };
 
 type RecipeEditState = {
-  mode: "product" | "prepared" | "packaging";
+  mode: "product" | "prepared" | "packaging" | "option";
   id: string;
   components: Array<{ rowId: string; ingredientId: string; quantityNeeded: string; serviceType?: string }>;
 };
@@ -237,12 +240,11 @@ function ItemEditor({
             <label className="text-sm font-semibold text-pocket-navy">Calories per unit</label>
             <Input type="number" min="0" step="1" value={value.type === "PACKAGING" ? "0" : value.caloriesPerUnit} disabled={value.type === "PACKAGING"} onChange={(event) => onChange({ ...value, caloriesPerUnit: event.target.value })} />
           </div>
-          {!editingItem ? (
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-pocket-navy">Opening stock</label>
-              <Input type="number" min="0" step="0.001" value={value.openingStock} onChange={(event) => onChange({ ...value, openingStock: event.target.value })} />
-            </div>
-          ) : null}
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">{editingItem ? "Current / opening stock" : "Opening stock"}</label>
+            <Input type="number" min="0" step="0.001" value={value.openingStock} onChange={(event) => onChange({ ...value, openingStock: event.target.value })} />
+            {editingItem ? <p className="text-xs text-pocket-navy/55">Saving sets the current counted balance to this value and logs the difference.</p> : null}
+          </div>
         </div>
         <details className="mt-5 rounded-lg border border-pocket-navy/10 px-4 py-3">
           <summary className="cursor-pointer text-sm font-bold text-pocket-navy">Purchase units (optional)</summary>
@@ -422,6 +424,35 @@ function SearchableInventorySelect({
   return label ? <Field label={label}>{control}</Field> : control;
 }
 
+function DeductionControl({ status, saving, onChange }: { status: AdminInventoryDeductionStatus | null; saving: boolean; onChange: (enabled: boolean) => void }) {
+  const enabled = status?.enabled ?? false;
+  return (
+    <Card className={`flex flex-col gap-4 border p-5 sm:flex-row sm:items-center sm:justify-between ${enabled ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70"}`}>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-black text-pocket-navy">Order stock deduction</p>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${enabled ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{enabled ? "Active" : "Paused"}</span>
+        </div>
+        <p className="mt-1 text-sm text-pocket-navy/65">
+          {enabled ? "New orders deduct stock. Existing orders from before activation remain excluded." : "Orders cannot deduct or return stock. Purchases and manual inventory actions still work."}
+        </p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label="Toggle order stock deduction"
+        disabled={!status?.canManage || saving}
+        onClick={() => onChange(!enabled)}
+        className={`relative h-8 w-14 shrink-0 rounded-full transition ${enabled ? "bg-emerald-600" : "bg-pocket-navy/25"} disabled:cursor-not-allowed disabled:opacity-50`}
+        title={status?.canManage ? (enabled ? "Pause order stock deduction" : "Enable order stock deduction") : "Only Super Admin can change this setting"}
+      >
+        <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow-sm transition-all ${enabled ? "left-7" : "left-1"}`} />
+      </button>
+    </Card>
+  );
+}
+
 function SelectItem({ items, value, onChange }: { items: AdminInventoryItem[]; value: string; onChange: (value: string) => void }) {
   return <SearchableInventorySelect items={items.map((item) => ({ id: item.ingredientId, name: item.name, unit: item.unit, quantityOnHand: item.quantityOnHand }))} value={value} onChange={onChange} />;
 }
@@ -452,7 +483,11 @@ function ForecastSection({ forecast, loading }: { forecast: AdminInventoryForeca
 }
 
 function RecipesSection({ data, ingredients, edit, setEdit, saving, onSave }: { data: AdminRecipeData | null; ingredients: AdminRecipeData["ingredients"]; edit: RecipeEditState | null; setEdit: Dispatch<SetStateAction<RecipeEditState | null>>; saving: boolean; onSave: () => void }) {
-  const selectedName = edit?.mode === "product" || edit?.mode === "packaging" ? data?.products.find((product) => product.id === edit.id)?.name : data?.preparedItems.find((item) => item.id === edit?.id)?.name;
+  const selectedName = edit?.mode === "product" || edit?.mode === "packaging"
+    ? data?.products.find((product) => product.id === edit.id)?.name
+    : edit?.mode === "option"
+      ? data?.products.flatMap((product) => product.options).find((option) => option.id === edit.id)?.name
+      : data?.preparedItems.find((item) => item.id === edit?.id)?.name;
   const foodIngredients = ingredients.filter((ingredient) => ingredient.type !== "PACKAGING");
   const packagingIngredients = ingredients.filter((ingredient) => ingredient.type === "PACKAGING");
   const editorIngredients = edit?.mode === "packaging" ? packagingIngredients : foodIngredients;
@@ -470,7 +505,7 @@ function RecipesSection({ data, ingredients, edit, setEdit, saving, onSave }: { 
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Menu products</p>
             {(data?.products ?? []).map((product) => (
-              <RecipeRow key={product.id} name={product.name} meta={`${formatCurrency(product.costSummary.totalCost)} cost · ${product.costSummary.marginPercent}% margin · ${product.costSummary.calories} cal`} onEdit={() => setEdit({ mode: "product", id: product.id, components: product.costSummary.items.map((component) => newRecipeRow(component.ingredientId, String(component.quantity))) })} />
+              <RecipeRow key={product.id} name={product.name} meta={`${formatCurrency(product.costSummary.totalCost)} cost · ${product.costSummary.marginPercent}% margin · ${product.costSummary.calories} cal`} onEdit={() => setEdit({ mode: "product", id: product.id, components: product.recipeComponents.map((component) => newRecipeRow(component.ingredientId, String(component.quantityNeeded))) })} />
             ))}
           </div>
         </div>
@@ -507,7 +542,13 @@ function RecipeRow({ name, meta, onEdit }: { name: string; meta: string; onEdit:
 }
 
 function RecipesCostingSection({ data, ingredients, edit, setEdit, saving, onSave }: { data: AdminRecipeData | null; ingredients: AdminRecipeData["ingredients"]; edit: RecipeEditState | null; setEdit: Dispatch<SetStateAction<RecipeEditState | null>>; saving: boolean; onSave: () => void }) {
-  const selectedName = edit?.mode === "product" ? data?.products.find((product) => product.id === edit.id)?.name : edit?.mode === "prepared" ? data?.preparedItems.find((item) => item.id === edit?.id)?.name : undefined;
+  const selectedName = edit?.mode === "product"
+    ? data?.products.find((product) => product.id === edit.id)?.name
+    : edit?.mode === "option"
+      ? data?.products.flatMap((product) => product.options).find((option) => option.id === edit.id)?.name
+      : edit?.mode === "prepared"
+        ? data?.preparedItems.find((item) => item.id === edit?.id)?.name
+        : undefined;
   const foodIngredients = ingredients.filter((ingredient) => ingredient.type !== "PACKAGING");
 
   return (
@@ -517,7 +558,7 @@ function RecipesCostingSection({ data, ingredients, edit, setEdit, saving, onSav
         <div className="mt-4 space-y-3">
           {(data?.products ?? []).map((product) => (
             <div key={product.id} className="rounded-lg border border-pocket-navy/10 p-3">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="font-bold text-pocket-navy">{product.name}</p>
                   <p className="text-xs text-pocket-navy/60">
@@ -525,10 +566,26 @@ function RecipesCostingSection({ data, ingredients, edit, setEdit, saving, onSav
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setEdit({ mode: "product", id: product.id, components: product.costSummary.items.filter((component) => component.ingredientType !== "PACKAGING").map((component) => newRecipeRow(component.ingredientId, String(component.quantity))) })}>Food</Button>
+                  <Button size="sm" variant="outline" onClick={() => setEdit({ mode: "product", id: product.id, components: product.recipeComponents.map((component) => newRecipeRow(component.ingredientId, String(component.quantityNeeded))) })}>Food</Button>
+                 </div>
+               </div>
+              {product.options.length ? (
+                <div className="mt-3 border-t border-pocket-navy/10 pt-3">
+                  <p className="mb-2 text-xs font-bold uppercase tracking-[0.14em] text-pocket-navy/50">Option usage</p>
+                  <div className="space-y-2">
+                    {product.options.map((option) => (
+                      <div key={option.id} className="flex flex-col gap-2 rounded-md bg-pocket-cream/55 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-pocket-navy">{option.groupName}: {option.name}</p>
+                          <p className="text-xs text-pocket-navy/55">{option.linkedProductName ? `Uses ${option.linkedProductName} recipe` : option.components.length ? `${option.components.length} configured item${option.components.length === 1 ? "" : "s"}` : "No stock deduction configured"}</p>
+                        </div>
+                        {!option.linkedProductId ? <Button size="sm" variant="outline" onClick={() => setEdit({ mode: "option", id: option.id, components: option.components.map((component) => newRecipeRow(component.ingredientId, String(component.quantityNeeded))) })}>Edit usage</Button> : null}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </div>
+              ) : null}
+             </div>
           ))}
         </div>
       </Card>
@@ -567,7 +624,7 @@ function PrepItemsSection({ data, ingredients, edit, setEdit, saving, onSave }: 
             <RecipeRow
               key={item.id}
               name={item.name}
-              meta={`Stock ${item.quantityOnHand} ${item.unit} · Batch ${item.batchQuantity} ${item.unit} · ${formatCurrency(item.totalCost)} · ${item.components.length} components${item.lastAutoProductionAt ? ` · Last made ${new Date(item.lastAutoProductionAt).toLocaleString("en-PK")}` : ""}`}
+              meta={`Stock ${item.quantityOnHand} ${item.unit} · Estimated batch output ${item.batchQuantity} ${item.unit} · ${formatCurrency(item.totalCost)} · ${item.components.length} components${item.lastAutoProductionAt ? ` · Last made ${new Date(item.lastAutoProductionAt).toLocaleString("en-PK")}` : ""}`}
               onEdit={() => setEdit({ mode: "prepared", id: item.id, components: item.components.map((component) => newRecipeRow(component.ingredientId, String(component.quantityNeeded))) })}
             />
           ))}
@@ -691,6 +748,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const initialTab: InventoryTab = mode === "movement" ? "stock" : mode === "log" ? "logs" : "stock";
   const [activeTab, setActiveTab] = useState<InventoryTab>(initialTab);
   const [data, setData] = useState<AdminInventoryData | null>(null);
+  const [deductionStatus, setDeductionStatus] = useState<AdminInventoryDeductionStatus | null>(null);
   const [recipes, setRecipes] = useState<AdminRecipeData | null>(null);
   const [search, setSearch] = useState("");
   const [stockStatusFilter, setStockStatusFilter] = useState<StockStatusFilter>("all");
@@ -703,6 +761,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [logEdit, setLogEdit] = useState<LogEditState | null>(null);
   const [recipeEdit, setRecipeEdit] = useState<RecipeEditState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deductionSaving, setDeductionSaving] = useState(false);
   const [logPreset, setLogPreset] = useState<LogPreset>("today");
   const [logCustomStart, setLogCustomStart] = useState(getCurrentBusinessDateKey());
   const [logCustomEnd, setLogCustomEnd] = useState(getCurrentBusinessDateKey());
@@ -722,9 +781,14 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
                 : nextLogPreset === "year"
                   ? { start: `${today.slice(0, 4)}-01-01`, end: today }
                   : { start: today, end: today };
-      const inventoryData = await fetchAdminInventory(undefined, { receivedStart: toPakistanDateIso(range.start), receivedEnd: toPakistanDateIso(range.end, true) });
+      const [inventoryData, recipeData, nextDeductionStatus] = await Promise.all([
+        fetchAdminInventory(undefined, { receivedStart: toPakistanDateIso(range.start), receivedEnd: toPakistanDateIso(range.end, true) }),
+        fetchAdminInventoryRecipes(),
+        fetchAdminInventoryDeductionStatus()
+      ]);
       setData(inventoryData);
-      setRecipes(await fetchAdminInventoryRecipes());
+      setRecipes(recipeData);
+      setDeductionStatus(nextDeductionStatus);
       const first = inventoryData.items.find((item) => item.isActive)?.ingredientId ?? "";
       setWastageForm((current) => ({ ...current, ingredientId: current.ingredientId || first }));
     } catch (loadError) {
@@ -861,6 +925,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
         .filter((component) => component.ingredientId && numberValue(component.quantityNeeded) > 0)
         .map((component) => ({ ingredientId: component.ingredientId, quantityNeeded: numberValue(component.quantityNeeded) }));
       if (recipeEdit.mode === "product") await updateAdminProductRecipe(recipeEdit.id, components);
+      else if (recipeEdit.mode === "option") await updateAdminOptionRecipe(recipeEdit.id, components);
       else await updateAdminPreparedRecipe(recipeEdit.id, components);
       setRecipeEdit(null);
       await loadAll();
@@ -904,9 +969,24 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
     }
   }
 
+  async function changeDeductionStatus(enabled: boolean) {
+    if (!deductionStatus?.canManage) return;
+    if (enabled && !window.confirm("Enable stock deduction for new orders? Existing and currently open orders will remain excluded.")) return;
+    setDeductionSaving(true);
+    setError("");
+    try {
+      setDeductionStatus(await updateAdminInventoryDeductionStatus(enabled));
+    } catch (statusError) {
+      setError(statusError instanceof Error ? statusError.message : "Failed to update order stock deduction.");
+    } finally {
+      setDeductionSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <ItemEditor open={itemEditorOpen} value={itemForm} editingItem={editingItem} saving={saving} onChange={setItemForm} onClose={() => setItemEditorOpen(false)} onSubmit={() => void saveItem()} />
+      <DeductionControl status={deductionStatus} saving={deductionSaving} onChange={(enabled) => void changeDeductionStatus(enabled)} />
       <SummaryCards data={data} onRefresh={() => void loadAll()} onAddItem={openCreateItem} />
       <TabNav activeTab={activeTab} onChange={setActiveTab} />
       {error ? (

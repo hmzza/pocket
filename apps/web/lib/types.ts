@@ -247,6 +247,14 @@ export type AdminInventoryData = {
   recentTransactions: AdminInventoryTransaction[];
 };
 
+export type AdminInventoryDeductionStatus = {
+  branchId: string;
+  enabled: boolean;
+  generation: number;
+  enabledAt: string | null;
+  canManage: boolean;
+};
+
 export type AdminInventoryForecast = {
   branchId: string;
   generatedAt: string;
@@ -303,6 +311,27 @@ export type AdminRecipeData = {
     categoryName: string;
     basePrice: number;
     calories?: number;
+    recipeComponents: Array<{
+      ingredientId: string;
+      ingredientName: string;
+      ingredientType: string;
+      unit: string;
+      quantityNeeded: number;
+    }>;
+    options: Array<{
+      id: string;
+      groupName: string;
+      name: string;
+      linkedProductId?: string | null;
+      linkedProductName?: string | null;
+      components: Array<{
+        ingredientId: string;
+        ingredientName: string;
+        ingredientType: string;
+        unit: string;
+        quantityNeeded: number;
+      }>;
+    }>;
     costSummary: AdminProductCostSummary;
   }>;
 };

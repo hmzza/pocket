@@ -8,6 +8,7 @@ import type {
   AdminCashPositionData,
   AdminFoodpandaSettlementData,
   AdminInventoryForecast,
+  AdminInventoryDeductionStatus,
   AdminInvestmentData,
   AdminRecipeData,
   AdminInventoryData,
@@ -897,6 +898,17 @@ export async function fetchAdminInventory(branchId?: string, params?: { received
   };
 }
 
+export async function fetchAdminInventoryDeductionStatus(): Promise<AdminInventoryDeductionStatus> {
+  return adminFetch<AdminInventoryDeductionStatus>("/api/admin/inventory/deduction-status");
+}
+
+export async function updateAdminInventoryDeductionStatus(enabled: boolean): Promise<AdminInventoryDeductionStatus> {
+  return adminFetch<AdminInventoryDeductionStatus>("/api/admin/inventory/deduction-status", {
+    method: "PATCH",
+    body: JSON.stringify({ enabled })
+  });
+}
+
 export async function createAdminInventoryItem(payload: Record<string, unknown>) {
   const data = await adminFetch<{ ingredient: any }>("/api/admin/inventory/items", {
     method: "POST",
@@ -972,6 +984,14 @@ export async function fetchAdminInventoryRecipes(): Promise<AdminRecipeData> {
 
 export async function updateAdminProductRecipe(productId: string, components: Array<{ ingredientId: string; quantityNeeded: number }>) {
   const data = await adminFetch<{ ok: boolean }>(`/api/admin/inventory/recipes/products/${productId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ components })
+  });
+  return data.ok;
+}
+
+export async function updateAdminOptionRecipe(optionId: string, components: Array<{ ingredientId: string; quantityNeeded: number }>) {
+  const data = await adminFetch<{ ok: boolean }>(`/api/admin/inventory/recipes/options/${optionId}`, {
     method: "PATCH",
     body: JSON.stringify({ components })
   });
