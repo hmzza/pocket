@@ -229,7 +229,10 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
                         )}
                       >
                         <p className="font-semibold text-pocket-navy">{option.name}</p>
-                        <p className="text-sm text-pocket-navy/60">{formatCompactCurrency((mealProduct?.price ?? 0) + option.priceDelta)}</p>
+                        <p className="text-sm text-pocket-navy/60">
+                          {formatCompactCurrency((mealProduct?.price ?? 0) + option.priceDelta)} total
+                          {option.priceDelta ? ` (+${formatCompactCurrency(option.priceDelta)})` : ""}
+                        </p>
                       </button>
                     ))}
                   </div>
