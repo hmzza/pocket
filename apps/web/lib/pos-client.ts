@@ -101,11 +101,10 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
   });
 
   const products = [...data.products].sort((left, right) => {
-    const priorityDifference = getPosCategoryRank(left.category?.slug) - getPosCategoryRank(right.category?.slug);
-    if (priorityDifference !== 0) return priorityDifference;
-
     const productDifference = Number(left.sortOrder ?? 0) - Number(right.sortOrder ?? 0);
-    return productDifference !== 0 ? productDifference : String(left.name).localeCompare(String(right.name));
+    return productDifference !== 0
+      ? productDifference
+      : String(left.name).localeCompare(String(right.name)) || String(left.id).localeCompare(String(right.id));
   });
 
   return {

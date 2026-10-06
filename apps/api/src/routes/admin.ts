@@ -776,8 +776,8 @@ function serializeAdminBranch(branch: {
 async function initializeBranchSetup(transaction: Prisma.TransactionClient, branchId: string) {
   const [products, ingredients] = await Promise.all([
     transaction.product.findMany({
-      where: { isActive: true },
-      select: { id: true, basePrice: true }
+      select: { id: true, basePrice: true, isActive: true, stockStatus: true },
+      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }, { id: "asc" }]
     }),
     transaction.ingredient.findMany({
       where: { isActive: true },
@@ -787,12 +787,13 @@ async function initializeBranchSetup(transaction: Prisma.TransactionClient, bran
 
   if (products.length) {
     await transaction.branchProduct.createMany({
-      data: products.map((product) => ({
+      data: products.map((product, index) => ({
         branchId,
         productId: product.id,
         price: product.basePrice,
-        isAvailable: true,
-        stockStatus: "IN_STOCK"
+        isAvailable: product.isActive,
+        stockStatus: product.stockStatus,
+        sortOrder: index
       })),
       skipDuplicates: true
     });
@@ -1821,52 +1822,63 @@ router.get("/analytics/sales", async (req, res, next) => {
   }
 });
 
-router.get("/products", async (_req, res, next) => {
-  const includeBase = {
-    category: true,
-    images: { orderBy: { sortOrder: "asc" as const } },
-    addOnGroups: {
-      where: { isActive: true },
-      orderBy: { sortOrder: "asc" as const },
-      include: {
-        options: {
-          where: { isActive: true },
-          orderBy: { sortOrder: "asc" as const },
-          include: { linkedProduct: { select: { id: true, name: true, slug: true } } }
-        }
-      }
-    },
-    bundleComponents: {
-      orderBy: { sortOrder: "asc" as const },
-      include: {
-        componentProduct: {
-          select: {
-            id: true,
-            name: true,
-            slug: true
+router.get("/products", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const includeBase = {
+      category: true,
+      images: { orderBy: { sortOrder: "asc" as const } },
+      addOnGroups: {
+        where: { isActive: true },
+        orderBy: { sortOrder: "asc" as const },
+        include: {
+          options: {
+            where: { isActive: true },
+            orderBy: { sortOrder: "asc" as const },
+            include: { linkedProduct: { select: { id: true, name: true, slug: true } } }
           }
         }
-      }
-    },
-    branchPricing: { include: { branch: true } },
-    productIngredients: {
-      where: { ingredient: { isActive: true } },
-      include: { ingredient: { include: ingredientCostInclude } },
-      orderBy: { ingredient: { name: "asc" as const } }
-    }
-  };
-
-  try {
-    const products = await prisma.product.findMany({
-      include: {
-        ...includeBase,
-        packagingRules: {
-          where: { packagingIngredient: { isActive: true } },
-          include: { packagingIngredient: true },
-          orderBy: [{ serviceType: "asc" }, { packagingIngredient: { name: "asc" } }]
-        }
       },
-      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
+      bundleComponents: {
+        orderBy: { sortOrder: "asc" as const },
+        include: { componentProduct: { select: { id: true, name: true, slug: true } } }
+      },
+      branchPricing: {
+        where: { branchId: branchContext.branchId },
+        include: { branch: true }
+      },
+      productIngredients: {
+        where: { ingredient: { isActive: true } },
+        include: { ingredient: { include: ingredientCostInclude } },
+        orderBy: { ingredient: { name: "asc" as const } }
+      }
+    };
+
+    let products: any[];
+    try {
+      products = await prisma.product.findMany({
+        include: {
+          ...includeBase,
+          packagingRules: {
+            where: { packagingIngredient: { isActive: true } },
+            include: { packagingIngredient: true },
+            orderBy: [{ serviceType: "asc" }, { packagingIngredient: { name: "asc" } }]
+          }
+        },
+        orderBy: [{ name: "asc" }, { id: "asc" }]
+      });
+    } catch (error) {
+      if (!isMissingTableError(error)) throw error;
+      products = (await prisma.product.findMany({
+        include: includeBase,
+        orderBy: [{ name: "asc" }, { id: "asc" }]
+      })).map((product) => ({ ...product, packagingRules: [] }));
+    }
+
+    products.sort((left, right) => {
+      const orderDifference = (left.branchPricing[0]?.sortOrder ?? Number.MAX_SAFE_INTEGER)
+        - (right.branchPricing[0]?.sortOrder ?? Number.MAX_SAFE_INTEGER);
+      return orderDifference || left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
     });
 
     return res.json({
@@ -1876,22 +1888,7 @@ router.get("/products", async (_req, res, next) => {
       }))
     });
   } catch (error) {
-    if (!isMissingTableError(error)) {
-      return next(error);
-    }
-
-    const products = await prisma.product.findMany({
-      include: includeBase,
-      orderBy: [{ category: { sortOrder: "asc" } }, { sortOrder: "asc" }, { name: "asc" }]
-    });
-
-    return res.json({
-      products: products.map((product) => ({
-        ...product,
-        packagingRules: [],
-        costSummary: buildProductCostSummary({ ...product, packagingRules: [] })
-      }))
-    });
+    return next(error);
   }
 });
 
@@ -2203,19 +2200,28 @@ router.post("/products", async (req, res, next) => {
         }
       });
 
-      const activeBranches = await transaction.branch.findMany({
-        where: { isActive: true },
+      const branches = await transaction.branch.findMany({
         select: { id: true }
       });
 
-      if (activeBranches.length) {
+      if (branches.length) {
+        const nextSortOrders = new Map<string, number>();
+        await Promise.all(branches.map(async (branch) => {
+          const lastEntry = await transaction.branchProduct.findFirst({
+            where: { branchId: branch.id },
+            orderBy: [{ sortOrder: "desc" }, { productId: "desc" }],
+            select: { sortOrder: true }
+          });
+          nextSortOrders.set(branch.id, (lastEntry?.sortOrder ?? -1) + 1);
+        }));
         await transaction.branchProduct.createMany({
-          data: activeBranches.map((branch) => ({
+          data: branches.map((branch) => ({
             branchId: branch.id,
             productId: createdProduct.id,
             price: effectiveBasePrice,
             isAvailable: payload.isActive,
-            stockStatus: payload.stockStatus
+            stockStatus: payload.stockStatus,
+            sortOrder: nextSortOrders.get(branch.id) ?? 0
           }))
         });
       }
@@ -2289,6 +2295,66 @@ router.patch("/products/:id/cost-settings", async (req, res, next) => {
         costSettingsUpdatedAt: product.costSettingsUpdatedAt?.toISOString() ?? null
       }
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+const productOrderSchema = z.object({
+  direction: z.enum(["UP", "DOWN"])
+});
+
+router.patch("/products/:id/order", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = productOrderSchema.parse(req.body);
+    const sequence = await prisma.$transaction(async (transaction) => {
+      await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`product-order:${branchContext.branchId}`}))`;
+      const rows = await transaction.branchProduct.findMany({
+        where: { branchId: branchContext.branchId },
+        select: {
+          productId: true,
+          sortOrder: true,
+          product: { select: { name: true } }
+        },
+        orderBy: [{ sortOrder: "asc" }, { product: { name: "asc" } }, { productId: "asc" }]
+      });
+      const currentIndex = rows.findIndex((row) => row.productId === req.params.id);
+      if (currentIndex === -1) {
+        throw Object.assign(new Error("This product is unavailable for the selected branch."), { statusCode: 404 });
+      }
+
+      const adjacentIndex = payload.direction === "UP" ? currentIndex - 1 : currentIndex + 1;
+      if (adjacentIndex >= 0 && adjacentIndex < rows.length) {
+        [rows[currentIndex], rows[adjacentIndex]] = [rows[adjacentIndex]!, rows[currentIndex]!];
+      }
+
+      for (const [sortOrder, row] of rows.entries()) {
+        if (row.sortOrder !== sortOrder) {
+          await transaction.branchProduct.update({
+            where: {
+              branchId_productId: {
+                branchId: branchContext.branchId,
+                productId: row.productId
+              }
+            },
+            data: { sortOrder }
+          });
+        }
+      }
+
+      return rows.map((row, sortOrder) => ({ productId: row.productId, sortOrder }));
+    });
+
+    await writeAuditLog({
+      actorId: req.user!.id,
+      action: "product.order_update",
+      entityType: "product",
+      entityId: req.params.id,
+      payload: { branchId: branchContext.branchId, direction: payload.direction }
+    });
+
+    return res.json({ order: sequence });
   } catch (error) {
     return next(error);
   }

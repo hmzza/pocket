@@ -112,6 +112,7 @@ export async function fetchAdminProducts() {
 
   const products: AdminProduct[] = productResponse.products.map((product) => ({
     id: product.id,
+    sortOrder: Number(product.branchPricing?.[0]?.sortOrder ?? product.sortOrder ?? 0),
     categoryId: product.categoryId,
     slug: product.slug,
     sku: product.sku,
@@ -329,6 +330,13 @@ export async function updateAdminProduct(productId: string, payload: Record<stri
   return data.product;
 }
 
+export async function moveAdminProduct(productId: string, direction: "UP" | "DOWN") {
+  return adminFetch<{ order: Array<{ productId: string; sortOrder: number }> }>(`/api/admin/products/${productId}/order`, {
+    method: "PATCH",
+    body: JSON.stringify({ direction })
+  });
+}
+
 export async function updateAdminDealConfiguration(productId: string, groups: unknown[]) {
   return adminFetch<{ groups: unknown[] }>(`/api/admin/products/${productId}/deal-configuration`, {
     method: "PUT",
@@ -461,7 +469,8 @@ export async function fetchAdminOrders(params?: {
       addOns: item.addOns.map((addOn: any) => ({
         id: addOn.id,
         optionName: addOn.optionName,
-        priceDelta: Number(addOn.priceDelta)
+        priceDelta: Number(addOn.priceDelta),
+        quantity: Number(addOn.quantity ?? 1)
       }))
     }))
   }));

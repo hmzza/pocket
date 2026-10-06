@@ -12,6 +12,7 @@ import { calculateOrderTotals, readStoredCouponState, validateCouponCode, writeS
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
 import { formatSelectionLines } from "@/lib/item-detail-display";
+import { BOX_OF_SIX_SIZE, isBoxOfSixGroup, isBoxOfSixProduct } from "@/lib/box-of-six";
 
 function getOptionDisplayName(groupName: string, optionName: string) {
   const prefix = `${groupName}: `;
@@ -28,6 +29,7 @@ export default function CartPage() {
   const [couponLoading, setCouponLoading] = useState(false);
   const [editingCartItemId, setEditingCartItemId] = useState("");
   const [editedOptions, setEditedOptions] = useState<Record<string, string[]>>({});
+  const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const cartProducts = getCartProducts(products);
   const missingItems = Math.max(0, cart.length - cartProducts.length);
   const subtotal = useMemo(() => cartProducts.reduce((total, product) => total + product.price * product.quantity, 0), [cartProducts]);
@@ -39,18 +41,30 @@ export default function CartPage() {
     setEditedOptions(
       Object.fromEntries(product.addOnGroups.map((group) => [group.id, product.selectedAddOnIds.filter((optionId) => group.options.some((option) => option.id === optionId))]))
     );
+    setEditedQuantities(product.selectedAddOnQuantities ?? {});
     setEditingCartItemId(cartItemId);
   }
 
   function saveEdit() {
     if (!editingProduct) return;
+    const boxGroup = editingProduct.addOnGroups.find(isBoxOfSixGroup);
+    if (isBoxOfSixProduct(editingProduct) && boxGroup) {
+      const total = Object.values(editedQuantities).reduce((sum, quantity) => sum + quantity, 0);
+      if (total !== BOX_OF_SIX_SIZE) return;
+    }
     for (const group of editingProduct.addOnGroups) {
       const optionIds = editedOptions[group.id] ?? [];
+      if (isBoxOfSixProduct(editingProduct) && group.id === boxGroup?.id) continue;
       if (optionIds.length < group.minSelect || optionIds.length > group.maxSelect) {
         return;
       }
     }
-    updateCartItem(editingProduct.cartItemId, { selectedAddOnIds: editingProduct.addOnGroups.flatMap((group) => editedOptions[group.id] ?? []) });
+    updateCartItem(editingProduct.cartItemId, {
+      selectedAddOnIds: isBoxOfSixProduct(editingProduct) && boxGroup
+        ? boxGroup.options.filter((option) => (editedQuantities[option.id] ?? 0) > 0).map((option) => option.id)
+        : editingProduct.addOnGroups.flatMap((group) => editedOptions[group.id] ?? []),
+      selectedAddOnQuantities: isBoxOfSixProduct(editingProduct) ? editedQuantities : {}
+    });
     setEditingCartItemId("");
   }
 
@@ -155,7 +169,7 @@ export default function CartPage() {
                 <div>
                   <p className="text-lg font-black text-pocket-navy">{product.name}</p>
                   <p className="text-sm text-pocket-navy/65">{product.description}</p>
-                  {formatSelectionLines(product.selectedAddOns.map((option) => option.name), product.quantity).map((line) => (
+                  {formatSelectionLines(product.selectedAddOns.flatMap((option) => Array.from({ length: Math.max(1, product.selectedAddOnQuantities[option.id] ?? 1) }, () => option.name)), product.quantity).map((line) => (
                     <p key={line} className="mt-1 text-sm text-pocket-navy/60 first:mt-2">{line}</p>
                   ))}
                   <p className="mt-3 break-words text-base font-bold text-pocket-orange">{formatCompactCurrency(product.price)}</p>
@@ -255,9 +269,25 @@ export default function CartPage() {
               {editingProduct.addOnGroups.map((group) => (
                 <div key={group.id}>
                   <p className="font-semibold text-pocket-navy">{group.name}</p>
-                  <p className="mt-1 text-sm text-pocket-navy/60">Choose {group.minSelect} to {group.maxSelect}</p>
+                  <p className="mt-1 text-sm text-pocket-navy/60">{isBoxOfSixProduct(editingProduct) && isBoxOfSixGroup(group) ? `Choose exactly ${BOX_OF_SIX_SIZE} items` : `Choose ${group.minSelect} to ${group.maxSelect}`}</p>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     {group.options.map((option) => {
+                      if (isBoxOfSixProduct(editingProduct) && isBoxOfSixGroup(group)) {
+                        const quantity = editedQuantities[option.id] ?? 0;
+                        const total = Object.values(editedQuantities).reduce((sum, value) => sum + value, 0);
+                        return (
+                          <div key={option.id} className="rounded-xl border border-pocket-navy/10 px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-semibold text-pocket-navy">{getOptionDisplayName(group.name, option.name)}</p>
+                              <div className="inline-flex items-center gap-2">
+                                <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-pocket-navy/15 disabled:opacity-40" onClick={() => setEditedQuantities((current) => ({ ...current, [option.id]: Math.max(0, quantity - 1) }))} disabled={!quantity}><Minus className="h-4 w-4" /></button>
+                                <span className="w-6 text-center font-bold">{quantity}</span>
+                                <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-pocket-navy/15 disabled:opacity-40" onClick={() => setEditedQuantities((current) => ({ ...current, [option.id]: quantity + 1 }))} disabled={total >= BOX_OF_SIX_SIZE}><Plus className="h-4 w-4" /></button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
                       const selected = (editedOptions[group.id] ?? []).includes(option.id);
                       return (
                         <button

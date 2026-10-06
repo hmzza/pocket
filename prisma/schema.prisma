@@ -374,10 +374,12 @@ model BranchProduct {
   price       Decimal @db.Decimal(10, 2)
   isAvailable Boolean @default(true)
   stockStatus String  @default("IN_STOCK")
+  sortOrder   Int     @default(0)
   branch      Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
   product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([branchId, productId])
+  @@index([branchId, sortOrder])
 }
 
 model Address {
@@ -525,6 +527,7 @@ model OrderItemAddOn {
   optionId    String
   optionName  String
   priceDelta  Decimal     @db.Decimal(10, 2)
+  quantity    Int         @default(1)
   orderItem   OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
   option      AddOnOption @relation(fields: [optionId], references: [id])
 }

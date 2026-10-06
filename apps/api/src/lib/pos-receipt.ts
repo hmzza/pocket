@@ -66,7 +66,8 @@ export function formatOrderForReceipt(order: any) {
         id: addOn.id,
         optionId: addOn.optionId ?? "",
         optionName: addOn.optionName,
-        priceDelta: Number(addOn.priceDelta)
+        priceDelta: Number(addOn.priceDelta),
+        quantity: Number(addOn.quantity ?? 1)
       }))
     }))
   };

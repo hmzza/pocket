@@ -29,6 +29,11 @@ import {
   isDealProduct,
   syncDealOptions
 } from "../lib/deal-options.js";
+import {
+  filterBoxOfSixProducts,
+  isBoxOfSixProduct,
+  syncBoxOfSixOptions
+} from "../lib/box-of-six.js";
 
 const router = Router();
 const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
@@ -106,11 +111,25 @@ const productInclude = {
   }
 };
 
+function sortByBranchProductOrder<T extends {
+  id: string;
+  name: string;
+  branchPricing: Array<{ sortOrder: number }>;
+}>(products: T[]) {
+  return products.slice().sort((left, right) => {
+    const orderDifference = (left.branchPricing[0]?.sortOrder ?? Number.MAX_SAFE_INTEGER)
+      - (right.branchPricing[0]?.sortOrder ?? Number.MAX_SAFE_INTEGER);
+    return orderDifference || left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+  });
+}
+
 router.get("/content/home", async (req, res) => {
   const requestedBranchSlug = typeof req.query.branchSlug === "string" ? req.query.branchSlug : undefined;
   const branch = await resolvePublicBranch(requestedBranchSlug);
   if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
   const branchId = branch.id;
+  const boxOfSix = await syncBoxOfSixOptions(prisma);
+  const availableBoxChoiceProductIds = await getAvailableDealChoiceProductIds(prisma, branchId);
   const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, contact, deliveryAvailability, customerReviews] = await Promise.all([
     prisma.cmsContent.findUnique({ where: { key: "homepage.hero" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.why-pocket" } }),
@@ -133,7 +152,6 @@ router.get("/content/home", async (req, res) => {
         },
         branchPricing: publicBranchPricingInclude(branchId)
       },
-      take: 4
     }),
     prisma.product.findMany({
       where: { ...publicProductWhere(branchId), bestSeller: true },
@@ -152,7 +170,6 @@ router.get("/content/home", async (req, res) => {
         },
         branchPricing: publicBranchPricingInclude(branchId)
       },
-      take: 4
     }),
     prisma.category.findMany({
       where: {
@@ -172,7 +189,7 @@ router.get("/content/home", async (req, res) => {
     })
   ]);
 
-  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=600");
+  res.setHeader("Cache-Control", "no-store");
   return res.json({
     hero,
     whyPocket,
@@ -186,8 +203,8 @@ router.get("/content/home", async (req, res) => {
           { url: "/images/loaded-fries.png", alt: "Loaded Fries" }
         ],
     heroSliderIntervalMs: Number((slider?.value as any)?.intervalMs ?? 4500),
-    featured: featured.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG),
-    bestSellers: bestSellers.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG),
+    featured: sortByBranchProductOrder(filterBoxOfSixProducts(featured.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG), boxOfSix, availableBoxChoiceProductIds)).slice(0, 4),
+    bestSellers: sortByBranchProductOrder(filterBoxOfSixProducts(bestSellers.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG), boxOfSix, availableBoxChoiceProductIds)).slice(0, 4),
     categories,
     branch,
     contact,
@@ -260,6 +277,7 @@ router.get("/products", async (req, res, next) => {
     const { category, search, featured, bestSeller, branchSlug } = querySchema.parse(req.query);
     const branch = await resolvePublicBranch(branchSlug);
     if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
+    const boxOfSix = await syncBoxOfSixOptions(prisma);
     await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
     const [availableMealBeverageIds, availableDealChoiceProductIds] = await Promise.all([
       getAvailableMealBeverageIds(prisma, branch.id),
@@ -303,10 +321,10 @@ router.get("/products", async (req, res, next) => {
     });
 
     return res.json({
-      products: filterDealProductOptions(
+      products: sortByBranchProductOrder(filterBoxOfSixProducts(filterDealProductOptions(
         filterMealProductOptions(products, availableMealBeverageIds),
         availableDealChoiceProductIds
-      )
+      ), boxOfSix, availableDealChoiceProductIds))
     });
   } catch (error) {
     return next(error);
@@ -317,6 +335,7 @@ router.get("/products/:slug", async (req, res) => {
   const branchSlug = typeof req.query.branchSlug === "string" ? req.query.branchSlug : undefined;
   const branch = await resolvePublicBranch(branchSlug);
   if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
+  const boxOfSix = await syncBoxOfSixOptions(prisma);
   await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
   const [availableMealBeverageIds, availableDealChoiceProductIds] = await Promise.all([
     getAvailableMealBeverageIds(prisma, branch.id),
@@ -330,7 +349,7 @@ router.get("/products/:slug", async (req, res) => {
     }
   });
 
-  if (!product || !product.isActive || !product.category.isActive || PUBLIC_HIDDEN_CATEGORY_SLUGS.includes(product.category.slug as any) || product.category.slug === MEAL_CATEGORY_SLUG || !product.branchPricing[0]?.isAvailable) {
+  if (!product || !product.isActive || !product.category.isActive || PUBLIC_HIDDEN_CATEGORY_SLUGS.includes(product.category.slug as any) || product.category.slug === MEAL_CATEGORY_SLUG || !product.branchPricing[0]?.isAvailable || (isBoxOfSixProduct(product) && product.id !== boxOfSix.canonicalProductId)) {
     return res.status(404).json({ message: "Product not found." });
   }
 
@@ -357,17 +376,16 @@ router.get("/products/:slug", async (req, res) => {
       },
       branchPricing: publicBranchPricingInclude(branch.id)
     },
-    take: 4
   });
 
-  const [filteredProduct] = filterDealProductOptions(
+  const [filteredProduct] = filterBoxOfSixProducts(filterDealProductOptions(
     filterMealProductOptions([product], availableMealBeverageIds),
     availableDealChoiceProductIds
-  );
-  const filteredRelated = filterDealProductOptions(
+  ), boxOfSix, availableDealChoiceProductIds);
+  const filteredRelated = sortByBranchProductOrder(filterBoxOfSixProducts(filterDealProductOptions(
     filterMealProductOptions(related, availableMealBeverageIds),
     availableDealChoiceProductIds
-  );
+  ), boxOfSix, availableDealChoiceProductIds)).slice(0, 4);
 
   return res.json({ product: filteredProduct, related: filteredRelated });
 });
@@ -377,6 +395,8 @@ router.get("/search", async (req, res, next) => {
     const query = z.object({ q: z.string().min(1), branchSlug: z.string().optional() }).parse(req.query);
     const branch = await resolvePublicBranch(query.branchSlug);
     if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
+    const boxOfSix = await syncBoxOfSixOptions(prisma);
+    const availableBoxChoiceProductIds = await getAvailableDealChoiceProductIds(prisma, branch.id);
     const products = await prisma.product.findMany({
       where: {
         ...publicProductWhere(branch.id),
@@ -390,11 +410,14 @@ router.get("/search", async (req, res, next) => {
         category: true,
         images: { orderBy: { sortOrder: "asc" } },
         branchPricing: publicBranchPricingInclude(branch.id)
-      },
-      take: 8
+      }
     });
 
-    return res.json({ results: products.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG && !isLegacyMealProduct(product)) });
+    return res.json({
+      results: sortByBranchProductOrder(
+        filterBoxOfSixProducts(products.filter((product) => product.category.slug !== MEAL_CATEGORY_SLUG && !isLegacyMealProduct(product)), boxOfSix, availableBoxChoiceProductIds)
+      ).slice(0, 8)
+    });
   } catch (error) {
     return next(error);
   }
@@ -587,7 +610,8 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
               // verified against the selected branch below.
               productId: z.string().min(1).max(128),
               quantity: z.number().int().min(1).max(20),
-              selectedAddOnIds: z.array(z.string().min(1).max(128)).max(20).default([])
+              selectedAddOnIds: z.array(z.string().min(1).max(128)).max(20).default([]),
+              selectedAddOnQuantities: z.record(z.string().min(1).max(128), z.number().int().min(0).max(6)).default({})
             })
           )
           .min(1)
@@ -620,6 +644,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
     }
 
     const requestedProductIds = [...new Set(payload.items.map((item) => item.productId))];
+    const boxOfSix = await syncBoxOfSixOptions(prisma);
     await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
     const [availableMealBeverageIds, availableDealChoiceProductIds] = await Promise.all([
       getAvailableMealBeverageIds(prisma, branch.id),
@@ -671,8 +696,12 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       }
     });
 
-    const availableProducts = filterDealProductOptions(
-      filterMealProductOptions(products, availableMealBeverageIds),
+    const availableProducts = filterBoxOfSixProducts(
+      filterDealProductOptions(
+        filterMealProductOptions(products, availableMealBeverageIds),
+        availableDealChoiceProductIds
+      ),
+      boxOfSix,
       availableDealChoiceProductIds
     );
     const productMap = new Map(availableProducts.map((product) => [product.id, product]));
@@ -703,19 +732,32 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       }
 
       const selectedAddOnIds = [...new Set(item.selectedAddOnIds)];
+      const productAddOnGroups = isBoxOfSixProduct(product)
+        ? product.addOnGroups.filter((group) => group.id === boxOfSix.groupId)
+        : product.addOnGroups;
       const selectedDealComponents: Array<{ productId: string; productName: string; quantity: number }> = [];
-      const addOns = product.addOnGroups.flatMap((group) => {
+      const addOns = productAddOnGroups.flatMap((group) => {
         const selectedOptions = group.options.filter((option) => selectedAddOnIds.includes(option.id));
-        if (selectedOptions.length < group.minSelect || selectedOptions.length > group.maxSelect) {
+        const isBoxGroup = isBoxOfSixProduct(product) && group.id === boxOfSix.groupId;
+        const optionQuantities = new Map(selectedOptions.map((option) => [option.id, isBoxGroup ? (item.selectedAddOnQuantities[option.id] ?? 0) : 1]));
+        const totalBoxQuantity = isBoxGroup
+          ? selectedOptions.reduce((sum, option) => sum + (optionQuantities.get(option.id) ?? 0), 0)
+          : 0;
+        if (isBoxGroup && totalBoxQuantity !== 6) {
+          throw Object.assign(new Error(`${product.name}: choose exactly 6 items for the box.`), { statusCode: 400 });
+        }
+        if (!isBoxGroup && (selectedOptions.length < group.minSelect || selectedOptions.length > group.maxSelect)) {
           throw new Error(`${product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
         }
 
-        return selectedOptions.map((option) => {
+        return selectedOptions.flatMap((option) => {
+          const optionQuantity = optionQuantities.get(option.id) ?? 1;
+          if (optionQuantity <= 0) return [];
           if (isCanonicalMealProduct(product) && (!option.linkedProductId || !availableMealBeverageIds.has(option.linkedProductId) || !productMap.has(option.linkedProductId))) {
             throw Object.assign(new Error(`${product.name}: this beverage is unavailable from the selected branch.`), { statusCode: 400 });
           }
 
-          if (isDealProduct(product) && option.linkedProductId) {
+          if ((isDealProduct(product) || isBoxGroup) && option.linkedProductId) {
             const linkedProduct = option.linkedProduct;
             const linkedBranchProduct = linkedProduct?.branchPricing.find((entry) => entry.branchId === branch.id);
             if (!option.linkedProductId || !linkedProduct?.isActive || !linkedBranchProduct?.isAvailable) {
@@ -724,7 +766,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
             selectedDealComponents.push({
               productId: linkedProduct.id,
               productName: linkedProduct.name,
-              quantity: item.quantity
+              quantity: item.quantity * optionQuantity
             });
           }
 
@@ -732,7 +774,8 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
             optionId: option.id,
             optionName: option.name,
             priceDelta: Number(option.priceDelta),
-            linkedProductId: option.linkedProductId
+            linkedProductId: option.linkedProductId,
+            quantity: optionQuantity
           };
         });
       });
@@ -742,14 +785,14 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       }
 
       const basePrice = isCanonicalMealProduct(product) ? MEAL_BASE_PRICE : Number(product.branchPricing[0].price);
-      const unitPrice = basePrice + addOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
+      const unitPrice = basePrice + addOns.reduce((sum, addOn) => sum + addOn.priceDelta * addOn.quantity, 0);
 
       return {
         ...item,
         product,
         addOns,
         unitPrice,
-        bundleComponents: product.bundleComponents.map((component) => ({
+        bundleComponents: (isBoxOfSixProduct(product) ? [] : product.bundleComponents).map((component) => ({
           productId: component.componentProduct.id,
           productName: component.componentProduct.name,
           quantity: Number(component.quantity) * item.quantity
@@ -883,7 +926,8 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
                         create: item.addOns.map((addOn) => ({
                           optionId: addOn.optionId,
                           optionName: addOn.optionName,
-                          priceDelta: addOn.priceDelta
+                          priceDelta: addOn.priceDelta,
+                          quantity: addOn.quantity
                         }))
                       }
                     : undefined

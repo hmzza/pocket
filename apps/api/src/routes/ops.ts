@@ -83,7 +83,8 @@ function serializeOrder(order: any) {
       addOns: item.addOns.map((addOn: any) => ({
         id: addOn.id,
         optionName: addOn.optionName,
-        priceDelta: Number(addOn.priceDelta)
+        priceDelta: Number(addOn.priceDelta),
+        quantity: Number(addOn.quantity ?? 1)
       }))
     }))
   };
@@ -464,7 +465,8 @@ router.delete("/orders/:id", async (req, res, next) => {
             productId: item.productId,
             quantity: item.quantity,
             addOns: item.addOns.map((addOn) => ({
-              optionName: addOn.optionName
+              optionName: addOn.optionName,
+              quantity: addOn.quantity
             })),
             bundleComponents: item.bundleComponents.map((component) => ({
               productId: component.productId,

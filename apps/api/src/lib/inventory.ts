@@ -8,6 +8,7 @@ type InventoryOrderItem = {
     optionId?: string | null;
     optionName: string;
     linkedProductId?: string | null;
+    quantity?: number;
   }>;
   bundleComponents?: Array<{
     productId?: string | null;
@@ -381,14 +382,14 @@ export function computeInventoryChanges({
       }
       const linkedAddOnProduct = linkedProductId ? productById.get(linkedProductId) : undefined;
       if (linkedAddOnProduct) {
-        addProductRecipeUsage(linkedAddOnProduct.id, item.quantity);
+        addProductRecipeUsage(linkedAddOnProduct.id, item.quantity * (addOn.quantity ?? 1));
         continue;
       }
 
       if (!addOn.optionId) continue;
       for (const usage of optionUsageById.get(addOn.optionId) ?? []) {
         if (usage.ingredient.type === "PACKAGING") continue;
-        addIngredientUsage(usage.ingredient, Number(usage.quantityNeeded) * item.quantity);
+        addIngredientUsage(usage.ingredient, Number(usage.quantityNeeded) * item.quantity * (addOn.quantity ?? 1));
       }
     }
   }

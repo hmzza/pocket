@@ -165,7 +165,8 @@ export default function CheckoutPage() {
           items: cartProducts.map((item) => ({
             productId: item.id,
             quantity: item.quantity,
-            selectedAddOnIds: item.selectedAddOnIds
+            selectedAddOnIds: item.selectedAddOnIds,
+            selectedAddOnQuantities: item.selectedAddOnQuantities
           }))
         })
       });
