@@ -14,7 +14,8 @@ import { DesktopPrinterSettings } from "@/components/pos/desktop-printer-setting
 import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
-import { formatBundleSummary, formatItemDetailLines } from "@/lib/item-detail-display";
+import { formatAddOnNames, formatBundleSummary, formatItemDetailLines } from "@/lib/item-detail-display";
+import { BOX_OF_SIX_SIZE, isBoxOfSixGroup, isBoxOfSixProduct } from "@/lib/box-of-six";
 
 type TicketLine = {
   id: string;
@@ -25,13 +26,13 @@ type TicketLine = {
   quantity: number;
   unitPrice: number;
   customDescription?: string;
-  selections: Array<{ groupId: string; optionIds: string[] }>;
+  selections: Array<{ groupId: string; optionIds: string[]; optionQuantities?: Record<string, number> }>;
   bundleComponents: Array<{ productId: string; productName: string; quantity: number }>;
-  addOns: Array<{ id: string; name: string; priceDelta: number }>;
+  addOns: Array<{ id: string; name: string; priceDelta: number; quantity?: number }>;
   promotionFreeQuantity?: number;
 };
 
-type ProductSelection = { groupId: string; optionIds: string[] };
+type ProductSelection = { groupId: string; optionIds: string[]; optionQuantities?: Record<string, number> };
 
 type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT" | "CASH_ON_DELIVERY";
 type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA" | "DELIVERY";
@@ -74,7 +75,7 @@ function buildDefaultSelections(groups: AddOnGroup[]) {
 }
 
 function normalizeSelections(selections: ProductSelection[]) {
-  const normalized = new Map<string, string[]>();
+  const normalized = new Map<string, { optionIds: string[]; optionQuantities?: Record<string, number> }>();
 
   for (const selection of selections) {
     const optionIds = [...new Set(selection.optionIds.filter(Boolean))];
@@ -82,12 +83,13 @@ function normalizeSelections(selections: ProductSelection[]) {
       continue;
     }
 
-    normalized.set(selection.groupId, optionIds);
+    normalized.set(selection.groupId, { optionIds, optionQuantities: selection.optionQuantities });
   }
 
-  return Array.from(normalized.entries()).map(([groupId, optionIds]) => ({
+  return Array.from(normalized.entries()).map(([groupId, selection]) => ({
     groupId,
-    optionIds
+    optionIds: selection.optionIds,
+    optionQuantities: selection.optionQuantities
   }));
 }
 
@@ -111,15 +113,18 @@ function toggleSelectionOption(selections: ProductSelection[], group: AddOnGroup
 function calculateLinePrice(product: PosCatalogProduct, selections: ProductSelection[]) {
   const selected = selections.flatMap((selection) => {
     const group = product.addOnGroups.find((entry) => entry.id === selection.groupId);
-    return (group?.options ?? []).filter((option) => selection.optionIds.includes(option.id));
+    return (group?.options ?? [])
+      .filter((option) => selection.optionIds.includes(option.id))
+      .map((option) => ({ option, quantity: selection.optionQuantities?.[option.id] ?? 1 }));
   });
 
   return {
-    unitPrice: product.price + selected.reduce((sum, option) => sum + option.priceDelta, 0),
-    addOns: selected.map((option) => ({
+    unitPrice: product.price + selected.reduce((sum, entry) => sum + entry.option.priceDelta * entry.quantity, 0),
+    addOns: selected.map(({ option, quantity }) => ({
       id: option.id,
       name: option.name,
-      priceDelta: option.priceDelta
+      priceDelta: option.priceDelta,
+      quantity
     }))
   };
 }
@@ -216,7 +221,7 @@ function buildWhatsAppReceiptMessage(order: PosReceiptOrder) {
     if (item.customDescription) {
       lines.push(`   ${item.customDescription}`);
     }
-    formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity }).forEach((line) => lines.push(`   ${line}`));
+    formatItemDetailLines(item.bundleComponents, formatAddOnNames(item.addOns.map((addOn) => ({ optionName: addOn.optionName, quantity: addOn.quantity }))), { selectionMultiplier: item.quantity }).forEach((line) => lines.push(`   ${line}`));
     lines.push(`   ${formatCurrency(item.unitPrice)} x ${item.quantity} = ${formatCurrency(item.unitPrice * item.quantity)}`);
   });
 
@@ -246,7 +251,7 @@ function buildTicketSignature(input: {
   }
 
   const selections = normalizeSelections(input.selections)
-    .map((selection) => `${selection.groupId}:${selection.optionIds.slice().sort().join(",")}`)
+    .map((selection) => `${selection.groupId}:${selection.optionIds.slice().sort().map((id) => `${id}=${selection.optionQuantities?.[id] ?? 1}`).join(",")}`)
     .sort()
     .join("|");
   return `product:${input.productId}:${selections}`;
@@ -316,6 +321,7 @@ function buildSelectionsFromEditableItem(item: PosEditableOrder["items"][number]
   }
 
   const selections = new Map<string, string[]>();
+  const optionQuantities = new Map<string, Record<string, number>>();
   for (const addOn of item.addOns ?? []) {
     const groupId = groupByOptionId.get(addOn.optionId);
     if (!groupId) {
@@ -326,11 +332,13 @@ function buildSelectionsFromEditableItem(item: PosEditableOrder["items"][number]
     if (!current.includes(addOn.optionId)) {
       selections.set(groupId, [...current, addOn.optionId]);
     }
+    optionQuantities.set(groupId, { ...(optionQuantities.get(groupId) ?? {}), [addOn.optionId]: addOn.quantity ?? 1 });
   }
 
   return Array.from(selections.entries()).map(([groupId, optionIds]) => ({
     groupId,
-    optionIds
+    optionIds,
+    optionQuantities: optionQuantities.get(groupId)
   }));
 }
 
@@ -352,9 +360,10 @@ function mapEditableOrderToTicket(order: PosEditableOrder): TicketLine[] {
       quantity: component.quantity
     })),
     addOns: item.addOns.map((addOn) => ({
-      id: addOn.id,
+      id: addOn.optionId || addOn.id,
       name: addOn.optionName,
-      priceDelta: addOn.priceDelta
+      priceDelta: addOn.priceDelta,
+      quantity: addOn.quantity ?? 1
     }))
   }));
 }
@@ -394,6 +403,7 @@ export function PosTerminal() {
   const [submitting, setSubmitting] = useState(false);
   const [productDialog, setProductDialog] = useState<PosCatalogProduct | null>(null);
   const [productSelections, setProductSelections] = useState<ProductSelection[]>([]);
+  const [productOptionQuantities, setProductOptionQuantities] = useState<Record<string, number>>({});
   const [productQuantity, setProductQuantity] = useState("1");
   const [manualDialogOpen, setManualDialogOpen] = useState(false);
   const [manualName, setManualName] = useState("");
@@ -580,6 +590,11 @@ export function PosTerminal() {
     if (product.addOnGroups.length) {
       setProductDialog(product);
       setProductSelections(buildDefaultSelections(product.addOnGroups));
+      setProductOptionQuantities(
+        isBoxOfSixProduct(product)
+          ? Object.fromEntries(product.addOnGroups.flatMap((group) => group.options.map((option) => [option.id, 0])))
+          : {}
+      );
       setProductQuantity("1");
       return;
     }
@@ -611,10 +626,28 @@ export function PosTerminal() {
   function confirmConfiguredProduct() {
     if (!productDialog || ticketLocked) return;
 
-    const normalizedSelections = normalizeSelections(productSelections);
+    const boxGroup = productDialog.addOnGroups.find(isBoxOfSixGroup);
+    const isBoxFlow = isBoxOfSixProduct(productDialog);
+    const boxTotal = Object.values(productOptionQuantities).reduce((sum, quantity) => sum + quantity, 0);
+    if (isBoxFlow && boxTotal !== BOX_OF_SIX_SIZE) {
+      setError(`Choose exactly ${BOX_OF_SIX_SIZE} items for the box.`);
+      return;
+    }
+
+    const selectionsWithQuantities = isBoxFlow && boxGroup
+      ? productSelections
+          .filter((selection) => selection.groupId !== boxGroup.id)
+          .concat({
+            groupId: boxGroup.id,
+            optionIds: boxGroup.options.filter((option) => (productOptionQuantities[option.id] ?? 0) > 0).map((option) => option.id),
+            optionQuantities: productOptionQuantities
+          })
+      : productSelections;
+    const normalizedSelections = normalizeSelections(selectionsWithQuantities);
 
     for (const group of productDialog.addOnGroups) {
       const selected = normalizedSelections.find((entry) => entry.groupId === group.id)?.optionIds ?? [];
+      if (isBoxFlow && group.id === boxGroup?.id) continue;
       if (selected.length < group.minSelect || selected.length > group.maxSelect) {
         setError(`${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
         return;
@@ -637,6 +670,17 @@ export function PosTerminal() {
       })
     );
     setProductDialog(null);
+    setProductOptionQuantities({});
+    setError("");
+  }
+
+  function updateBoxOptionQuantity(optionId: string, delta: number) {
+    setProductOptionQuantities((current) => {
+      const total = Object.values(current).reduce((sum, quantity) => sum + quantity, 0);
+      const currentValue = current[optionId] ?? 0;
+      const nextValue = Math.max(0, Math.min(currentValue + delta, BOX_OF_SIX_SIZE - total + currentValue));
+      return { ...current, [optionId]: nextValue };
+    });
     setError("");
   }
 
@@ -809,7 +853,8 @@ export function PosTerminal() {
                 productId: item.productId,
                 quantity: item.quantity,
                 promotionFreeQuantity: item.promotionFreeQuantity ?? 0,
-                selections: normalizeSelections(item.selections)
+                selections: normalizeSelections(item.selections),
+                selectedAddOnQuantities: Object.fromEntries(item.addOns.map((addOn) => [addOn.id, addOn.quantity ?? 1]))
               }
         )
       };
@@ -1074,7 +1119,7 @@ export function PosTerminal() {
                           </div>
                         </div>
                         {item.customDescription ? <p className={splitView ? "mt-0.5 pl-[4.5rem] text-[0.52rem] leading-tight text-slate-500" : "mt-0.5 pl-[5.25rem] text-[0.58rem] leading-tight text-slate-500"}>{item.customDescription}</p> : null}
-                        {formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.name), {
+                        {formatItemDetailLines(item.bundleComponents, formatAddOnNames(item.addOns.map((addOn) => ({ optionName: addOn.name, quantity: addOn.quantity }))), {
                           componentMultiplier: item.quantity,
                           selectionMultiplier: item.quantity
                         }).map((line) => (
@@ -1366,11 +1411,26 @@ export function PosTerminal() {
                 <div key={group.id}>
                   <div className="mb-3">
                     <p className="font-semibold">{group.name}</p>
-                    <p className="text-sm text-white/60">Choose {group.minSelect} to {group.maxSelect}</p>
+                    <p className="text-sm text-white/60">{isBoxOfSixProduct(productDialog) && isBoxOfSixGroup(group) ? `Choose exactly ${BOX_OF_SIX_SIZE} items` : `Choose ${group.minSelect} to ${group.maxSelect}`}</p>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {group.options.map((option) => {
                       const selected = productSelections.find((entry) => entry.groupId === group.id)?.optionIds.includes(option.id);
+                      const boxQuantity = productOptionQuantities[option.id] ?? 0;
+                      if (isBoxOfSixProduct(productDialog) && isBoxOfSixGroup(group)) {
+                        return (
+                          <div key={option.id} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-semibold">{getOptionDisplayName(group, option.name)}</p>
+                              <div className="inline-flex items-center gap-2">
+                                <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white disabled:opacity-40" onClick={() => updateBoxOptionQuantity(option.id, -1)} disabled={!boxQuantity} aria-label={`Remove ${option.name}`}><Minus className="h-4 w-4" /></button>
+                                <span className="w-6 text-center font-bold">{boxQuantity}</span>
+                                <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white disabled:opacity-40" onClick={() => updateBoxOptionQuantity(option.id, 1)} disabled={Object.values(productOptionQuantities).reduce((sum, quantity) => sum + quantity, 0) >= BOX_OF_SIX_SIZE} aria-label={`Add ${option.name}`}><Plus className="h-4 w-4" /></button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
                       return (
                         <button
                           key={option.id}
@@ -1424,7 +1484,7 @@ export function PosTerminal() {
                 </div>
               </div>
               <div className="sticky bottom-0 bg-slate-900 pt-2">
-                <Button className="w-full" onClick={confirmConfiguredProduct}>Add to Ticket</Button>
+                <Button className="w-full" onClick={confirmConfiguredProduct} disabled={isBoxOfSixProduct(productDialog) && Object.values(productOptionQuantities).reduce((sum, quantity) => sum + quantity, 0) !== BOX_OF_SIX_SIZE}>Add to Ticket</Button>
               </div>
             </div>
           </Card>

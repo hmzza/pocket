@@ -52,10 +52,17 @@ export async function getAvailableMealBeverageIds(client: MealOptionClient, bran
         }
       }
     },
-    select: { productId: true }
+    select: {
+      productId: true,
+      sortOrder: true,
+      product: { select: { category: { select: { slug: true } } } }
+    }
   });
 
-  return new Set(branchProducts.map((entry) => entry.productId));
+  return new Map(branchProducts.map((entry) => [entry.productId, {
+    sortOrder: entry.sortOrder,
+    categoryOrder: BEVERAGE_CATEGORY_ORDER.get(entry.product.category.slug) ?? BEVERAGE_CATEGORY_SLUGS.length
+  }]));
 }
 
 export function filterMealProductOptions<T extends {
@@ -65,7 +72,7 @@ export function filterMealProductOptions<T extends {
     name: string;
     options: Array<{ linkedProductId?: string | null }>;
   }>;
-}>(products: T[], availableBeverageIds: Set<string>) {
+}>(products: T[], availableBeverageIds: Map<string, { sortOrder: number; categoryOrder: number }>) {
   return products
     .filter((product) => !isLegacyMealProduct(product))
     .map((product) => {
@@ -77,7 +84,14 @@ export function filterMealProductOptions<T extends {
           group.name === MEAL_PAIRING_GROUP_NAME
             ? {
                 ...group,
-                options: group.options.filter((option) => option.linkedProductId && availableBeverageIds.has(option.linkedProductId))
+                options: group.options
+                  .filter((option) => option.linkedProductId && availableBeverageIds.has(option.linkedProductId))
+                  .sort((left, right) => {
+                    const leftOrder = left.linkedProductId ? availableBeverageIds.get(left.linkedProductId) : undefined;
+                    const rightOrder = right.linkedProductId ? availableBeverageIds.get(right.linkedProductId) : undefined;
+                    return (leftOrder?.categoryOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder?.categoryOrder ?? Number.MAX_SAFE_INTEGER)
+                      || (leftOrder?.sortOrder ?? Number.MAX_SAFE_INTEGER) - (rightOrder?.sortOrder ?? Number.MAX_SAFE_INTEGER);
+                  })
               }
             : group
         )

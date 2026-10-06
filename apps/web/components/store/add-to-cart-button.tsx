@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ShoppingBag } from "lucide-react";
+import { Minus, Plus, ShoppingBag } from "lucide-react";
 import { useStore } from "./store-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn, formatCompactCurrency } from "@/lib/utils";
 import type { AddOnGroup, Product } from "@/lib/types";
+import { BOX_OF_SIX_SIZE, isBoxOfSixGroup, isBoxOfSixProduct } from "@/lib/box-of-six";
 
 type AddToCartButtonProps = {
   product: Product;
@@ -32,14 +33,16 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
   const [dialogOpen, setDialogOpen] = useState(false);
   const [configuredProduct, setConfiguredProduct] = useState<Product | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>({});
+  const [selectedOptionQuantities, setSelectedOptionQuantities] = useState<Record<string, number>>({});
   const [selectedMealOptionId, setSelectedMealOptionId] = useState("");
   const [error, setError] = useState("");
 
   const itemBeingConfigured = configuredProduct ?? product;
-  const isShawarma = product.category.slug === "shawarma";
-  const isCombinedShawarmaFlow = isShawarma && Boolean(mealProduct);
+  const isCombinedMealFlow = Boolean(mealProduct);
   const itemGroups = getWebsiteConfigurationGroups(itemBeingConfigured);
-  const mealPairingGroup = isCombinedShawarmaFlow ? getMealPairingGroup(mealProduct) : null;
+  const mealPairingGroup = isCombinedMealFlow ? getMealPairingGroup(mealProduct) : null;
+  const boxGroup = itemGroups.find(isBoxOfSixGroup) ?? null;
+  const isBoxFlow = isBoxOfSixProduct(itemBeingConfigured);
   const showMealSection = Boolean(mealPairingGroup?.options.length);
 
   const configuredPrice = useMemo(() => {
@@ -47,19 +50,20 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
       const optionIds = selectedOptions[group.id] ?? [];
       return sum + group.options
         .filter((option) => optionIds.includes(option.id))
-        .reduce((groupSum, option) => groupSum + option.priceDelta, 0);
+        .reduce((groupSum, option) => groupSum + option.priceDelta * (selectedOptionQuantities[option.id] ?? 1), 0);
     }, 0);
 
     const mealOption = mealPairingGroup?.options.find((option) => option.id === selectedMealOptionId);
     const mealPrice = mealOption && mealProduct ? mealProduct.price + mealOption.priceDelta : 0;
 
     return itemBeingConfigured.price + productExtras + mealPrice;
-  }, [itemBeingConfigured, itemGroups, mealPairingGroup, mealProduct, selectedMealOptionId, selectedOptions]);
+  }, [itemBeingConfigured, itemGroups, mealPairingGroup, mealProduct, selectedMealOptionId, selectedOptionQuantities, selectedOptions]);
 
   function closeDialog() {
     setDialogOpen(false);
     setConfiguredProduct(null);
     setSelectedMealOptionId("");
+    setSelectedOptionQuantities({});
   }
 
   function openConfiguration(productToConfigure: Product) {
@@ -68,6 +72,11 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
       Object.fromEntries(
         groups.map((group) => [group.id, group.options.slice(0, group.minSelect).map((option) => option.id)])
       )
+    );
+    setSelectedOptionQuantities(
+      isBoxOfSixProduct(productToConfigure)
+        ? Object.fromEntries(productToConfigure.addOnGroups.flatMap((group) => group.options.map((option) => [option.id, 0])))
+        : {}
     );
     setSelectedMealOptionId("");
     setConfiguredProduct(productToConfigure);
@@ -86,7 +95,7 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
   }
 
   function handleQuickAdd() {
-    if (isCombinedShawarmaFlow || getWebsiteConfigurationGroups(product).length) {
+    if (isCombinedMealFlow || getWebsiteConfigurationGroups(product).length) {
       openConfiguration(product);
       return;
     }
@@ -107,9 +116,27 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
     setError("");
   }
 
+  function updateBoxOptionQuantity(optionId: string, delta: number) {
+    setSelectedOptionQuantities((current) => {
+      const total = Object.values(current).reduce((sum, quantity) => sum + quantity, 0);
+      const nextValue = Math.max(0, Math.min(BOX_OF_SIX_SIZE - total + (current[optionId] ?? 0), (current[optionId] ?? 0) + delta));
+      return { ...current, [optionId]: nextValue };
+    });
+    setError("");
+  }
+
   function confirmAddToCart() {
+    if (isBoxFlow) {
+      const totalBoxQuantity = Object.values(selectedOptionQuantities).reduce((sum, quantity) => sum + quantity, 0);
+      if (totalBoxQuantity !== BOX_OF_SIX_SIZE) {
+        setError(`Choose exactly ${BOX_OF_SIX_SIZE} items for the box.`);
+        return;
+      }
+    }
+
     for (const group of itemGroups) {
       const optionIds = selectedOptions[group.id] ?? [];
+      if (isBoxFlow && group.id === boxGroup?.id) continue;
       if (optionIds.length < group.minSelect || optionIds.length > group.maxSelect) {
         setError(`${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`);
         return;
@@ -117,12 +144,16 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
     }
 
     const productOptionIds = itemGroups.flatMap((group) => selectedOptions[group.id] ?? []);
+    const boxOptionIds = isBoxFlow && boxGroup
+      ? boxGroup.options.filter((option) => (selectedOptionQuantities[option.id] ?? 0) > 0).map((option) => option.id)
+      : [];
     const productWasAdded = addToCart({
       productId: itemBeingConfigured.id,
-      selectedAddOnIds: productOptionIds
+      selectedAddOnIds: isBoxFlow ? boxOptionIds : productOptionIds,
+      selectedAddOnQuantities: isBoxFlow ? selectedOptionQuantities : undefined
     });
 
-    if (productWasAdded && isCombinedShawarmaFlow && selectedMealOptionId && mealProduct) {
+    if (productWasAdded && isCombinedMealFlow && selectedMealOptionId && mealProduct) {
       addToCart({
         productId: mealProduct.id,
         selectedAddOnIds: [selectedMealOptionId]
@@ -133,7 +164,7 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
   }
 
   const displayGroups = itemGroups;
-  const buttonText = buttonLabel ?? (isCombinedShawarmaFlow || displayGroups.length ? "Customize" : "Add to Cart");
+  const buttonText = buttonLabel ?? (isCombinedMealFlow || displayGroups.length ? "Customize" : "Add to Cart");
 
   return (
     <>
@@ -165,11 +196,26 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
                     <div key={group.id} className="space-y-3">
                       <div>
                         <p className="font-semibold text-pocket-navy">{group.name}</p>
-                        <p className="text-sm text-pocket-navy/60">Choose {group.minSelect} to {group.maxSelect}</p>
+                        <p className="text-sm text-pocket-navy/60">{isBoxFlow && group.id === boxGroup?.id ? `Choose exactly ${BOX_OF_SIX_SIZE} items` : `Choose ${group.minSelect} to ${group.maxSelect}`}</p>
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
                         {group.options.map((option) => {
                           const selected = (selectedOptions[group.id] ?? []).includes(option.id);
+                          const boxQuantity = selectedOptionQuantities[option.id] ?? 0;
+                          if (isBoxFlow && group.id === boxGroup?.id) {
+                            return (
+                              <div key={option.id} className="rounded-2xl border border-pocket-navy/10 bg-white px-4 py-3">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="font-semibold text-pocket-navy">{getOptionDisplayName(group, option.name)}</p>
+                                  <div className="inline-flex items-center gap-2">
+                                    <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-pocket-navy/15 text-pocket-navy disabled:opacity-40" onClick={() => updateBoxOptionQuantity(option.id, -1)} disabled={!boxQuantity} aria-label={`Remove ${option.name}`}><Minus className="h-4 w-4" /></button>
+                                    <span className="w-6 text-center font-bold text-pocket-navy">{boxQuantity}</span>
+                                    <button type="button" className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-pocket-navy/15 text-pocket-navy disabled:opacity-40" onClick={() => updateBoxOptionQuantity(option.id, 1)} disabled={Object.values(selectedOptionQuantities).reduce((sum, quantity) => sum + quantity, 0) >= BOX_OF_SIX_SIZE} aria-label={`Add ${option.name}`}><Plus className="h-4 w-4" /></button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          }
                           return (
                             <button
                               key={option.id}
@@ -212,7 +258,7 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
                           : "border-pocket-navy/10 bg-white hover:border-pocket-orange/50"
                       )}
                     >
-                      <p className="font-semibold text-pocket-navy">Just shawarma</p>
+                      <p className="font-semibold text-pocket-navy">Just {itemBeingConfigured.name}</p>
                       <p className="text-sm text-pocket-navy/60">No meal added</p>
                     </button>
                     {mealPairingGroup.options.map((option) => (
@@ -239,7 +285,7 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
               ) : null}
 
               {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
-              <Button className="w-full" onClick={confirmAddToCart}>Add to Cart</Button>
+              <Button className="w-full" onClick={confirmAddToCart} disabled={isBoxFlow && Object.values(selectedOptionQuantities).reduce((sum, quantity) => sum + quantity, 0) !== BOX_OF_SIX_SIZE}>Add to Cart</Button>
             </div>
           </Card>
         </div>

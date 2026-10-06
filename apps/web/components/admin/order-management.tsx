@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { deleteAdminOrder, deleteAllAdminOrders, fetchAdminOrders } from "@/lib/admin-client";
 import type { AdminOrder, AdminOrderSegment, AdminRangePreset } from "@/lib/types";
 import { formatCurrency, getCurrentBusinessDateKey, toPakistanDateIso } from "@/lib/utils";
-import { formatBundleSummary, formatItemDetailLines, hasDealSelections } from "@/lib/item-detail-display";
+import { formatAddOnNames, formatBundleSummary, formatItemDetailLines, hasDealSelections } from "@/lib/item-detail-display";
 
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
@@ -120,19 +120,19 @@ function OrderDetails({ order }: { order: AdminOrder }) {
                   <p className="font-semibold text-pocket-navy">{item.productName}</p>
                   <p className="text-sm text-pocket-navy/60">Qty {item.quantity}</p>
                   {item.customDescription ? <p className="text-sm text-pocket-navy/60">{item.customDescription}</p> : null}
-                  {(hasDealSelections(item.addOns.map((addOn) => addOn.optionName))
-                    ? formatItemDetailLines(item.bundleComponents, item.addOns.map((addOn) => addOn.optionName), { selectionMultiplier: item.quantity })
+                  {(hasDealSelections(formatAddOnNames(item.addOns))
+                    ? formatItemDetailLines(item.bundleComponents, formatAddOnNames(item.addOns), { selectionMultiplier: item.quantity })
                     : item.bundleComponents.length ? [`Includes: ${formatBundleSummary(item.bundleComponents)}`] : []
                   ).map((line) => <p key={line} className="text-sm text-pocket-navy/60">{line}</p>)}
                   {item.note ? <p className="mt-1 text-sm text-pocket-navy/60">Note: {item.note}</p> : null}
                 </div>
                 <p className="font-bold text-pocket-orange">{formatCurrency(item.unitPrice * item.quantity)}</p>
               </div>
-              {item.addOns.length && !hasDealSelections(item.addOns.map((addOn) => addOn.optionName)) ? (
+              {item.addOns.length && !hasDealSelections(formatAddOnNames(item.addOns)) ? (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {item.addOns.map((addOn) => (
                     <span key={addOn.id} className="rounded-md bg-pocket-cream px-3 py-1.5 text-xs font-semibold text-pocket-navy">
-                      {addOn.optionName} (+{formatCurrency(addOn.priceDelta)})
+                      {addOn.optionName}{(addOn.quantity ?? 1) > 1 ? ` × ${addOn.quantity}` : ""} (+{formatCurrency(addOn.priceDelta * (addOn.quantity ?? 1))})
                     </span>
                   ))}
                 </div>

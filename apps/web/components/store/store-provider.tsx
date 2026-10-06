@@ -10,12 +10,14 @@ type CartEntry = {
   productId: string;
   quantity: number;
   selectedAddOnIds: string[];
+  selectedAddOnQuantities: Record<string, number>;
 };
 
 type AddToCartInput = {
   productId: string;
   quantity?: number;
   selectedAddOnIds?: string[];
+  selectedAddOnQuantities?: Record<string, number>;
 };
 
 type StoreContextValue = {
@@ -24,7 +26,7 @@ type StoreContextValue = {
   recentlyViewed: string[];
   addToCart: (input: AddToCartInput) => boolean;
   updateQuantity: (cartItemId: string, quantity: number) => void;
-  updateCartItem: (cartItemId: string, input: Pick<AddToCartInput, "selectedAddOnIds">) => void;
+  updateCartItem: (cartItemId: string, input: Pick<AddToCartInput, "selectedAddOnIds" | "selectedAddOnQuantities">) => void;
   clearCart: () => void;
   toggleFavorite: (productId: string) => void;
   markViewed: (productId: string) => void;
@@ -49,8 +51,18 @@ function normalizeAddOnIds(selectedAddOnIds?: string[]) {
   return [...new Set((selectedAddOnIds ?? []).filter(Boolean))].sort();
 }
 
-function buildEntrySignature(productId: string, selectedAddOnIds: string[]) {
-  return `${productId}:${selectedAddOnIds.join(",")}`;
+function normalizeAddOnQuantities(selectedAddOnQuantities?: Record<string, number>) {
+  return Object.fromEntries(
+    Object.entries(selectedAddOnQuantities ?? {})
+      .filter(([, quantity]) => Number.isFinite(quantity) && quantity > 0)
+      .map(([optionId, quantity]) => [optionId, Math.min(6, Math.max(1, Math.trunc(quantity)))])
+      .sort(([left], [right]) => String(left).localeCompare(String(right)))
+  );
+}
+
+function buildEntrySignature(productId: string, selectedAddOnIds: string[], selectedAddOnQuantities: Record<string, number>) {
+  const quantities = Object.entries(selectedAddOnQuantities).map(([id, quantity]) => `${id}=${quantity}`).join(",");
+  return `${productId}:${selectedAddOnIds.join(",")}:${quantities}`;
 }
 
 function normalizeCartEntries(entries: unknown): CartEntry[] {
@@ -78,7 +90,8 @@ function normalizeCartEntries(entries: unknown): CartEntry[] {
         id: typeof nextEntry.id === "string" ? nextEntry.id : createCartEntryId(),
         productId: nextEntry.productId,
         quantity,
-        selectedAddOnIds: normalizeAddOnIds(nextEntry.selectedAddOnIds)
+        selectedAddOnIds: normalizeAddOnIds(nextEntry.selectedAddOnIds),
+        selectedAddOnQuantities: normalizeAddOnQuantities(nextEntry.selectedAddOnQuantities)
       };
     })
     .filter(Boolean) as CartEntry[];
@@ -86,8 +99,8 @@ function normalizeCartEntries(entries: unknown): CartEntry[] {
 
 function mergeCartEntries(entries: CartEntry[]) {
   return entries.reduce<CartEntry[]>((merged, entry) => {
-    const signature = buildEntrySignature(entry.productId, entry.selectedAddOnIds);
-    const existing = merged.find((item) => buildEntrySignature(item.productId, item.selectedAddOnIds) === signature);
+    const signature = buildEntrySignature(entry.productId, entry.selectedAddOnIds, entry.selectedAddOnQuantities);
+    const existing = merged.find((item) => buildEntrySignature(item.productId, item.selectedAddOnIds, item.selectedAddOnQuantities) === signature);
     if (existing) {
       existing.quantity = Math.min(20, existing.quantity + entry.quantity);
       return merged;
@@ -149,6 +162,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               productId: liveId ?? entry.productId,
               quantity: entry.quantity,
               selectedAddOnIds: entry.selectedAddOnIds
+              ,selectedAddOnQuantities: entry.selectedAddOnQuantities
             };
           })
         );
@@ -202,9 +216,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       recentlyViewed,
       addToCart: (input) => {
         const selectedAddOnIds = normalizeAddOnIds(input.selectedAddOnIds);
+        const selectedAddOnQuantities = normalizeAddOnQuantities(input.selectedAddOnQuantities);
         setCart((current) => {
-          const signature = buildEntrySignature(input.productId, selectedAddOnIds);
-          const existing = current.find((entry) => buildEntrySignature(entry.productId, entry.selectedAddOnIds) === signature);
+          const signature = buildEntrySignature(input.productId, selectedAddOnIds, selectedAddOnQuantities);
+          const existing = current.find((entry) => buildEntrySignature(entry.productId, entry.selectedAddOnIds, entry.selectedAddOnQuantities) === signature);
           if (existing) {
             return current.map((entry) =>
               entry.id === existing.id
@@ -219,7 +234,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               id: createCartEntryId(),
               productId: input.productId,
               quantity: Math.min(20, Math.max(1, input.quantity ?? 1)),
-              selectedAddOnIds
+              selectedAddOnIds,
+              selectedAddOnQuantities
             }
           ];
         });
@@ -235,8 +251,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       },
       updateCartItem: (cartItemId, input) => {
         const selectedAddOnIds = normalizeAddOnIds(input.selectedAddOnIds);
+        const selectedAddOnQuantities = normalizeAddOnQuantities(input.selectedAddOnQuantities);
         setCart((current) =>
-          current.map((entry) => (entry.id === cartItemId ? { ...entry, selectedAddOnIds } : entry))
+          current.map((entry) => (entry.id === cartItemId ? { ...entry, selectedAddOnIds, selectedAddOnQuantities } : entry))
         );
         setCartNotice("Cart updated");
       },
@@ -265,6 +282,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             }
 
             const validSelectedAddOnIds = entry.selectedAddOnIds.filter((optionId) => product.addOnGroups.some((group) => group.options.some((option) => option.id === optionId)));
+            const selectedAddOnQuantities = Object.fromEntries(
+              Object.entries(entry.selectedAddOnQuantities ?? {}).filter(([optionId]) => validSelectedAddOnIds.includes(optionId))
+            );
             const selectedAddOns = validSelectedAddOnIds.reduce<AddOnOption[]>((selected, optionId) => {
               const option = product.addOnGroups.flatMap((group) => group.options).find((item) => item.id === optionId);
               if (option) {
@@ -278,8 +298,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               cartItemId: entry.id,
               quantity: entry.quantity,
               selectedAddOnIds: validSelectedAddOnIds,
+              selectedAddOnQuantities,
               selectedAddOns,
-              price: product.price + selectedAddOns.reduce((sum, option) => sum + option.priceDelta, 0)
+              price: product.price + selectedAddOns.reduce((sum, option) => sum + option.priceDelta * (selectedAddOnQuantities[option.id] ?? 1), 0)
             };
           })
           .filter(Boolean) as CartProduct[]

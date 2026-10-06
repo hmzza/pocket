@@ -5,6 +5,10 @@ export type DisplayBundleComponent = {
 
 type SelectionGroup = "Rocket sauces" | "Pockets" | "Wraps" | "Drinks" | "Selections";
 
+export function formatAddOnNames(addOns: Array<{ optionName: string; quantity?: number }>) {
+  return addOns.flatMap((addOn) => Array.from({ length: Math.max(1, addOn.quantity ?? 1) }, () => addOn.optionName));
+}
+
 const selectionPatterns: Array<{ label: SelectionGroup; pattern: RegExp; hasSlot?: boolean }> = [
   { label: "Rocket sauces", pattern: /^Rocket\s+(\d+)\s+sauce:\s*(.+)$/i, hasSlot: true },
   { label: "Pockets", pattern: /^Pocket\s+(\d+):\s*(.+)$/i, hasSlot: true },

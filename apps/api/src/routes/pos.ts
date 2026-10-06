@@ -31,6 +31,11 @@ import {
   isDealProduct,
   syncDealOptions
 } from "../lib/deal-options.js";
+import {
+  filterBoxOfSixProducts,
+  isBoxOfSixProduct,
+  syncBoxOfSixOptions
+} from "../lib/box-of-six.js";
 
 const router = Router();
 
@@ -105,6 +110,7 @@ const cartItemSchema = z.discriminatedUnion("type", [
     quantity: z.number().int().min(1).max(50),
     promotionFreeQuantity: z.number().int().min(0).max(50).optional(),
     note: z.string().max(240).optional(),
+    selectedAddOnQuantities: z.record(z.string().cuid(), z.number().int().min(0).max(6)).default({}),
     selections: z
       .array(selectionSchema)
       .transform((selections) =>
@@ -285,7 +291,8 @@ function formatEditablePosOrder(order: any) {
         id: addOn.id,
         optionId: addOn.optionId ?? "",
         optionName: addOn.optionName,
-        priceDelta: Number(addOn.priceDelta)
+        priceDelta: Number(addOn.priceDelta),
+        quantity: Number(addOn.quantity ?? 1)
       })),
       selections: buildSelections(item),
       product: item.product
@@ -319,6 +326,7 @@ function getProductIds(items: CheckoutPayload["items"]) {
 }
 
 async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
+  const boxOfSix = await syncBoxOfSixOptions(prisma);
   await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
   const requestedProductIds = getProductIds(payload.items);
   const promotion = await readIndependencePromotion(prisma, payload.branchId);
@@ -362,8 +370,12 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     getAvailableMealBeverageIds(prisma, payload.branchId),
     getAvailableDealChoiceProductIds(prisma, payload.branchId)
   ]);
-  const scopedProducts = filterDealProductOptions(
-    filterMealProductOptions(products, availableMealBeverageIds),
+  const scopedProducts = filterBoxOfSixProducts(
+    filterDealProductOptions(
+      filterMealProductOptions(products, availableMealBeverageIds),
+      availableDealChoiceProductIds
+    ),
+    boxOfSix,
     availableDealChoiceProductIds
   );
   const rawProductMap = new Map(products.map((product) => [product.id, product]));
@@ -396,7 +408,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice.toFixed(2)),
         note: item.note?.trim() || null,
-        addOns: [] as Array<{ optionId: string; optionName: string; priceDelta: number }>,
+        addOns: [] as Array<{ optionId: string; optionName: string; priceDelta: number; quantity: number }>,
         bundleComponents: [] as Array<{ productId: string; productName: string; quantity: number }>,
         promotionFreeQuantity: 0
       };
@@ -417,17 +429,29 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       throw Object.assign(new Error(`${product.name}: one or more bundle items are unavailable.`), { statusCode: 400 });
     }
 
-    const productAddOnGroups = product.slug === "loaded-fries"
+    const productAddOnGroups = isBoxOfSixProduct(product)
+      ? product.addOnGroups.filter((group) => group.id === boxOfSix.groupId)
+      : product.slug === "loaded-fries"
       ? product.addOnGroups.filter((group) => group.name !== "Extras")
       : product.addOnGroups;
     const groups = new Map(productAddOnGroups.map((group) => [group.id, group]));
     const selectedGroups = new Map(item.selections.map((selection) => [selection.groupId, selection.optionIds]));
-    const lineAddOns: Array<{ optionId: string; optionName: string; priceDelta: number; linkedProductId?: string | null }> = [];
+    const lineAddOns: Array<{ optionId: string; optionName: string; priceDelta: number; linkedProductId?: string | null; quantity: number }> = [];
     const selectedDealComponents: Array<{ productId: string; productName: string; quantity: number }> = [];
 
     for (const group of productAddOnGroups) {
       const selectedOptionIds = selectedGroups.get(group.id) ?? [];
-      if (selectedOptionIds.length < group.minSelect || selectedOptionIds.length > group.maxSelect) {
+      const isBoxGroup = isBoxOfSixProduct(product) && group.id === boxOfSix.groupId;
+      const selectedQuantities = item.selectedAddOnQuantities ?? {};
+      const selectedOptions = group.options.filter((option) => selectedOptionIds.includes(option.id));
+      const optionQuantities = new Map(selectedOptions.map((option) => [option.id, isBoxGroup ? (selectedQuantities[option.id] ?? 0) : 1]));
+      const totalBoxQuantity = isBoxGroup
+        ? selectedOptions.reduce((sum, option) => sum + (optionQuantities.get(option.id) ?? 0), 0)
+        : 0;
+      if (isBoxGroup && totalBoxQuantity !== 6) {
+        throw Object.assign(new Error(`${product.name}: choose exactly 6 items for the box.`), { statusCode: 400 });
+      }
+      if (!isBoxGroup && (selectedOptionIds.length < group.minSelect || selectedOptionIds.length > group.maxSelect)) {
         throw Object.assign(new Error(`${product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`), { statusCode: 400 });
       }
 
@@ -448,7 +472,10 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
           }
         }
 
-        if (isDealProduct(product) && option.linkedProductId) {
+        const optionQuantity = optionQuantities.get(option.id) ?? 1;
+        if (optionQuantity <= 0) continue;
+
+        if ((isDealProduct(product) || isBoxGroup) && option.linkedProductId) {
           const linkedProduct = option.linkedProduct;
           const linkedBranchProduct = linkedProduct?.branchPricing.find((entry) => entry.branchId === payload.branchId);
           if (!option.linkedProductId || !linkedProduct?.isActive || !linkedBranchProduct?.isAvailable) {
@@ -457,7 +484,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
           selectedDealComponents.push({
             productId: linkedProduct.id,
             productName: linkedProduct.name,
-            quantity: item.quantity
+            quantity: item.quantity * optionQuantity
           });
         }
 
@@ -465,7 +492,8 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
           optionId: option.id,
           optionName: option.name,
           priceDelta: Number(option.priceDelta),
-          linkedProductId: option.linkedProductId
+          linkedProductId: option.linkedProductId,
+          quantity: optionQuantity
         });
       }
     }
@@ -479,8 +507,8 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     const baseUnitPrice = isCanonicalMealProduct(product)
       ? MEAL_BASE_PRICE
       : Number((branchPricing?.price ?? product.basePrice).toString());
-    const addOnTotal = lineAddOns.reduce((sum, addOn) => sum + addOn.priceDelta, 0);
-    const bundleComponents = (product.bundleComponents ?? []).map((component) => ({
+    const addOnTotal = lineAddOns.reduce((sum, addOn) => sum + addOn.priceDelta * addOn.quantity, 0);
+    const bundleComponents = (isBoxOfSixProduct(product) ? [] : product.bundleComponents ?? []).map((component) => ({
       productId: component.componentProduct.id,
       productName: component.componentProduct.name,
       quantity: component.quantity * item.quantity
@@ -625,7 +653,8 @@ function buildOrderItemCreateData(normalizedItems: Awaited<ReturnType<typeof bui
           create: item.addOns.map((addOn) => ({
             optionId: addOn.optionId,
             optionName: addOn.optionName,
-            priceDelta: addOn.priceDelta
+            priceDelta: addOn.priceDelta,
+            quantity: addOn.quantity
           }))
         }
       : undefined
@@ -691,6 +720,7 @@ router.get("/catalog", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const branches = branchContext.branches;
     const branchId = branchContext.branchId;
+    const boxOfSix = await syncBoxOfSixOptions(prisma);
     await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
     const promotion = await readIndependencePromotion(prisma, branchId);
 
@@ -722,15 +752,19 @@ router.get("/catalog", async (req, res, next) => {
       getAvailableMealBeverageIds(prisma, branchId),
       getAvailableDealChoiceProductIds(prisma, branchId)
     ]);
-    const branchProducts = filterDealProductOptions(
-      filterMealProductOptions(products, availableMealBeverageIds),
+    const branchProducts = filterBoxOfSixProducts(
+      filterDealProductOptions(
+        filterMealProductOptions(products, availableMealBeverageIds),
+        availableDealChoiceProductIds
+      ),
+      boxOfSix,
       availableDealChoiceProductIds
-    ).sort((left, right) => {
-      const categoryDifference = getPosCategoryRank(left.category) - getPosCategoryRank(right.category);
-      if (categoryDifference !== 0) return categoryDifference;
-
+    ).map((product) => ({
+      ...product,
+      sortOrder: product.branchPricing[0]?.sortOrder ?? product.sortOrder
+    })).sort((left, right) => {
       const productDifference = left.sortOrder - right.sortOrder;
-      return productDifference !== 0 ? productDifference : left.name.localeCompare(right.name);
+      return productDifference !== 0 ? productDifference : left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
     });
 
     const categories = (await prisma.category.findMany({
@@ -1026,7 +1060,8 @@ router.patch("/orders/:orderId", async (req, res, next) => {
       addOns: item.addOns.map((addOn) => ({
         optionId: addOn.optionId ?? "",
         optionName: addOn.optionName,
-        priceDelta: Number(addOn.priceDelta)
+        priceDelta: Number(addOn.priceDelta),
+        quantity: Number(addOn.quantity ?? 1)
       }))
     }));
     const updatedOrder = await prisma.$transaction(async (transaction) => {

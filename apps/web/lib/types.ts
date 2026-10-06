@@ -68,6 +68,7 @@ export type CartProduct = Product & {
   cartItemId: string;
   quantity: number;
   selectedAddOnIds: string[];
+  selectedAddOnQuantities: Record<string, number>;
   selectedAddOns: AddOnOption[];
   price: number;
 };
@@ -817,6 +818,7 @@ export type AdminCustomer = {
 
 export type AdminProduct = {
   id: string;
+  sortOrder: number;
   categoryId: string;
   slug: string;
   sku: string;
@@ -896,6 +898,7 @@ export type AdminOrder = {
       optionId: string;
       optionName: string;
       priceDelta: number;
+      quantity?: number;
     }>;
   }>;
 };
@@ -1022,6 +1025,7 @@ export type PosReceiptOrder = {
       optionId: string;
       optionName: string;
       priceDelta: number;
+      quantity?: number;
     }>;
   }>;
 };
@@ -1064,6 +1068,7 @@ export type PosEditableOrder = {
       optionId: string;
       optionName: string;
       priceDelta: number;
+      quantity?: number;
     }>;
     selections?: Array<{
       groupId: string;

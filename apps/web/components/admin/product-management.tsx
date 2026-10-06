@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { createAdminCategory, createAdminProduct, deleteAdminProduct, fetchAdminProducts, updateAdminDealConfiguration, updateAdminProduct, uploadAdminImage } from "@/lib/admin-client";
+import { createAdminCategory, createAdminProduct, deleteAdminProduct, fetchAdminProducts, moveAdminProduct, updateAdminDealConfiguration, updateAdminProduct, uploadAdminImage } from "@/lib/admin-client";
 import type { AdminProduct, Category } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
@@ -794,6 +794,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [actionProductId, setActionProductId] = useState("");
+  const [movingProductId, setMovingProductId] = useState("");
   const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   async function loadProducts() {
@@ -982,6 +983,44 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
     }
   }
 
+  async function moveProduct(productId: string, direction: "UP" | "DOWN") {
+    if (movingProductId) return;
+    const currentIndex = products.findIndex((product) => product.id === productId);
+    const adjacentIndex = direction === "UP" ? currentIndex - 1 : currentIndex + 1;
+    if (currentIndex < 0 || adjacentIndex < 0 || adjacentIndex >= products.length) return;
+
+    const previousProducts = products;
+    const controlSelector = `[data-product-order-control="${productId}-${direction}"]`;
+    const previousTop = document.querySelector<HTMLElement>(controlSelector)?.getBoundingClientRect().top;
+    const optimisticProducts = products.slice();
+    [optimisticProducts[currentIndex], optimisticProducts[adjacentIndex]] = [optimisticProducts[adjacentIndex]!, optimisticProducts[currentIndex]!];
+    setProducts(optimisticProducts.map((product, index) => ({ ...product, sortOrder: index })));
+    setMovingProductId(productId);
+    setError("");
+
+    try {
+      const result = await moveAdminProduct(productId, direction);
+      const positions = new Map(result.order.map((entry) => [entry.productId, entry.sortOrder]));
+      setProducts((current) => current
+        .map((product) => ({ ...product, sortOrder: positions.get(product.id) ?? product.sortOrder }))
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)));
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        const control = document.querySelector<HTMLElement>(controlSelector);
+        if (!control) return;
+        if (previousTop !== undefined) {
+          window.scrollBy({ top: control.getBoundingClientRect().top - previousTop, behavior: "auto" });
+        }
+        control.focus({ preventScroll: true });
+      }));
+    } catch (moveError) {
+      setProducts(previousProducts);
+      const message = moveError instanceof Error ? moveError.message : "Failed to reorder product.";
+      setError(message);
+    } finally {
+      setMovingProductId("");
+    }
+  }
+
   return (
     <div className="space-y-6">
       {notice ? (
@@ -1059,20 +1098,21 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
         </div>
       )}
 
-      <Card className="overflow-hidden">
-        <div className="grid grid-cols-[2.1fr_1fr_0.8fr_0.8fr_0.9fr_1fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
+      <Card className="overflow-x-auto">
+        <div className="grid min-w-[1180px] grid-cols-[2.1fr_1fr_0.8fr_0.8fr_0.9fr_0.55fr_1.35fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
           <span>{copy.tableHeading}</span>
           <span>Category</span>
           <span>Price</span>
           <span>Status</span>
           <span>{copy.flagsLabel}</span>
+          <span>Order</span>
           <span>Actions</span>
         </div>
         {loading ? (
           <div className="px-5 py-8 text-sm text-pocket-navy/60">Loading {copy.editorLabel.toLowerCase()}s...</div>
         ) : (
-          products.map((product) => (
-            <div key={product.id} className="grid grid-cols-[2.1fr_1fr_0.8fr_0.8fr_0.9fr_1fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
+          products.map((product, index) => (
+            <div key={product.id} className="grid min-w-[1180px] grid-cols-[2.1fr_1fr_0.8fr_0.8fr_0.9fr_0.55fr_1.35fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
               <div className="flex items-start gap-3">
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-pocket-navy/10 bg-pocket-cream">
                   <Image
@@ -1106,6 +1146,34 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
               <span className="font-medium text-pocket-navy/70">
                 {[product.featured ? "Featured" : null, product.bestSeller ? "Best Seller" : null, product.bundleComponents.length ? "Bundle" : null].filter(Boolean).join(", ") || "Base"}
               </span>
+              <div className="flex items-start gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title="Move product up"
+                  aria-label={`Move ${product.name} up`}
+                  aria-disabled={index === 0}
+                  data-product-order-control={`${product.id}-UP`}
+                  className={`w-9 px-0 ${index === 0 ? "pointer-events-none opacity-40" : ""}`}
+                  onClick={() => void moveProduct(product.id, "UP")}
+                  disabled={Boolean(movingProductId)}
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title="Move product down"
+                  aria-label={`Move ${product.name} down`}
+                  aria-disabled={index === products.length - 1}
+                  data-product-order-control={`${product.id}-DOWN`}
+                  className={`w-9 px-0 ${index === products.length - 1 ? "pointer-events-none opacity-40" : ""}`}
+                  onClick={() => void moveProduct(product.id, "DOWN")}
+                  disabled={Boolean(movingProductId)}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={() => openEdit(product)}>
                   <Pencil className="h-4 w-4" />

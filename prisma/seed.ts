@@ -764,7 +764,7 @@ async function main() {
   const products = [];
   const productsCreatedThisRun: string[] = [];
 
-  for (const seed of productSeeds) {
+  for (const [productIndex, seed] of productSeeds.entries()) {
     const existingProduct =
       (await prisma.product.findUnique({ where: { slug: seed.slug } })) ??
       (seed.legacySlug ? await prisma.product.findUnique({ where: { slug: seed.legacySlug } }) : null);
@@ -799,7 +799,14 @@ async function main() {
       });
 
       await prisma.branchProduct.create({
-        data: { branchId: branch.id, productId: product.id, price: seed.basePrice, isAvailable: true, stockStatus: "IN_STOCK" }
+        data: {
+          branchId: branch.id,
+          productId: product.id,
+          price: seed.basePrice,
+          isAvailable: true,
+          stockStatus: "IN_STOCK",
+          sortOrder: productIndex
+        }
       });
 
       async function createAddOnGroup(config: {
