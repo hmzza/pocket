@@ -7,6 +7,26 @@ import type { Category, Product } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { getMealProductForProduct, isMealProduct } from "@/lib/meal-products";
 
+const WEBSITE_CATEGORY_ORDER = [
+  "shawarma",
+  "wraps",
+  "slider",
+  "sliders",
+  "fries",
+  "deals",
+  "chillers",
+  "ice-cream-shakes",
+  "soft-drinks",
+  "desserts"
+];
+
+function getCategoryLabel(category: Category) {
+  if (category.slug === "slider" || category.slug === "sliders") return "Sliders";
+  if (category.slug === "ice-cream-shakes") return "Ice Cream Shakes";
+  if (category.slug === "soft-drinks") return "Soft Drinks";
+  return category.name;
+}
+
 export function MenuBrowser({ products, categories, branchSlug }: { products: Product[]; categories: Category[]; branchSlug?: string }) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
@@ -23,6 +43,19 @@ export function MenuBrowser({ products, categories, branchSlug }: { products: Pr
     });
   }, [activeCategory, products, query]);
 
+  const visibleCategories = useMemo(() => {
+    return categories
+      .filter((category) => category.slug !== "make-it-a-meal")
+      .slice()
+      .sort((left, right) => {
+        const leftIndex = WEBSITE_CATEGORY_ORDER.indexOf(left.slug);
+        const rightIndex = WEBSITE_CATEGORY_ORDER.indexOf(right.slug);
+        const leftRank = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+        const rightRank = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+        return leftRank - rightRank || left.name.localeCompare(right.name);
+      });
+  }, [categories]);
+
   return (
     <div className="space-y-8">
       <div className="grid gap-4 md:grid-cols-[1fr_auto] md:items-center">
@@ -38,7 +71,7 @@ export function MenuBrowser({ products, categories, branchSlug }: { products: Pr
           >
             All
           </button>
-          {categories.filter((category) => category.slug !== "make-it-a-meal").map((category) => (
+          {visibleCategories.map((category) => (
             <button
               key={category.id}
               type="button"
@@ -48,7 +81,7 @@ export function MenuBrowser({ products, categories, branchSlug }: { products: Pr
                 activeCategory === category.slug ? "border-pocket-orange bg-pocket-orange text-white" : "border-pocket-navy/15 bg-white text-pocket-navy hover:bg-pocket-cream"
               )}
             >
-              {category.name}
+              {getCategoryLabel(category)}
             </button>
           ))}
         </div>

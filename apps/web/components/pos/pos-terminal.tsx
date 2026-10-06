@@ -1407,11 +1407,12 @@ export function PosTerminal() {
               <Button variant="ghost" className="text-white hover:bg-white/10" onClick={() => setProductDialog(null)}>Close</Button>
             </div>
             <div className="mt-6 flex-1 space-y-5 overflow-y-auto pr-1">
+              {isBoxOfSixProduct(productDialog) ? <div><p className="font-semibold">Customize your box items</p><p className="text-sm text-white/60">Choose exactly {BOX_OF_SIX_SIZE} items</p></div> : null}
               {productDialog.addOnGroups.map((group) => (
                 <div key={group.id}>
                   <div className="mb-3">
-                    <p className="font-semibold">{group.name}</p>
-                    <p className="text-sm text-white/60">{isBoxOfSixProduct(productDialog) && isBoxOfSixGroup(group) ? `Choose exactly ${BOX_OF_SIX_SIZE} items` : `Choose ${group.minSelect} to ${group.maxSelect}`}</p>
+                    {!isBoxOfSixProduct(productDialog) || !isBoxOfSixGroup(group) ? <p className="font-semibold">{group.name}</p> : null}
+                    {!isBoxOfSixProduct(productDialog) || !isBoxOfSixGroup(group) ? <p className="text-sm text-white/60">Choose {group.minSelect} to {group.maxSelect}</p> : null}
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {group.options.map((option) => {
