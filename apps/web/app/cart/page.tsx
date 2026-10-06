@@ -266,10 +266,11 @@ export default function CartPage() {
               <Button type="button" variant="ghost" onClick={() => setEditingCartItemId("")}>Close</Button>
             </div>
             <div className="mt-6 space-y-5">
+              {isBoxOfSixProduct(editingProduct) ? <div><p className="font-semibold text-pocket-navy">Customize your box items</p><p className="mt-1 text-sm text-pocket-navy/60">Choose exactly {BOX_OF_SIX_SIZE} items</p></div> : null}
               {editingProduct.addOnGroups.map((group) => (
                 <div key={group.id}>
-                  <p className="font-semibold text-pocket-navy">{group.name}</p>
-                  <p className="mt-1 text-sm text-pocket-navy/60">{isBoxOfSixProduct(editingProduct) && isBoxOfSixGroup(group) ? `Choose exactly ${BOX_OF_SIX_SIZE} items` : `Choose ${group.minSelect} to ${group.maxSelect}`}</p>
+                  {!isBoxOfSixProduct(editingProduct) || !isBoxOfSixGroup(group) ? <p className="font-semibold text-pocket-navy">{group.name}</p> : null}
+                  {!isBoxOfSixProduct(editingProduct) || !isBoxOfSixGroup(group) ? <p className="mt-1 text-sm text-pocket-navy/60">Choose {group.minSelect} to {group.maxSelect}</p> : null}
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     {group.options.map((option) => {
                       if (isBoxOfSixProduct(editingProduct) && isBoxOfSixGroup(group)) {

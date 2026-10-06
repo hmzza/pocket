@@ -189,13 +189,13 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
               {displayGroups.length ? (
                 <section className="space-y-3">
                   <div>
-                    <p className="font-semibold text-pocket-navy">Customize your {itemBeingConfigured.name}</p>
-                    <p className="text-sm text-pocket-navy/60">Choose the options you want.</p>
+                    <p className="font-semibold text-pocket-navy">{isBoxFlow ? "Customize your box items" : `Customize your ${itemBeingConfigured.name}`}</p>
+                    {!isBoxFlow ? <p className="text-sm text-pocket-navy/60">Choose the options you want.</p> : null}
                   </div>
                   {displayGroups.map((group) => (
                     <div key={group.id} className="space-y-3">
                       <div>
-                        <p className="font-semibold text-pocket-navy">{group.name}</p>
+                        {!(isBoxFlow && group.id === boxGroup?.id) ? <p className="font-semibold text-pocket-navy">{group.name}</p> : null}
                         <p className="text-sm text-pocket-navy/60">{isBoxFlow && group.id === boxGroup?.id ? `Choose exactly ${BOX_OF_SIX_SIZE} items` : `Choose ${group.minSelect} to ${group.maxSelect}`}</p>
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">

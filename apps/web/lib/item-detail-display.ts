@@ -64,7 +64,7 @@ export function formatSelectionLines(optionNames: string[], multiplier = 1) {
       const values = groups.get(label);
       return values?.length ? countedList(values, multiplier).split(", ") : [];
     }),
-    ...(regular.length ? [`Options: ${regular.join(", ")}`] : [])
+    ...(regular.length ? [`Options: ${countedList(regular, multiplier)}`] : [])
   ];
 }
 
