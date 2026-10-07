@@ -163,7 +163,7 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
 }
 
 export async function fetchPosDeliveryConfig() {
-  return posFetch<DeliveryConfig>("/api/ops/delivery-config");
+  return posFetch<DeliveryConfig>("/api/pos/delivery-config");
 }
 
 export async function createPosOrder(payload: Record<string, unknown>) {
