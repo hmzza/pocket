@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, CheckCircle2, Clock3, ExternalLink, ListChecks, PencilLine, RefreshCcw, Search, Trash2 } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, Clock3, ExternalLink, ListChecks, PencilLine, RefreshCcw, Search, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ import {
 import type { AdminOrder, DeliveryRider } from "@/lib/types";
 import { formatCurrency, toBusinessDateInputValue } from "@/lib/utils";
 import { formatAddOnNames, formatItemDetailLines } from "@/lib/item-detail-display";
+import { usePosDeliveryAlert } from "@/components/pos/use-pos-delivery-alert";
 
 type QueueScope = "active" | "watch_later" | "delivered" | "unpaid" | "all";
 
@@ -476,12 +477,22 @@ function PosOrderQueueView({
   const [riders, setRiders] = useState<DeliveryRider[]>([]);
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, AdminOrder["status"]>>({});
   const [pendingPaymentStatuses, setPendingPaymentStatuses] = useState<Record<string, AdminOrder["paymentStatus"]>>({});
+  const [pendingDeliveryOrders, setPendingDeliveryOrders] = useState<AdminOrder[]>([]);
   const [refreshTimer, setRefreshTimer] = useState<number | null>(null);
   const loadSequenceRef = useRef(0);
   const initialLoadRef = useRef(false);
 
   function broadcastQueueRefresh() {
     window.localStorage.setItem("pocket-pos-queue-refresh", String(Date.now()));
+  }
+
+  async function refreshPendingDeliveryOrders() {
+    try {
+      const data = await fetchPosOrders({ scope: "active" });
+      setPendingDeliveryOrders(data.orders.filter((order) => order.serviceType === "DELIVERY" && order.status === "PENDING"));
+    } catch {
+      // The normal queue refresh remains the fallback when this alert-only request fails.
+    }
   }
 
   async function loadOrders(nextScope = scope) {
@@ -527,6 +538,15 @@ function PosOrderQueueView({
     }
   }
 
+  const { soundStatus, toggleSound } = usePosDeliveryAlert({
+    enabled: ready,
+    hasPendingDelivery: pendingDeliveryOrders.length > 0,
+    onDeliveryEvent: () => {
+      void loadOrders(scope);
+      void refreshPendingDeliveryOrders();
+    }
+  });
+
   function scheduleRefresh(nextScope = scope) {
     if (refreshTimer) {
       window.clearTimeout(refreshTimer);
@@ -555,7 +575,7 @@ function PosOrderQueueView({
           return;
         }
 
-        const [_, deliveryRiders] = await Promise.all([loadOrders("all"), fetchPosDeliveryRiders()]);
+        const [_, deliveryRiders] = await Promise.all([loadOrders("all"), fetchPosDeliveryRiders(), refreshPendingDeliveryOrders()]);
         if (!cancelled) setRiders(deliveryRiders);
         if (!cancelled) {
           setReady(true);
@@ -592,15 +612,14 @@ function PosOrderQueueView({
   useEffect(() => {
     if (!ready) return;
 
-    const timer = window.setInterval(() => {
+    const refreshQueue = () => {
       if (!updatingOrderId && !refreshTimer) {
         void loadOrders(scope);
       }
-    }, 3000);
-
-    const refreshQueue = () => {
-      void loadOrders(scope);
+      void refreshPendingDeliveryOrders();
     };
+
+    const timer = window.setInterval(refreshQueue, 3000);
     const refreshFromStorage = (event: StorageEvent) => {
       if (event.key === "pocket-pos-queue-refresh") refreshQueue();
     };
@@ -680,6 +699,7 @@ function PosOrderQueueView({
       await updatePosOrderStatus(order.id, status);
       broadcastQueueRefresh();
       scheduleRefresh(scope);
+      void refreshPendingDeliveryOrders();
     } catch (updateError) {
       setPendingStatuses((current) => {
         const next = { ...current };
@@ -815,6 +835,7 @@ function PosOrderQueueView({
       await deletePosOrder(order.id);
       broadcastQueueRefresh();
       setOrders((current) => current.filter((entry) => entry.id !== order.id));
+      void refreshPendingDeliveryOrders();
       setPendingStatuses((current) => {
         const next = { ...current };
         delete next[order.id];
@@ -859,6 +880,16 @@ function PosOrderQueueView({
           </p>
         </div>
         <div className="flex flex-wrap justify-end gap-1.5">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-8 w-8 px-0"
+            title={soundStatus === "enabled" ? "Mute delivery order sound" : soundStatus === "muted" ? "Enable delivery order sound" : "Enable delivery order sound"}
+            aria-label={soundStatus === "enabled" ? "Mute delivery order sound" : "Enable delivery order sound"}
+            onClick={toggleSound}
+          >
+            {soundStatus === "enabled" ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+          </Button>
           {embedded ? (
             <>
               <Button

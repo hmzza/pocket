@@ -238,6 +238,8 @@ model Branch {
   coupons               Coupon[]
   userAccesses          UserBranchAccess[]
   expenseTitleFavorites ExpenseTitleFavorite[]
+  deliveryConfiguration DeliveryConfiguration?
+  deliverySectors      DeliverySector[]
 }
 
 model UserBranchAccess {
@@ -380,6 +382,35 @@ model BranchProduct {
 
   @@unique([branchId, productId])
   @@index([branchId, sortOrder])
+}
+
+model DeliveryConfiguration {
+  id                       String   @id @default(cuid())
+  branchId                 String   @unique
+  openTime                 String?
+  closeTime                String?
+  manualEnabled            Boolean  @default(true)
+  manualOverrideWindowKey  String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  branch                   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, manualEnabled])
+}
+
+model DeliverySector {
+  id           String   @id @default(cuid())
+  branchId     String
+  name         String
+  deliveryFee  Decimal  @db.Decimal(10, 2)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, name])
+  @@index([branchId, isActive, sortOrder])
 }
 
 model Address {

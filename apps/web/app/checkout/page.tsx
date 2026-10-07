@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { CheckCircle2, MapPin, MessageCircle } from "lucide-react";
+import { CheckCircle2, MessageCircle } from "lucide-react";
 import { useLiveProducts } from "@/components/site/use-live-products";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,20 +18,10 @@ import { formatSelectionLines } from "@/lib/item-detail-display";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 
-const deliveryAreas = [
-  { sector: "G-11", fee: 70 },
-  { sector: "G-10", fee: 150 },
-  { sector: "F-11", fee: 150 },
-  { sector: "G-12", fee: 180 },
-  { sector: "G-13", fee: 200 },
-  { sector: "F-10", fee: 180 },
-  { sector: "G-9", fee: 200 }
-] as const;
-
 export default function CheckoutPage() {
   const { cart, getCartProducts, clearCart } = useStore();
   const { selectedBranch } = usePublicBranch();
-  const { deliveryEnabled, loading: deliveryAvailabilityLoading } = useDeliveryAvailability();
+  const { deliveryEnabled, message: deliveryMessage, sectors: deliveryAreas, loading: deliveryAvailabilityLoading, refresh: refreshDeliveryAvailability } = useDeliveryAvailability(selectedBranch?.slug);
   const { products, loading: catalogLoading, error: catalogError } = useLiveProducts();
   const [confirmedOrderNumber, setConfirmedOrderNumber] = useState("");
   const [confirmedTotal, setConfirmedTotal] = useState(0);
@@ -51,12 +41,16 @@ export default function CheckoutPage() {
   const cartProducts = getCartProducts(products);
   const missingItems = Math.max(0, cart.length - cartProducts.length);
   const subtotal = useMemo(() => cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0), [cartProducts]);
-  const selectedArea = deliveryAreas.find((area) => area.sector === deliverySector);
-  const deliverySubsectors = selectedArea ? [1, 2, 3, 4].map((number) => `${selectedArea.sector}/${number}`) : [];
+  const selectedArea = deliveryAreas.find((area) => area.name === deliverySector);
+  const deliverySubsectors = selectedArea?.subsectors ?? [];
   const totals = useMemo(
-    () => calculateOrderTotals(subtotal, selectedArea?.fee ?? 0, couponDiscount),
-    [couponDiscount, selectedArea?.fee, subtotal]
+    () => calculateOrderTotals(subtotal, selectedArea?.deliveryFee ?? 0, couponDiscount),
+    [couponDiscount, selectedArea?.deliveryFee, subtotal]
   );
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, []);
 
   useEffect(() => {
     const storedCoupon = readStoredCouponState();
@@ -118,10 +112,6 @@ export default function CheckoutPage() {
       setError("Choose an available branch before placing the order.");
       return;
     }
-    if (!deliveryEnabled) {
-      setError("Online deliveries are temporarily unavailable. Please check back shortly.");
-      return;
-    }
     if (!deliverySubsector) {
       setError("Choose your sub-sector before placing the order.");
       return;
@@ -133,6 +123,16 @@ export default function CheckoutPage() {
 
     setLoading(true);
     try {
+      const latestDeliveryStatus = await refreshDeliveryAvailability();
+      if (!latestDeliveryStatus) {
+        setError("We could not verify delivery availability. Please try again.");
+        return;
+      }
+      if (!latestDeliveryStatus.deliveryEnabled) {
+        setError(latestDeliveryStatus.message ?? "Deliveries are closed at the moment.");
+        window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+        return;
+      }
       let activeCouponCode: string | undefined;
       if (couponCode.trim()) {
         const nextCoupon = await validateCouponCode(couponCode, subtotal, selectedBranch.slug);
@@ -152,7 +152,7 @@ export default function CheckoutPage() {
           phone: customerPhone.trim(),
           branchSlug: selectedBranch.slug,
           paymentMethod: "CASH_ON_DELIVERY",
-          deliverySector: selectedArea.sector,
+          deliverySector: selectedArea.name,
           deliverySubsector,
           couponCode: activeCouponCode,
           deliveryInstructions: deliveryInstructions.trim() || undefined,
@@ -211,45 +211,52 @@ export default function CheckoutPage() {
     );
   }
 
-  if (!deliveryAvailabilityLoading && !deliveryEnabled) {
-    return (
-      <div className="mx-auto max-w-2xl px-4 py-14 md:px-6">
-        <Card className="border-pocket-orange/30 bg-pocket-cream p-7 text-center">
-          <MapPin className="mx-auto h-12 w-12 text-pocket-orange" />
-          <p className="mt-5 text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Delivery update</p>
-          <h1 className="mt-2 text-3xl font-black text-pocket-navy">Online deliveries are paused</h1>
-          <p className="mt-3 text-base text-pocket-navy/75">We are not taking delivery orders online right now. Please check back shortly.</p>
-          <Link href="/menu" className="mt-7 inline-flex"><Button variant="outline">Browse the menu</Button></Link>
-        </Card>
-      </div>
-    );
-  }
-
-  function selectDeliverySector(sector: string) {
-    setDeliverySector(sector);
-    setDeliverySubsector("");
-    setError("");
-    window.requestAnimationFrame(() => {
-      document.getElementById("delivery-details")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }
-
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 md:px-6">
-      <form onSubmit={handleSubmit} className={selectedArea ? "grid gap-8 lg:grid-cols-[1fr_360px]" : "mx-auto max-w-2xl"}>
+      <form onSubmit={handleSubmit} className="grid gap-8 lg:grid-cols-[1fr_360px]">
         <div className="space-y-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">{selectedArea ? "Delivery checkout" : "Step 1 of 2"}</p>
-            <h1 className="text-4xl font-black text-pocket-navy">{selectedArea ? "A few details, then we'll take it from here." : "Which sector are you in?"}</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Delivery checkout</p>
+            <h1 className="text-4xl font-black text-pocket-navy">A few details, then we'll take it from here.</h1>
           </div>
-          {!selectedArea ? (
+          {missingItems ? <Card className="border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">Some saved items are no longer on the menu. Please review your cart before placing the order.</Card> : null}
+          {catalogError ? <Card className="border-red-300 bg-red-50 p-4 text-sm text-red-700">Live catalog is unavailable right now. Checkout is blocked until it reconnects.</Card> : null}
+          {catalogLoading && !cartProducts.length && cart.length ? <Card className="p-4 text-sm text-pocket-navy/70">Refreshing your cart...</Card> : null}
+          {deliveryMessage && !deliveryEnabled ? <Card className="border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{deliveryMessage}</Card> : null}
+
+          <Card id="delivery-details" className="scroll-mt-28 p-5">
+            <p className="text-lg font-black text-pocket-navy">Delivery details</p>
+            <p className="mt-1 text-sm leading-6 text-pocket-navy/60">Pocket currently delivers only within Islamabad, and only to the sectors listed below. Choose the sub-sector as well and use the WhatsApp number that Pocket should use to contact you.</p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-sm font-semibold text-pocket-navy">
+                <span>Sector</span>
+                <select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm" value={deliverySector} onChange={(event) => { setDeliverySector(event.target.value); setDeliverySubsector(""); setError(""); }} required>
+                  <option value="">Choose your sector</option>
+                  {deliveryAreas.map((area) => <option key={area.id} value={area.name}>{area.name} - {formatCurrency(area.deliveryFee)}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm font-semibold text-pocket-navy">
+                <span>Sub-sector</span>
+                <select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm disabled:bg-pocket-cream" value={deliverySubsector} onChange={(event) => setDeliverySubsector(event.target.value)} disabled={!selectedArea} required>
+                  <option value="">{selectedArea ? `Choose ${selectedArea.name} sub-sector` : "Choose a sector first"}</option>
+                  {deliverySubsectors.map((subsector) => <option key={subsector} value={subsector}>{subsector}</option>)}
+                </select>
+              </label>
+              <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Full name" required />
+              <label className="relative"><MessageCircle className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-emerald-600" /><Input className="pl-9" type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="WhatsApp number (03xx xxxxxxx)" required /></label>
+              <div className="md:col-span-2"><Input value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} placeholder="House/building, floor, street and area" required /></div>
+              <div className="md:col-span-2"><Textarea value={addressNotes} onChange={(event) => setAddressNotes(event.target.value)} placeholder="Helpful location instructions (optional)" /></div>
+              <div className="md:col-span-2"><Textarea value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value)} placeholder="Anything we should know about this order? (optional)" /></div>
+            </div>
+          </Card>
+          {/* legacy two-step markup removed */}{/*
             <Card className="p-5">
               <div className="flex items-start gap-3"><MapPin className="mt-1 h-5 w-5 text-pocket-orange" /><div><p className="text-lg font-black text-pocket-navy">Islamabad delivery only</p><p className="mt-1 text-sm text-pocket-navy/60">Pocket currently delivers only within Islamabad, and only to the sectors listed below.</p></div></div>
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 {deliveryAreas.map((area) => (
-                  <label key={area.sector} className="flex cursor-pointer items-center rounded-xl border border-pocket-navy/10 px-4 py-3 hover:border-pocket-orange/50">
-                    <input type="radio" name="delivery-sector" value={area.sector} checked={false} onChange={() => selectDeliverySector(area.sector)} required />
-                    <span className="ml-3 font-bold text-pocket-navy">{area.sector}</span>
+                  <label key={area.id} className="flex cursor-pointer items-center rounded-xl border border-pocket-navy/10 px-4 py-3 hover:border-pocket-orange/50">
+                    <input type="radio" name="delivery-sector" value={area.name} checked={false} onChange={() => selectDeliverySector(area.name)} required />
+                    <span className="ml-3 font-bold text-pocket-navy">{area.name} · {formatCurrency(area.deliveryFee)}</span>
                   </label>
                 ))}
               </div>
@@ -261,10 +268,10 @@ export default function CheckoutPage() {
               {catalogLoading && !cartProducts.length && cart.length ? <Card className="p-4 text-sm text-pocket-navy/70">Refreshing your cart...</Card> : null}
 
               <Card id="delivery-details" className="scroll-mt-28 p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-lg font-black text-pocket-navy">Delivery details</p><p className="mt-1 text-sm text-pocket-navy/60">Delivery is set to Islamabad · {selectedArea.sector}. Choose the sub-sector and use the WhatsApp number Pocket should contact.</p></div><Button type="button" variant="outline" onClick={() => { setDeliverySector(""); setDeliverySubsector(""); }}>Change sector</Button></div>
+                <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-lg font-black text-pocket-navy">Delivery details</p><p className="mt-1 text-sm text-pocket-navy/60">Delivery is set to Islamabad · {selectedArea.name}. Choose the sub-sector and use the WhatsApp number Pocket should contact.</p></div><Button type="button" variant="outline" onClick={() => { setDeliverySector(""); setDeliverySubsector(""); }}>Change sector</Button></div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>City</span><select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-pocket-cream px-3 text-sm text-pocket-navy" value="Islamabad" disabled><option>Islamabad</option></select></label>
-                  <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sub-sector</span><select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm" value={deliverySubsector} onChange={(event) => setDeliverySubsector(event.target.value)} required><option value="">Choose {selectedArea.sector} sub-sector</option>{deliverySubsectors.map((subsector) => <option key={subsector} value={subsector}>{subsector}</option>)}</select></label>
+                  <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sub-sector</span><select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm" value={deliverySubsector} onChange={(event) => setDeliverySubsector(event.target.value)} required><option value="">Choose {selectedArea.name} sub-sector</option>{deliverySubsectors.map((subsector) => <option key={subsector} value={subsector}>{subsector}</option>)}</select></label>
                   <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Full name" required />
                   <label className="relative"><MessageCircle className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-emerald-600" /><Input className="pl-9" type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="WhatsApp number (03xx xxxxxxx)" required /></label>
                   <div className="md:col-span-2"><Input value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} placeholder="House/building, floor, street and area" required /></div>
@@ -278,10 +285,10 @@ export default function CheckoutPage() {
                 <Textarea className="mt-4" value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value)} placeholder="Anything we should know about this order? (optional)" />
               </Card>
             </>
-          )}
+          )}*/}
         </div>
 
-        {selectedArea ? <Card className="h-fit p-5 lg:sticky lg:top-24">
+        <Card className="h-fit p-5 lg:sticky lg:top-24">
           <p className="text-xl font-black text-pocket-navy">Your order</p>
           {cartProducts.length ? <div className="mt-4 space-y-3 text-sm">{cartProducts.map((item) => <div key={item.cartItemId} className="flex items-start justify-between gap-4"><div><p className="font-semibold text-pocket-navy">{item.name}</p>{formatSelectionLines(item.selectedAddOns.flatMap((option) => Array.from({ length: Math.max(1, item.selectedAddOnQuantities[option.id] ?? 1) }, () => option.name)), item.quantity).map((line) => <p key={line} className="text-pocket-navy/60">{line}</p>)}<p className="text-pocket-navy/60">Qty {item.quantity}</p></div><p className="text-right font-bold text-pocket-orange">{formatCompactCurrency(item.price * item.quantity)}</p></div>)}</div> : <p className="mt-4 text-sm text-pocket-navy/60">Your cart is empty. <Link href="/menu" className="font-bold text-pocket-orange">Browse the menu</Link>.</p>}
           <div className="mt-5 space-y-3 border-t border-pocket-navy/10 pt-4 text-sm">
@@ -290,12 +297,13 @@ export default function CheckoutPage() {
               <div className="flex justify-between gap-3"><span>Coupon</span><span className="font-semibold text-emerald-700">{couponCode}</span></div>
               <div className="flex justify-between gap-3"><span>Discount</span><span>-{formatCurrency(totals.discount)}</span></div>
             </> : null}
-            <div className="flex justify-between gap-3"><span>Delivery ({selectedArea.sector})</span><span>{formatCurrency(totals.delivery)}</span></div>
+             <div className="flex justify-between gap-3"><span>Delivery{selectedArea ? ` (${selectedArea.name})` : ""}</span><span>{formatCurrency(totals.delivery)}</span></div>
             <div className="flex justify-between gap-3 border-t border-pocket-navy/10 pt-3 text-base font-black"><span>Total</span><span className="text-pocket-orange">{formatCurrency(totals.total)}</span></div>
-          </div>
-          {error ? <p className="mt-4 text-sm font-medium text-red-600">{error}</p> : null}
-          <Button className="mt-6 w-full" disabled={!cartProducts.length || !selectedArea || loading || couponLoading || catalogLoading || deliveryAvailabilityLoading || !deliveryEnabled || Boolean(catalogError)}>{loading ? "Placing order..." : "Place delivery order"}</Button>
-        </Card> : null}
+           </div>
+           <p className="mt-3 text-xs leading-5 text-pocket-navy/60">Note: You can pay cash or online to the rider</p>
+           {error ? <p className="mt-4 text-sm font-medium text-red-600">{error}</p> : null}
+           <Button className="mt-6 w-full" disabled={!cartProducts.length || !selectedArea || loading || couponLoading || catalogLoading || deliveryAvailabilityLoading || !deliveryEnabled || Boolean(catalogError)}>{loading ? "Placing order..." : "Place delivery order"}</Button>
+        </Card>
       </form>
     </div>
   );

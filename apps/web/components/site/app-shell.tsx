@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { Footer } from "@/components/site/footer";
 import { Header } from "@/components/site/header";
+import { DeliveryStatusBanner } from "@/components/site/delivery-status-banner";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -17,6 +18,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <Header />
+      <DeliveryStatusBanner />
       <main>{children}</main>
       <Footer />
     </>

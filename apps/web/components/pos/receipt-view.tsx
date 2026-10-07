@@ -139,6 +139,12 @@ function ReceiptSlip({
           <span className="font-medium print:font-semibold">{order.promotionName ? `${order.promotionName}:` : "Discount:"}</span>
           <span className="font-semibold">{money(order.discountAmount)}</span>
         </div>
+        {order.serviceType === "DELIVERY" && order.serviceFee > 0 ? (
+          <div className="flex justify-between gap-3">
+            <span className="font-medium print:font-semibold">Delivery fee:</span>
+            <span className="font-semibold">{money(order.serviceFee)}</span>
+          </div>
+        ) : null}
         <div className="flex justify-between gap-3 border-t border-dashed border-black/20 pt-1">
           <span className="font-bold">Total:</span>
           <span className="font-bold">{money(order.netTotal)}</span>

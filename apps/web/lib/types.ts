@@ -797,6 +797,42 @@ export type DeliveryLog = {
   createdAt: string;
 };
 
+export type DeliverySector = {
+  id: string;
+  name: string;
+  deliveryFee: number;
+  isActive: boolean;
+  sortOrder: number;
+  subsectors: string[];
+};
+
+export type DeliveryConfig = {
+  branchId?: string;
+  branchName?: string;
+  branchPhone?: string | null;
+  deliveryEnabled: boolean;
+  scheduleConfigured: boolean;
+  openTime: string | null;
+  closeTime: string | null;
+  isWithinSchedule: boolean;
+  nextTransitionAt: string | null;
+  message: string | null;
+  sectors: DeliverySector[];
+};
+
+export type RiderPaymentReport = {
+  businessDate: string;
+  start: string;
+  end: string;
+  riders: Array<{
+    riderId: string | null;
+    riderName: string;
+    deliveryCount: number;
+    totalFee: number;
+    sectors: Array<{ name: string; deliveryCount: number; totalFee: number }>;
+  }>;
+};
+
 export type CustomerReview = {
   id: string;
   authorName: string;

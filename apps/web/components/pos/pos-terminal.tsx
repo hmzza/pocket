@@ -11,8 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { PosOrderQueue } from "@/components/pos/order-queue";
 import { PosToolbar } from "@/components/pos/pos-toolbar";
 import { DesktopPrinterSettings } from "@/components/pos/desktop-printer-settings";
-import { createPosOrder, fetchPosCatalog, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
-import type { AddOnGroup, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
+import { createPosOrder, fetchPosCatalog, fetchPosDeliveryConfig, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
+import type { AddOnGroup, DeliveryConfig, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 import { formatAddOnNames, formatBundleSummary, formatItemDetailLines } from "@/lib/item-detail-display";
 import { BOX_OF_SIX_SIZE, isBoxOfSixGroup, isBoxOfSixProduct } from "@/lib/box-of-six";
@@ -45,7 +45,6 @@ const basePaymentOptions = [
 ] as const;
 
 const foodpandaPaymentOption = { value: "FOODPANDA_PAYOUT", label: "Foodpanda payout", logo: "/images/foodpanda-logo.png" } as const;
-const cashOnDeliveryPaymentOption = { value: "CASH_ON_DELIVERY", label: "Cash on Delivery", logo: "/images/cash-logo.png" } as const;
 
 const serviceTypes = [
   { value: "INSHOP", label: "Dine-in", logo: "/images/instore-logo.png" },
@@ -53,8 +52,6 @@ const serviceTypes = [
   { value: "FOODPANDA", label: "Foodpanda", logo: "/images/foodpanda-logo.png" },
   { value: "DELIVERY", label: "Delivery", icon: Bike }
 ] as const;
-
-const deliveryAreas = ["G-11", "G-10", "F-11", "G-12", "G-13", "F-10", "G-9"] as const;
 
 function getLocalDateInputValue(date = new Date()) {
   return getCurrentBusinessDateKey(date);
@@ -171,7 +168,6 @@ function formatPaymentMethod(value: string) {
 function getPaymentOptions(serviceType: ServiceTypeSelection) {
   if (!serviceType) return [];
   if (serviceType === "FOODPANDA") return [foodpandaPaymentOption];
-  if (serviceType === "DELIVERY") return [cashOnDeliveryPaymentOption];
   return basePaymentOptions;
 }
 
@@ -377,6 +373,7 @@ export function PosTerminal() {
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [products, setProducts] = useState<PosCatalogProduct[]>([]);
   const [promotion, setPromotion] = useState<PosPromotion | null>(null);
+  const [deliveryConfig, setDeliveryConfig] = useState<DeliveryConfig | null>(null);
   const [sessionUser, setSessionUser] = useState<Awaited<ReturnType<typeof fetchPosSession>>["user"] | null>(null);
   const [branchId, setBranchId] = useState("");
   const [categoryId, setCategoryId] = useState("ALL");
@@ -431,6 +428,8 @@ export function PosTerminal() {
     setCategories(data.categories.map((category) => ({ id: category.id, name: category.name })));
     setProducts(data.products);
     setPromotion(data.promotion ?? null);
+    const nextDeliveryConfig = await fetchPosDeliveryConfig();
+    setDeliveryConfig(nextDeliveryConfig);
     if (!branchId || nextBranchId) {
       setBranchId(data.branchId ?? data.branches[0]?.id ?? "");
     }
@@ -507,11 +506,8 @@ export function PosTerminal() {
   const discountAmount = promotionApplied ? Math.min(subtotal, promotionDiscountAmount) : manualDiscountAmount;
   const deliveryFee = useMemo(() => {
     if (serviceType !== "DELIVERY") return 0;
-    if (deliveryDetails.sector === "G-11") return 70;
-    if (["G-10", "F-11"].includes(deliveryDetails.sector)) return 150;
-    if (["G-13", "G-9"].includes(deliveryDetails.sector)) return 200;
-    return deliveryDetails.sector ? 180 : 0;
-  }, [deliveryDetails.sector, serviceType]);
+    return deliveryConfig?.sectors.find((sector) => sector.name === deliveryDetails.sector)?.deliveryFee ?? 0;
+  }, [deliveryConfig, deliveryDetails.sector, serviceType]);
   const total = useMemo(() => Math.max(0, subtotal - discountAmount + deliveryFee), [deliveryFee, discountAmount, subtotal]);
   const payableTotal = total;
   const editingCompletedOrder = Boolean(editingOrderId);
@@ -532,11 +528,6 @@ export function PosTerminal() {
   useEffect(() => {
     if (serviceType === "FOODPANDA") {
       setPaymentMethod("FOODPANDA_PAYOUT");
-      return;
-    }
-
-    if (serviceType === "DELIVERY") {
-      setPaymentMethod("CASH_ON_DELIVERY");
       return;
     }
 
@@ -1378,8 +1369,8 @@ export function PosTerminal() {
 
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>City</span><select value="Islamabad" disabled className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-pocket-cream px-3 text-sm"><option>Islamabad</option></select></label>
-              <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sector</span><select value={deliveryDetails.sector} onChange={(event) => setDeliveryDetails((current) => ({ ...current, sector: event.target.value, subsector: "" }))} className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Choose sector</option>{deliveryAreas.map((sector) => <option key={sector} value={sector}>{sector}</option>)}</select></label>
-              <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sub-sector</span><select value={deliveryDetails.subsector} onChange={(event) => setDeliveryDetails((current) => ({ ...current, subsector: event.target.value }))} disabled={!deliveryDetails.sector} className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Choose sub-sector</option>{deliveryDetails.sector ? [1, 2, 3, 4].map((number) => { const subsector = `${deliveryDetails.sector}/${number}`; return <option key={subsector} value={subsector}>{subsector}</option>; }) : null}</select></label>
+              <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sector</span><select value={deliveryDetails.sector} onChange={(event) => setDeliveryDetails((current) => ({ ...current, sector: event.target.value, subsector: "" }))} className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Choose sector</option>{(deliveryConfig?.sectors ?? []).map((sector) => <option key={sector.id} value={sector.name}>{sector.name}</option>)}</select></label>
+              <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sub-sector</span><select value={deliveryDetails.subsector} onChange={(event) => setDeliveryDetails((current) => ({ ...current, subsector: event.target.value }))} disabled={!deliveryDetails.sector} className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Choose sub-sector</option>{deliveryConfig?.sectors.find((sector) => sector.name === deliveryDetails.sector)?.subsectors.map((subsector) => <option key={subsector} value={subsector}>{subsector}</option>)}</select></label>
               <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Customer full name" />
               <Input type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Customer WhatsApp number (03xx xxxxxxx)" />
               <div className="md:col-span-2"><Input value={deliveryDetails.addressLine1} onChange={(event) => setDeliveryDetails((current) => ({ ...current, addressLine1: event.target.value }))} placeholder="House / building, street and area" /></div>
