@@ -19,6 +19,12 @@ const POS_CATEGORY_PRIORITY = new Map([
   ["add-ons", 10]
 ]);
 
+export function isPosAuthError(error: unknown) {
+  if (!error || typeof error !== "object" || !("status" in error)) return false;
+  const status = Number((error as { status?: unknown }).status);
+  return status === 401 || status === 403;
+}
+
 function getPosCategoryRank(slug?: string) {
   return POS_CATEGORY_PRIORITY.get(slug ?? "") ?? 1_000;
 }
