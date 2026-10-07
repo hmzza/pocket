@@ -14,6 +14,7 @@ import {
   fetchPosDeliveryRiders,
   fetchPosOrders,
   fetchPosSession,
+  isPosAuthError,
   updatePosOrderPaymentStatus,
   updatePosOrderStatus
 } from "@/lib/pos-client";
@@ -583,7 +584,9 @@ function PosOrderQueueView({
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load orders.");
-          router.replace("/pos/login");
+          setLoading(false);
+          setReady(true);
+          if (isPosAuthError(loadError)) router.replace("/pos/login");
         }
       }
     }
@@ -857,6 +860,16 @@ function PosOrderQueueView({
 
   function openDetails(order: AdminOrder) {
     window.open(`/pos/receipt/${encodeURIComponent(order.id)}`, "_blank", "noopener,noreferrer");
+  }
+
+  if ((!ready || loading) && error) {
+    return (
+      <div className={embedded ? "h-full rounded-3xl border border-red-400/20 bg-red-950/30 p-4 text-sm text-red-100" : "min-h-[50vh] rounded-3xl border border-red-400/20 bg-red-950/30 p-6 text-sm text-red-100"}>
+        <p className="font-semibold">Queue unavailable</p>
+        <p className="mt-1 whitespace-pre-line">{error}</p>
+        <Button type="button" className="mt-4" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
   }
 
   if (!ready || loading) {

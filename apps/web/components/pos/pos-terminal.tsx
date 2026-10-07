@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PosOrderQueue } from "@/components/pos/order-queue";
 import { PosToolbar } from "@/components/pos/pos-toolbar";
 import { DesktopPrinterSettings } from "@/components/pos/desktop-printer-settings";
-import { createPosOrder, fetchPosCatalog, fetchPosDeliveryConfig, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
+import { createPosOrder, fetchPosCatalog, fetchPosDeliveryConfig, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, isPosAuthError, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, DeliveryConfig, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 import { formatAddOnNames, formatBundleSummary, formatItemDetailLines } from "@/lib/item-detail-display";
@@ -460,7 +460,7 @@ export function PosTerminal() {
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load POS terminal.");
-          router.replace("/pos/login");
+          if (isPosAuthError(loadError)) router.replace("/pos/login");
         }
       } finally {
         if (!cancelled) {
@@ -973,6 +973,21 @@ export function PosTerminal() {
 
     const message = buildWhatsAppReceiptMessage(lastReceiptOrder);
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+  }
+
+  if ((!ready || loading) && error) {
+    return (
+      <div className="pos-terminal grid min-h-screen place-items-center bg-[#111827] px-4 py-6 text-white">
+        <Card className="w-full max-w-xl border-red-400/20 bg-white/10 p-6 text-white">
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">POS unavailable</p>
+          <p className="mt-3 text-sm leading-6 text-red-100">{error}</p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Button type="button" onClick={() => window.location.reload()}>Retry</Button>
+            <Button type="button" variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={() => router.replace("/pos/login")}>Back to login</Button>
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   if (!ready || loading) {

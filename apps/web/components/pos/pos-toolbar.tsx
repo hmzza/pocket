@@ -5,7 +5,8 @@ import { LayoutGrid, ListChecks, LogOut } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { Button } from "@/components/ui/button";
-import { fetchPosSession, logoutPosSession } from "@/lib/pos-client";
+import { Card } from "@/components/ui/card";
+import { fetchPosSession, isPosAuthError, logoutPosSession } from "@/lib/pos-client";
 
 type PosUser = Awaited<ReturnType<typeof fetchPosSession>>["user"];
 
@@ -125,6 +126,7 @@ export function PosToolbar({
 
 export function PosWorkspaceShell({ children, active }: { children: React.ReactNode; active: "pos" | "queue" }) {
   const [user, setUser] = useState<PosUser | null>(null);
+  const [error, setError] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -137,7 +139,13 @@ export function PosWorkspaceShell({ children, active }: { children: React.ReactN
         }
         if (!cancelled) setUser(session.user);
       })
-      .catch(() => router.replace("/pos/login"));
+      .catch((sessionError) => {
+        if (isPosAuthError(sessionError)) {
+          router.replace("/pos/login");
+          return;
+        }
+        setError(sessionError instanceof Error ? sessionError.message : "Unable to load the POS session.");
+      });
 
     return () => {
       cancelled = true;
@@ -145,6 +153,17 @@ export function PosWorkspaceShell({ children, active }: { children: React.ReactN
   }, [router]);
 
   if (!user) {
+    if (error) {
+      return (
+        <div className="pos-terminal grid min-h-screen place-items-center bg-[#111827] px-4 py-6 text-white">
+          <Card className="w-full max-w-xl border-red-400/20 bg-white/10 p-6 text-white">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">POS unavailable</p>
+            <p className="mt-3 text-sm leading-6 text-red-100">{error}</p>
+            <Button type="button" className="mt-5" onClick={() => window.location.reload()}>Retry</Button>
+          </Card>
+        </div>
+      );
+    }
     return <div className="pos-terminal min-h-screen bg-[#111827] px-4 py-5 text-white">Loading POS...</div>;
   }
 
