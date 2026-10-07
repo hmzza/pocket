@@ -108,15 +108,16 @@ export function usePosDeliveryAlert({ enabled, hasPendingDelivery, onDeliveryEve
       await context.resume();
       const running = context.state === "running";
       setAudioRunning(running);
+      if (running && hasPendingDelivery) startAlarm();
       return running;
     } catch {
       setAudioRunning(false);
       return false;
     }
-  }, []);
+  }, [hasPendingDelivery, startAlarm]);
 
   const toggleSound = useCallback(() => {
-    if (alertsEnabled && !audioRunning) {
+    if (alertsEnabled && (!audioRunning || audioContextRef.current?.state !== "running")) {
       void activateSound();
       return;
     }
@@ -134,10 +135,11 @@ export function usePosDeliveryAlert({ enabled, hasPendingDelivery, onDeliveryEve
   }, [activateSound, alertsEnabled, audioRunning, stopAlarm]);
 
   useEffect(() => {
-    if (!alertsEnabled || audioRunning) return;
+    if (!alertsEnabled) return;
 
     const unlock = () => {
-      void activateSound();
+      const context = audioContextRef.current;
+      if (!context || context.state !== "running") void activateSound();
     };
 
     document.addEventListener("pointerdown", unlock);
@@ -146,7 +148,26 @@ export function usePosDeliveryAlert({ enabled, hasPendingDelivery, onDeliveryEve
       document.removeEventListener("pointerdown", unlock);
       document.removeEventListener("keydown", unlock);
     };
-  }, [activateSound, alertsEnabled, audioRunning]);
+  }, [activateSound, alertsEnabled]);
+
+  useEffect(() => {
+    if (!enabled || !alertsEnabled) return;
+
+    const resumeIfSuspended = () => {
+      const context = audioContextRef.current;
+      if (context && context.state !== "running") void activateSound();
+    };
+
+    window.addEventListener("focus", resumeIfSuspended);
+    window.addEventListener("pageshow", resumeIfSuspended);
+    document.addEventListener("visibilitychange", resumeIfSuspended);
+
+    return () => {
+      window.removeEventListener("focus", resumeIfSuspended);
+      window.removeEventListener("pageshow", resumeIfSuspended);
+      document.removeEventListener("visibilitychange", resumeIfSuspended);
+    };
+  }, [activateSound, alertsEnabled, enabled]);
 
   useEffect(() => {
     if (!enabled || !alertsEnabled || !audioRunning || !hasPendingDelivery) {
@@ -164,6 +185,8 @@ export function usePosDeliveryAlert({ enabled, hasPendingDelivery, onDeliveryEve
     const events = new EventSource(`/api/ops/delivery-events${query}`, { withCredentials: true });
     const handleDeliveryEvent = () => onDeliveryEventRef.current();
     events.addEventListener("delivery-order", handleDeliveryEvent);
+    events.onopen = handleDeliveryEvent;
+    events.onerror = handleDeliveryEvent;
 
     return () => {
       events.removeEventListener("delivery-order", handleDeliveryEvent);

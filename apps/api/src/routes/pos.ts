@@ -1009,6 +1009,16 @@ router.post("/checkout", async (req, res, next) => {
       console.error("Failed to write POS checkout audit log", auditError);
     });
 
+    if (order.serviceType === ServiceType.DELIVERY) {
+      publishDeliveryOrderEvent({
+        branchId: order.branchId,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        channel: order.channel,
+        kind: "NEW"
+      });
+    }
+
     return res.status(201).json({
       order: formatReceiptResponse(order)
     });

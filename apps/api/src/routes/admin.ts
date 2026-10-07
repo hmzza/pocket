@@ -23,7 +23,7 @@ import {
   setDeliveryManualState,
   setDeliveryTimings
 } from "../lib/delivery-config.js";
-import { publishDeliveryOrderEvent, subscribeToDeliveryOrderEvents } from "../lib/delivery-events.js";
+import { publishDeliveryOrderEvent, streamDeliveryOrderEvents } from "../lib/delivery-events.js";
 import {
   REPORT_TIME_ZONE,
   businessDayRange,
@@ -6198,28 +6198,7 @@ router.patch("/orders/:id/dispatch", async (req, res, next) => {
 router.get("/delivery-events", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
-
-    res.status(200);
-    res.set({
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no"
-    });
-    res.flushHeaders();
-    res.write(`event: ready\ndata: ${JSON.stringify({ branchId: branchContext.branchId })}\n\n`);
-
-    const unsubscribe = subscribeToDeliveryOrderEvents((event) => {
-      if (event.branchId !== branchContext.branchId) return;
-      res.write(`event: delivery-order\ndata: ${JSON.stringify(event)}\n\n`);
-    });
-    const heartbeat = setInterval(() => res.write(": keepalive\n\n"), 25_000);
-
-    req.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-      res.end();
-    });
+    streamDeliveryOrderEvents(req, res, branchContext.branchId);
   } catch (error) {
     return next(error);
   }

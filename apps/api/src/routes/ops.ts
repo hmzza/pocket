@@ -9,11 +9,20 @@ import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
-import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
+import { publishDeliveryOrderEvent, streamDeliveryOrderEvents } from "../lib/delivery-events.js";
 
 const router = Router();
 
 router.use(authenticate, authorize(RoleCode.SUPER_ADMIN, RoleCode.POS_STAFF), requirePermission("POS"));
+
+router.get("/delivery-events", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    streamDeliveryOrderEvents(req, res, branchContext.branchId);
+  } catch (error) {
+    return next(error);
+  }
+});
 
 const querySchema = z.object({
   scope: z.enum(["active", "watch_later", "delivered", "unpaid", "all"]).default("active"),

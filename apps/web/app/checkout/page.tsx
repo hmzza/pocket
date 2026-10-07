@@ -18,6 +18,30 @@ import { formatSelectionLines } from "@/lib/item-detail-display";
 
 const API_URL = typeof window === "undefined" ? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000" : "";
 
+type CheckoutField = "deliverySector" | "deliverySubsector" | "customerName" | "customerPhone" | "addressLine1" | "addressNotes";
+
+function friendlyValidationMessage(message: string) {
+  return message
+    .replace(/^String must contain at least (\d+) character\(s\)$/i, (_match, count: string) => `Please enter at least ${count} characters.`)
+    .replace(/^String must contain at most (\d+) character\(s\)$/i, (_match, count: string) => `Please keep this to ${count} characters or fewer.`)
+    .replace(/^Required$/i, "This field is required.");
+}
+
+function checkoutFieldForPath(path: Array<string | number>) {
+  const value = path.join(".");
+  if (value === "name" || value === "customerName") return "customerName" as const;
+  if (value === "phone" || value === "customerPhone") return "customerPhone" as const;
+  if (value.includes("sector") && !value.includes("subsector")) return "deliverySector" as const;
+  if (value.includes("subsector")) return "deliverySubsector" as const;
+  if (value === "address.addressLine1" || value === "addressLine1") return "addressLine1" as const;
+  if (value === "address.instructions" || value === "addressNotes") return "addressNotes" as const;
+  return undefined;
+}
+
+function fieldClasses(hasError: boolean) {
+  return hasError ? "border-red-400 focus-visible:ring-red-300" : "";
+}
+
 export default function CheckoutPage() {
   const { cart, getCartProducts, clearCart } = useStore();
   const { selectedBranch } = usePublicBranch();
@@ -27,6 +51,7 @@ export default function CheckoutPage() {
   const [confirmedTotal, setConfirmedTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<CheckoutField, string>>>({});
   const [couponCode, setCouponCode] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
   const [couponLoading, setCouponLoading] = useState(false);
@@ -36,10 +61,8 @@ export default function CheckoutPage() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [addressLine1, setAddressLine1] = useState("");
   const [addressNotes, setAddressNotes] = useState("");
-  const [deliveryInstructions, setDeliveryInstructions] = useState("");
 
   const cartProducts = getCartProducts(products);
-  const missingItems = Math.max(0, cart.length - cartProducts.length);
   const subtotal = useMemo(() => cartProducts.reduce((sum, item) => sum + item.price * item.quantity, 0), [cartProducts]);
   const selectedArea = deliveryAreas.find((area) => area.name === deliverySector);
   const deliverySubsectors = selectedArea?.subsectors ?? [];
@@ -100,12 +123,17 @@ export default function CheckoutPage() {
     };
   }, [selectedBranch?.slug, subtotal]);
 
+  function clearFieldError(field: CheckoutField) {
+    setFieldErrors((current) => current[field] ? { ...current, [field]: undefined } : current);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setFieldErrors({});
 
     if (!selectedArea) {
-      setError("Choose your delivery sector first. We only deliver to the sectors shown above.");
+      setFieldErrors({ deliverySector: "Choose your delivery sector." });
       return;
     }
     if (!selectedBranch) {
@@ -113,7 +141,7 @@ export default function CheckoutPage() {
       return;
     }
     if (!deliverySubsector) {
-      setError("Choose your sub-sector before placing the order.");
+      setFieldErrors({ deliverySubsector: "Choose your sub-sector." });
       return;
     }
     if (catalogError) {
@@ -155,7 +183,6 @@ export default function CheckoutPage() {
           deliverySector: selectedArea.name,
           deliverySubsector,
           couponCode: activeCouponCode,
-          deliveryInstructions: deliveryInstructions.trim() || undefined,
           address: {
             label: "Delivery",
             addressLine1: addressLine1.trim(),
@@ -173,15 +200,33 @@ export default function CheckoutPage() {
 
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        const fieldErrors = data?.issues?.fieldErrors ? Object.values(data.issues.fieldErrors).flat().filter(Boolean).join(" ") : "";
-        const validationDetails = Array.isArray(data?.details) ? data.details.filter(Boolean).join(" ") : "";
-        const validationIssues = Array.isArray(data?.issues)
-          ? data.issues.map((issue: { path?: Array<string | number>; message?: string }) => {
-              const path = issue.path?.length ? `${issue.path.join(".")}: ` : "";
-              return issue.message ? `${path}${issue.message}` : "";
-            }).filter(Boolean).join(" ")
-          : "";
-        throw new Error(validationDetails || validationIssues || fieldErrors || data?.message || "Unable to place your delivery order.");
+        const nextFieldErrors: Partial<Record<CheckoutField, string>> = {};
+        const generalMessages: string[] = [];
+        const issues = Array.isArray(data?.issues) ? data.issues : [];
+
+        for (const issue of issues as Array<{ path?: Array<string | number>; message?: string }>) {
+          if (!issue.message) continue;
+          const message = friendlyValidationMessage(issue.message);
+          const field = checkoutFieldForPath(issue.path ?? []);
+          if (field) nextFieldErrors[field] = message;
+          else generalMessages.push(message);
+        }
+
+        if (data?.issues?.fieldErrors && typeof data.issues.fieldErrors === "object") {
+          for (const [path, value] of Object.entries(data.issues.fieldErrors as Record<string, unknown>)) {
+            const messages = Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+            const field = checkoutFieldForPath(path.split("."));
+            if (field && messages[0]) nextFieldErrors[field] = friendlyValidationMessage(messages[0]);
+            else generalMessages.push(...messages.map(friendlyValidationMessage));
+          }
+        }
+
+        setFieldErrors(nextFieldErrors);
+        const validationDetails = !issues.length && Array.isArray(data?.details)
+          ? data.details.filter((entry: unknown): entry is string => typeof entry === "string").map(friendlyValidationMessage)
+          : [];
+        setError([...generalMessages, ...validationDetails, ...(generalMessages.length || Object.keys(nextFieldErrors).length ? [] : [data?.message ?? "Unable to place your delivery order."])].join(" "));
+        return;
       }
 
       setConfirmedOrderNumber(data.order.orderNumber);
@@ -219,7 +264,6 @@ export default function CheckoutPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Delivery checkout</p>
             <h1 className="text-4xl font-black text-pocket-navy">A few details, then we'll take it from here.</h1>
           </div>
-          {missingItems ? <Card className="border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">Some saved items are no longer on the menu. Please review your cart before placing the order.</Card> : null}
           {catalogError ? <Card className="border-red-300 bg-red-50 p-4 text-sm text-red-700">Live catalog is unavailable right now. Checkout is blocked until it reconnects.</Card> : null}
           {catalogLoading && !cartProducts.length && cart.length ? <Card className="p-4 text-sm text-pocket-navy/70">Refreshing your cart...</Card> : null}
           {deliveryMessage && !deliveryEnabled ? <Card className="border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{deliveryMessage}</Card> : null}
@@ -230,62 +274,26 @@ export default function CheckoutPage() {
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <label className="space-y-1 text-sm font-semibold text-pocket-navy">
                 <span>Sector</span>
-                <select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm" value={deliverySector} onChange={(event) => { setDeliverySector(event.target.value); setDeliverySubsector(""); setError(""); }} required>
+                <select className={`flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm ${fieldClasses(Boolean(fieldErrors.deliverySector))}`} value={deliverySector} onChange={(event) => { setDeliverySector(event.target.value); setDeliverySubsector(""); setError(""); clearFieldError("deliverySector"); clearFieldError("deliverySubsector"); }} required>
                   <option value="">Choose your sector</option>
-                  {deliveryAreas.map((area) => <option key={area.id} value={area.name}>{area.name} - {formatCurrency(area.deliveryFee)}</option>)}
+                  {deliveryAreas.map((area) => <option key={area.id} value={area.name}>{area.name}</option>)}
                 </select>
+                {fieldErrors.deliverySector ? <p className="text-xs font-medium text-red-600">{fieldErrors.deliverySector}</p> : null}
               </label>
               <label className="space-y-1 text-sm font-semibold text-pocket-navy">
                 <span>Sub-sector</span>
-                <select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm disabled:bg-pocket-cream" value={deliverySubsector} onChange={(event) => setDeliverySubsector(event.target.value)} disabled={!selectedArea} required>
+                <select className={`flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm disabled:bg-pocket-cream ${fieldClasses(Boolean(fieldErrors.deliverySubsector))}`} value={deliverySubsector} onChange={(event) => { setDeliverySubsector(event.target.value); clearFieldError("deliverySubsector"); }} disabled={!selectedArea} required>
                   <option value="">{selectedArea ? `Choose ${selectedArea.name} sub-sector` : "Choose a sector first"}</option>
                   {deliverySubsectors.map((subsector) => <option key={subsector} value={subsector}>{subsector}</option>)}
                 </select>
+                {fieldErrors.deliverySubsector ? <p className="text-xs font-medium text-red-600">{fieldErrors.deliverySubsector}</p> : null}
               </label>
-              <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Full name" required />
-              <label className="relative"><MessageCircle className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-emerald-600" /><Input className="pl-9" type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="WhatsApp number (03xx xxxxxxx)" required /></label>
-              <div className="md:col-span-2"><Input value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} placeholder="House/building, floor, street and area" required /></div>
-              <div className="md:col-span-2"><Textarea value={addressNotes} onChange={(event) => setAddressNotes(event.target.value)} placeholder="Helpful location instructions (optional)" /></div>
-              <div className="md:col-span-2"><Textarea value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value)} placeholder="Anything we should know about this order? (optional)" /></div>
+              <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Full name</span><Input className={fieldClasses(Boolean(fieldErrors.customerName))} value={customerName} onChange={(event) => { setCustomerName(event.target.value); clearFieldError("customerName"); }} placeholder="Full name" required />{fieldErrors.customerName ? <p className="text-xs font-medium text-red-600">{fieldErrors.customerName}</p> : null}</label>
+              <label className="relative space-y-1 text-sm font-semibold text-pocket-navy"><span>WhatsApp number</span><MessageCircle className="pointer-events-none absolute left-3 top-9 h-4 w-4 text-emerald-600" /><Input className={`pl-9 ${fieldClasses(Boolean(fieldErrors.customerPhone))}`} type="tel" value={customerPhone} onChange={(event) => { setCustomerPhone(event.target.value); clearFieldError("customerPhone"); }} placeholder="WhatsApp number (03xx xxxxxxx)" required />{fieldErrors.customerPhone ? <p className="text-xs font-medium text-red-600">{fieldErrors.customerPhone}</p> : null}</label>
+              <label className="md:col-span-2 space-y-1 text-sm font-semibold text-pocket-navy"><span>Address</span><Input className={fieldClasses(Boolean(fieldErrors.addressLine1))} value={addressLine1} onChange={(event) => { setAddressLine1(event.target.value); clearFieldError("addressLine1"); }} placeholder="House/building, floor, street and area" required />{fieldErrors.addressLine1 ? <p className="text-xs font-medium text-red-600">{fieldErrors.addressLine1}</p> : null}</label>
+              <label className="md:col-span-2 space-y-1 text-sm font-semibold text-pocket-navy"><span>Location information</span><Textarea className={fieldClasses(Boolean(fieldErrors.addressNotes))} value={addressNotes} onChange={(event) => { setAddressNotes(event.target.value); clearFieldError("addressNotes"); }} placeholder="Any additional information we should know about the order or your location." />{fieldErrors.addressNotes ? <p className="text-xs font-medium text-red-600">{fieldErrors.addressNotes}</p> : null}</label>
             </div>
           </Card>
-          {/* legacy two-step markup removed */}{/*
-            <Card className="p-5">
-              <div className="flex items-start gap-3"><MapPin className="mt-1 h-5 w-5 text-pocket-orange" /><div><p className="text-lg font-black text-pocket-navy">Islamabad delivery only</p><p className="mt-1 text-sm text-pocket-navy/60">Pocket currently delivers only within Islamabad, and only to the sectors listed below.</p></div></div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                {deliveryAreas.map((area) => (
-                  <label key={area.id} className="flex cursor-pointer items-center rounded-xl border border-pocket-navy/10 px-4 py-3 hover:border-pocket-orange/50">
-                    <input type="radio" name="delivery-sector" value={area.name} checked={false} onChange={() => selectDeliverySector(area.name)} required />
-                    <span className="ml-3 font-bold text-pocket-navy">{area.name} · {formatCurrency(area.deliveryFee)}</span>
-                  </label>
-                ))}
-              </div>
-            </Card>
-          ) : (
-            <>
-              {missingItems ? <Card className="border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">Some saved items are no longer on the menu. Please review your cart before placing the order.</Card> : null}
-              {catalogError ? <Card className="border-red-300 bg-red-50 p-4 text-sm text-red-700">Live catalog is unavailable right now. Checkout is blocked until it reconnects.</Card> : null}
-              {catalogLoading && !cartProducts.length && cart.length ? <Card className="p-4 text-sm text-pocket-navy/70">Refreshing your cart...</Card> : null}
-
-              <Card id="delivery-details" className="scroll-mt-28 p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-lg font-black text-pocket-navy">Delivery details</p><p className="mt-1 text-sm text-pocket-navy/60">Delivery is set to Islamabad · {selectedArea.name}. Choose the sub-sector and use the WhatsApp number Pocket should contact.</p></div><Button type="button" variant="outline" onClick={() => { setDeliverySector(""); setDeliverySubsector(""); }}>Change sector</Button></div>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>City</span><select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-pocket-cream px-3 text-sm text-pocket-navy" value="Islamabad" disabled><option>Islamabad</option></select></label>
-                  <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sub-sector</span><select className="flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm" value={deliverySubsector} onChange={(event) => setDeliverySubsector(event.target.value)} required><option value="">Choose {selectedArea.name} sub-sector</option>{deliverySubsectors.map((subsector) => <option key={subsector} value={subsector}>{subsector}</option>)}</select></label>
-                  <Input value={customerName} onChange={(event) => setCustomerName(event.target.value)} placeholder="Full name" required />
-                  <label className="relative"><MessageCircle className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-emerald-600" /><Input className="pl-9" type="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="WhatsApp number (03xx xxxxxxx)" required /></label>
-                  <div className="md:col-span-2"><Input value={addressLine1} onChange={(event) => setAddressLine1(event.target.value)} placeholder="House/building, floor, street and area" required /></div>
-                  <div className="md:col-span-2"><Textarea value={addressNotes} onChange={(event) => setAddressNotes(event.target.value)} placeholder="Helpful location instructions (optional)" /></div>
-                </div>
-              </Card>
-
-              <Card className="p-5">
-                <p className="text-lg font-black text-pocket-navy">Payment</p>
-                <div className="mt-4 rounded-xl border border-pocket-orange/20 bg-pocket-orange/5 px-4 py-3 text-sm font-semibold text-pocket-navy">Cash on Delivery</div>
-                <Textarea className="mt-4" value={deliveryInstructions} onChange={(event) => setDeliveryInstructions(event.target.value)} placeholder="Anything we should know about this order? (optional)" />
-              </Card>
-            </>
-          )}*/}
         </div>
 
         <Card className="h-fit p-5 lg:sticky lg:top-24">
