@@ -1,8 +1,8 @@
 "use client";
 
 import { AdminShell } from "@/components/admin/admin-shell";
-import { DeliveryManagement } from "@/components/admin/delivery-management";
+import { DeliveryConfiguration } from "@/components/admin/delivery-configuration";
 
 export default function AdminDeliveryPage() {
-  return <AdminShell title="Delivery" description="Direct delivery orders from Pocket G-11, with fast accept and dispatch controls."><DeliveryManagement /></AdminShell>;
+  return <AdminShell title="Delivery" description="Manage website delivery availability, delivery sectors, and rider fee reports."><DeliveryConfiguration /></AdminShell>;
 }

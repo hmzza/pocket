@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { useDeliveryAvailability } from "@/components/site/use-delivery-availability";
 
 export function DeliveryUnavailableNotice({ initialDeliveryEnabled }: { initialDeliveryEnabled: boolean }) {
-  const { deliveryEnabled } = useDeliveryAvailability(initialDeliveryEnabled);
+  const { deliveryEnabled } = useDeliveryAvailability(undefined, initialDeliveryEnabled);
   const [dismissed, setDismissed] = useState(false);
 
   if (deliveryEnabled || dismissed) return null;

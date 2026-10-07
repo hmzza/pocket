@@ -4,6 +4,8 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { API_URL } from "@/lib/catalog";
 import { products as legacyProducts } from "@/lib/mock-data";
 import type { AddOnOption, CartProduct, Product } from "@/lib/types";
+import { usePublicBranch } from "@/components/site/public-branch-provider";
+import { useDeliveryAvailability } from "@/components/site/use-delivery-availability";
 
 type CartEntry = {
   id: string;
@@ -25,6 +27,8 @@ type StoreContextValue = {
   favorites: string[];
   recentlyViewed: string[];
   addToCart: (input: AddToCartInput) => boolean;
+  notifyCart: (message: string) => void;
+  deliveryEnabled: boolean;
   updateQuantity: (cartItemId: string, quantity: number) => void;
   updateCartItem: (cartItemId: string, input: Pick<AddToCartInput, "selectedAddOnIds" | "selectedAddOnQuantities">) => void;
   clearCart: () => void;
@@ -112,6 +116,8 @@ function mergeCartEntries(entries: CartEntry[]) {
 }
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const { selectedBranch } = usePublicBranch();
+  const { deliveryEnabled } = useDeliveryAvailability(selectedBranch?.slug);
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
@@ -214,7 +220,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       cart,
       favorites,
       recentlyViewed,
+      deliveryEnabled,
+      notifyCart: (message) => setCartNotice(message),
       addToCart: (input) => {
+        if (!deliveryEnabled) {
+          setCartNotice("Deliveries are closed at the moment.");
+          return false;
+        }
         const selectedAddOnIds = normalizeAddOnIds(input.selectedAddOnIds);
         const selectedAddOnQuantities = normalizeAddOnQuantities(input.selectedAddOnQuantities);
         setCart((current) => {
@@ -305,7 +317,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           })
           .filter(Boolean) as CartProduct[]
     }),
-    [cart, favorites, recentlyViewed]
+    [cart, deliveryEnabled, favorites, recentlyViewed]
   );
 
   useEffect(() => {

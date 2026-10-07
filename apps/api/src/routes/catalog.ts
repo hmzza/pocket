@@ -9,7 +9,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { verifyReceiptToken } from "../lib/receipt-token.js";
-import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
+import { DELIVERY_CITY, findActiveDeliverySector, getDeliveryConfigSnapshot, isDeliverySubsector } from "../lib/delivery-config.js";
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 import rateLimit from "express-rate-limit";
 import { publicBranchPricingInclude, publicProductWhere, PUBLIC_HIDDEN_CATEGORY_SLUGS, resolvePublicBranch } from "../lib/public-catalog.js";
@@ -37,18 +37,8 @@ import {
 
 const router = Router();
 const PUBLIC_SETTING_KEYS = new Set(["store.contact"]);
-const DELIVERY_AVAILABILITY_SETTING_KEY = "store.delivery";
 const reviewSubmissionCooldowns = new Map<string, number>();
 const inFlightCheckoutKeys = new Set<string>();
-
-function isOnlineDeliveryEnabled(value: unknown) {
-  return !(
-    value &&
-    typeof value === "object" &&
-    "enabled" in value &&
-    (value as { enabled?: unknown }).enabled === false
-  );
-}
 
 const publicCheckoutLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -130,7 +120,7 @@ router.get("/content/home", async (req, res) => {
   const branchId = branch.id;
   const boxOfSix = await syncBoxOfSixOptions(prisma);
   const availableBoxChoiceProductIds = await getAvailableDealChoiceProductIds(prisma, branchId);
-  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, contact, deliveryAvailability, customerReviews] = await Promise.all([
+  const [hero, whyPocket, testimonials, slider, featured, bestSellers, categories, contact, customerReviews] = await Promise.all([
     prisma.cmsContent.findUnique({ where: { key: "homepage.hero" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.why-pocket" } }),
     prisma.cmsContent.findUnique({ where: { key: "homepage.testimonials" } }),
@@ -180,7 +170,6 @@ router.get("/content/home", async (req, res) => {
       orderBy: { sortOrder: "asc" }
     }),
     prisma.setting.findUnique({ where: { key: "store.contact" } }),
-    prisma.setting.findUnique({ where: { key: DELIVERY_AVAILABILITY_SETTING_KEY } }),
     prisma.customerReview.findMany({
       where: { isApproved: true },
       orderBy: { createdAt: "desc" },
@@ -189,6 +178,7 @@ router.get("/content/home", async (req, res) => {
     })
   ]);
 
+  const deliveryConfig = await getDeliveryConfigSnapshot(branchId);
   res.setHeader("Cache-Control", "no-store");
   return res.json({
     hero,
@@ -208,16 +198,26 @@ router.get("/content/home", async (req, res) => {
     categories,
     branch,
     contact,
-    deliveryEnabled: isOnlineDeliveryEnabled(deliveryAvailability?.value),
+    deliveryEnabled: deliveryConfig.deliveryEnabled,
+    deliveryConfig: {
+      ...deliveryConfig,
+      sectors: deliveryConfig.sectors.filter((sector) => sector.isActive)
+    },
     customerReviews
   });
 });
 
-router.get("/storefront/status", async (_req, res, next) => {
+router.get("/storefront/status", async (req, res, next) => {
   try {
-    const deliveryAvailability = await prisma.setting.findUnique({ where: { key: DELIVERY_AVAILABILITY_SETTING_KEY } });
+    const requestedBranchSlug = typeof req.query.branchSlug === "string" ? req.query.branchSlug : undefined;
+    const branch = await resolvePublicBranch(requestedBranchSlug);
+    if (!branch) return res.status(404).json({ message: "The selected branch is unavailable." });
+    const deliveryConfig = await getDeliveryConfigSnapshot(branch.id);
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ deliveryEnabled: isOnlineDeliveryEnabled(deliveryAvailability?.value) });
+    return res.json({
+      ...deliveryConfig,
+      sectors: deliveryConfig.sectors.filter((sector) => sector.isActive)
+    });
   } catch (error) {
     return next(error);
   }
@@ -592,8 +592,8 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
         phone: z.string().min(8).max(24),
         branchSlug: z.string().min(1).max(100),
         paymentMethod: z.literal(PaymentMethod.CASH_ON_DELIVERY),
-        deliverySector: z.enum(DELIVERY_AREA_KEYS as [string, ...string[]]),
-        deliverySubsector: z.string().min(5).max(10),
+        deliverySector: z.string().trim().min(1).max(80),
+        deliverySubsector: z.string().trim().min(5).max(120),
         couponCode: z.string().trim().max(40).optional(),
         deliveryInstructions: z.string().max(240).optional(),
         address: z.object({
@@ -625,22 +625,21 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       return res.status(400).json({ message: "Enter a valid Pakistani WhatsApp number, for example 0300 1234567." });
     }
 
-    const deliveryArea = getDeliveryArea(payload.deliverySector);
-    if (!deliveryArea) {
-      return res.status(400).json({ message: "We currently deliver only to the listed sectors." });
-    }
-    if (!isDeliverySubsector(payload.deliverySector, payload.deliverySubsector)) {
-      return res.status(400).json({ message: "Choose a valid sub-sector for your selected delivery sector." });
-    }
-
     const branch = await resolvePublicBranch(payload.branchSlug);
     if (!branch) {
       return res.status(404).json({ message: "Pocket G-11 is unavailable right now." });
     }
 
-    const deliveryAvailability = await prisma.setting.findUnique({ where: { key: DELIVERY_AVAILABILITY_SETTING_KEY } });
-    if (!isOnlineDeliveryEnabled(deliveryAvailability?.value)) {
-      return res.status(503).json({ message: "Online deliveries are temporarily unavailable. Please check back shortly." });
+    const deliveryConfig = await getDeliveryConfigSnapshot(branch.id);
+    if (!deliveryConfig.deliveryEnabled) {
+      return res.status(503).json({ message: deliveryConfig.message ?? "Deliveries are closed at the moment." });
+    }
+    const deliverySector = await findActiveDeliverySector(branch.id, payload.deliverySector);
+    if (!deliverySector) {
+      return res.status(400).json({ message: "We currently deliver only to the listed sectors." });
+    }
+    if (!isDeliverySubsector(deliverySector.name, payload.deliverySubsector)) {
+      return res.status(400).json({ message: "Choose a valid sub-sector for your selected sector." });
     }
 
     const requestedProductIds = [...new Set(payload.items.map((item) => item.productId))];
@@ -830,7 +829,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
     }
 
     const taxAmount = 0;
-    const deliveryFee = deliveryArea.fee;
+    const deliveryFee = Number(deliverySector.deliveryFee);
     const totalAmount = Math.max(0, subtotal + taxAmount + deliveryFee - discountAmount);
 
     const role = await prisma.role.findUniqueOrThrow({ where: { code: RoleCode.CUSTOMER } });

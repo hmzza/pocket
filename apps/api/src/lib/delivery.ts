@@ -1,34 +1,6 @@
 import { OrderStatus, ServiceType } from "@prisma/client";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "./prisma.js";
 
-export const DELIVERY_AREAS = {
-  "G-11": { label: "G-11", fee: 70 },
-  "G-10": { label: "G-10", fee: 150 },
-  "F-11": { label: "F-11", fee: 150 },
-  "G-12": { label: "G-12", fee: 180 },
-  "G-13": { label: "G-13", fee: 200 },
-  "F-10": { label: "F-10", fee: 180 },
-  "G-9": { label: "G-9", fee: 200 }
-} as const;
-
-export type DeliveryArea = keyof typeof DELIVERY_AREAS;
-
-export const DELIVERY_AREA_KEYS = Object.keys(DELIVERY_AREAS) as DeliveryArea[];
-export const DELIVERY_CITY = "Islamabad";
-
-export function getDeliveryArea(sector: string) {
-  return DELIVERY_AREAS[sector as DeliveryArea] ?? null;
-}
-
-export function getDeliverySubsectors(sector: string) {
-  if (!getDeliveryArea(sector)) return [];
-  return [1, 2, 3, 4].map((number) => `${sector}/${number}`);
-}
-
-export function isDeliverySubsector(sector: string, subsector: string) {
-  return getDeliverySubsectors(sector).includes(subsector);
-}
-
 export function formatDeliveryAddress(order: {
   customerName: string | null;
   customerPhone: string | null;

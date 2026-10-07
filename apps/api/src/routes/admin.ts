@@ -17,6 +17,12 @@ import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchConte
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
 import { readIndependencePromotion, readPromotionStats, saveIndependencePromotion } from "../lib/promotions.js";
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
+import {
+  getDeliveryConfigSnapshot,
+  ensureDeliveryConfiguration,
+  setDeliveryManualState,
+  setDeliveryTimings
+} from "../lib/delivery-config.js";
 import { publishDeliveryOrderEvent, subscribeToDeliveryOrderEvents } from "../lib/delivery-events.js";
 import {
   REPORT_TIME_ZONE,
@@ -6219,6 +6225,120 @@ router.get("/delivery-events", async (req, res, next) => {
   }
 });
 
+router.get("/delivery/config", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    return res.json(await getDeliveryConfigSnapshot(branchContext.branchId, { includeInactive: true }));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/delivery/config/toggle", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ enabled: z.boolean() }).parse(req.body);
+    await setDeliveryManualState(branchContext.branchId, payload.enabled);
+    const config = await getDeliveryConfigSnapshot(branchContext.branchId, { includeInactive: true });
+    void writeAuditLog({ actorId: req.user!.id, action: "delivery.config_toggle", entityType: "branch", entityId: branchContext.branchId, payload }).catch(() => undefined);
+    return res.json(config);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/delivery/config/timings", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ openTime: z.string().nullable(), closeTime: z.string().nullable() }).parse(req.body);
+    await setDeliveryTimings(branchContext.branchId, payload.openTime, payload.closeTime);
+    const config = await getDeliveryConfigSnapshot(branchContext.branchId, { includeInactive: true });
+    void writeAuditLog({ actorId: req.user!.id, action: "delivery.config_timings", entityType: "branch", entityId: branchContext.branchId, payload }).catch(() => undefined);
+    return res.json(config);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/delivery/rider-payments", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const query = z.object({ businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).parse(req.query);
+    const businessDate = query.businessDate ?? getBusinessDateKey();
+    const range = businessDayRange(businessDate);
+    const orders = await prisma.order.findMany({
+      where: {
+        branchId: branchContext.branchId,
+        serviceType: ServiceType.DELIVERY,
+        dispatchedAt: { gte: range.start, lt: range.end },
+        OR: [{ riderId: { not: null } }, { riderName: { not: null } }]
+      },
+      select: { id: true, orderNumber: true, riderId: true, riderName: true, deliverySector: true, deliveryFee: true, dispatchedAt: true },
+      orderBy: { dispatchedAt: "asc" }
+    });
+    const grouped = new Map<string, { riderId: string | null; riderName: string; deliveryCount: number; totalFee: number; sectors: Map<string, { deliveryCount: number; totalFee: number }> }>();
+    for (const order of orders) {
+      const riderName = order.riderName?.trim() || "Unassigned rider";
+      const key = order.riderId ?? riderName;
+      const rider = grouped.get(key) ?? { riderId: order.riderId, riderName, deliveryCount: 0, totalFee: 0, sectors: new Map() };
+      const sectorName = order.deliverySector?.trim() || "Other";
+      const fee = Number(order.deliveryFee ?? 0);
+      const sector = rider.sectors.get(sectorName) ?? { deliveryCount: 0, totalFee: 0 };
+      sector.deliveryCount += 1;
+      sector.totalFee += fee;
+      rider.sectors.set(sectorName, sector);
+      rider.deliveryCount += 1;
+      rider.totalFee += fee;
+      grouped.set(key, rider);
+    }
+    return res.json({
+      businessDate,
+      start: range.start.toISOString(),
+      end: range.end.toISOString(),
+      riders: [...grouped.values()].sort((a, b) => a.riderName.localeCompare(b.riderName)).map((rider) => ({
+        riderId: rider.riderId,
+        riderName: rider.riderName,
+        deliveryCount: rider.deliveryCount,
+        totalFee: Number(rider.totalFee.toFixed(2)),
+        sectors: [...rider.sectors.entries()].map(([name, value]) => ({ name, ...value, totalFee: Number(value.totalFee.toFixed(2)) })).sort((a, b) => a.name.localeCompare(b.name))
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/delivery/sectors", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ name: z.string().trim().min(1).max(80), deliveryFee: z.number().nonnegative().max(100_000), isActive: z.boolean().default(true) }).parse(req.body);
+    const duplicate = await prisma.deliverySector.findFirst({ where: { branchId: branchContext.branchId, name: { equals: payload.name, mode: "insensitive" } } });
+    if (duplicate) return res.status(409).json({ message: "A sector with this name already exists for this branch." });
+    const last = await prisma.deliverySector.findFirst({ where: { branchId: branchContext.branchId }, orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
+    const sector = await prisma.deliverySector.create({ data: { branchId: branchContext.branchId, name: payload.name, deliveryFee: payload.deliveryFee, isActive: payload.isActive, sortOrder: (last?.sortOrder ?? -1) + 1 } });
+    return res.status(201).json({ sector: { ...sector, deliveryFee: Number(sector.deliveryFee) } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/delivery/sectors/:id", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ name: z.string().trim().min(1).max(80).optional(), deliveryFee: z.number().nonnegative().max(100_000).optional(), isActive: z.boolean().optional() }).parse(req.body);
+    const existing = await prisma.deliverySector.findFirst({ where: { id: req.params.id, branchId: branchContext.branchId } });
+    if (!existing) return res.status(404).json({ message: "Delivery sector not found." });
+    if (payload.name) {
+      const duplicate = await prisma.deliverySector.findFirst({ where: { branchId: branchContext.branchId, name: { equals: payload.name, mode: "insensitive" }, NOT: { id: existing.id } } });
+      if (duplicate) return res.status(409).json({ message: "A sector with this name already exists for this branch." });
+    }
+    const sector = await prisma.deliverySector.update({ where: { id: existing.id }, data: payload });
+    return res.json({ sector: { ...sector, deliveryFee: Number(sector.deliveryFee) } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/delivery-riders", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
@@ -7496,6 +7616,7 @@ router.post("/branches", async (req, res, next) => {
       await initializeBranchSetup(transaction, created.id);
       return created;
     });
+    await ensureDeliveryConfiguration(branch.id);
 
     await writeAuditLog({
       actorId: req.user!.id,

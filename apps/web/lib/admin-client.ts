@@ -31,7 +31,10 @@ import type {
   DashboardData,
   AdminPromotionData,
   PosPromotion,
-  AdminCoupon
+  AdminCoupon,
+  DeliveryConfig,
+  RiderPaymentReport,
+  DeliverySector
 } from "@/lib/types";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile, preparePocketImageUpload, readFileAsDataUrl } from "@/lib/image-upload";
 import { resolvePocketImagePath } from "@/lib/image-paths";
@@ -566,6 +569,32 @@ export async function fetchAdminIndependencePromotion(params?: { preset?: string
   if (params?.date) query.set("date", params.date);
   const suffix = query.toString() ? `?${query.toString()}` : "";
   return adminFetch<AdminPromotionData>(`/api/admin/promotions/independence-day${suffix}`);
+}
+
+export async function fetchAdminDeliveryConfig() {
+  return adminFetch<DeliveryConfig>("/api/admin/delivery/config");
+}
+
+export async function updateAdminDeliveryToggle(enabled: boolean) {
+  return adminFetch<DeliveryConfig>("/api/admin/delivery/config/toggle", { method: "PATCH", body: JSON.stringify({ enabled }) });
+}
+
+export async function updateAdminDeliveryTimings(payload: { openTime: string | null; closeTime: string | null }) {
+  return adminFetch<DeliveryConfig>("/api/admin/delivery/config/timings", { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export async function fetchAdminRiderPayments(businessDate: string) {
+  return adminFetch<RiderPaymentReport>(`/api/admin/delivery/rider-payments?businessDate=${encodeURIComponent(businessDate)}`);
+}
+
+export async function createAdminDeliverySector(payload: { name: string; deliveryFee: number; isActive: boolean }) {
+  const data = await adminFetch<{ sector: DeliverySector }>("/api/admin/delivery/sectors", { method: "POST", body: JSON.stringify(payload) });
+  return data.sector;
+}
+
+export async function updateAdminDeliverySector(sectorId: string, payload: Partial<{ name: string; deliveryFee: number; isActive: boolean }>) {
+  const data = await adminFetch<{ sector: DeliverySector }>(`/api/admin/delivery/sectors/${sectorId}`, { method: "PATCH", body: JSON.stringify(payload) });
+  return data.sector;
 }
 
 export async function updateAdminIndependencePromotion(isActive: boolean) {

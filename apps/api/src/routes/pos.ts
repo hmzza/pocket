@@ -23,7 +23,7 @@ import {
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
 import { readIndependencePromotion } from "../lib/promotions.js";
-import { DELIVERY_AREA_KEYS, DELIVERY_CITY, getDeliveryArea, isDeliverySubsector } from "../lib/delivery.js";
+import { DELIVERY_CITY, findActiveDeliverySector, findDeliverySector, getDeliveryConfigSnapshot, isDeliverySubsector } from "../lib/delivery-config.js";
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 import {
   filterDealProductOptions,
@@ -134,8 +134,8 @@ const cartItemSchema = z.discriminatedUnion("type", [
 ]);
 
 const deliveryDetailsSchema = z.object({
-  sector: z.enum(DELIVERY_AREA_KEYS as [string, ...string[]]),
-  subsector: z.string().min(5).max(10),
+  sector: z.string().trim().min(1).max(80),
+  subsector: z.string().trim().min(5).max(120),
   city: z.literal(DELIVERY_CITY),
   addressLine1: z.string().min(5).max(180),
   addressLine2: z.string().max(120).optional(),
@@ -177,8 +177,6 @@ const checkoutSchema = z
     if (value.serviceType === "DELIVERY") {
       if (!value.delivery) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["delivery"], message: "Delivery details are required for a delivery order." });
-      } else if (!isDeliverySubsector(value.delivery.sector, value.delivery.subsector)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["delivery", "subsector"], message: "Choose a valid sub-sector for the selected sector." });
       }
       if (!value.customerName?.trim()) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customerName"], message: "Customer name is required for delivery." });
@@ -186,8 +184,8 @@ const checkoutSchema = z
       if (!value.customerPhone?.trim()) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customerPhone"], message: "WhatsApp number is required for delivery." });
       }
-      if (value.paymentMethod !== "CASH_ON_DELIVERY") {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["paymentMethod"], message: "Delivery orders use Cash on Delivery." });
+      if (!["CASH", "EASYPAISA", "JAZZCASH", "CASH_ON_DELIVERY"].includes(value.paymentMethod)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["paymentMethod"], message: "Choose Cash, Easypaisa, or JazzCash for a POS delivery order." });
       }
     }
   });
@@ -324,6 +322,16 @@ function getProductIds(items: CheckoutPayload["items"]) {
     )
   ];
 }
+
+router.get("/delivery-config", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const config = await getDeliveryConfigSnapshot(branchContext.branchId);
+    return res.json({ ...config, sectors: config.sectors.filter((sector) => sector.isActive) });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
   const boxOfSix = await syncBoxOfSixOptions(prisma);
@@ -897,9 +905,9 @@ router.post("/checkout", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const payload: ResolvedCheckoutPayload = { ...parsedPayload, branchId: branchContext.branchId };
     const delivery = payload.serviceType === "DELIVERY" ? payload.delivery : undefined;
-    const deliveryArea = delivery ? getDeliveryArea(delivery.sector) : null;
-    if (delivery && !deliveryArea) {
-      return res.status(400).json({ message: "Choose a supported delivery sector." });
+    const deliverySector = delivery ? await findActiveDeliverySector(payload.branchId, delivery.sector) : null;
+    if (delivery && (!deliverySector || !isDeliverySubsector(deliverySector.name, delivery.subsector))) {
+      return res.status(400).json({ message: "Choose an active delivery sector and valid sub-sector." });
     }
     const deliveryPhone = delivery ? normalizePakistanWhatsAppNumber(payload.customerPhone ?? "") : null;
     if (delivery && !deliveryPhone) {
@@ -941,14 +949,16 @@ router.post("/checkout", async (req, res, next) => {
             serviceType: payload.serviceType as ServiceType,
             status: delivery ? OrderStatus.PENDING : OrderStatus.CONFIRMED,
             paymentMethod,
-            paymentStatus: delivery ? PaymentStatus.PENDING : PaymentStatus.UNSET,
+            paymentStatus: delivery
+              ? paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID
+              : PaymentStatus.UNSET,
             cashierId: req.user!.id,
             addressId: address?.id,
             placedAt: payload.placedAt ? new Date(payload.placedAt) : undefined,
             subtotal: orderPayload.subtotal,
             taxRate: 0,
             taxAmount: 0,
-            deliveryFee: deliveryArea?.fee ?? 0,
+            deliveryFee: deliverySector ? Number(deliverySector.deliveryFee) : 0,
             discountAmount: orderPayload.discountAmount,
             manualDiscountType: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
             manualDiscountValue: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
@@ -956,7 +966,7 @@ router.post("/checkout", async (req, res, next) => {
             promotionDiscountAmount: orderPayload.promotionDiscountAmount,
             cashReceivedAmount: delivery ? null : orderPayload.paidAmount,
             changeDueAmount: orderPayload.changeDueAmount,
-            totalAmount: Number((orderPayload.totalAmount + (deliveryArea?.fee ?? 0)).toFixed(2)),
+            totalAmount: Number((orderPayload.totalAmount + (deliverySector ? Number(deliverySector.deliveryFee) : 0)).toFixed(2)),
             deliveryInstructions: delivery?.orderInstructions?.trim() || null,
             deliverySector: delivery?.sector ?? null,
             deliverySubsector: delivery?.subsector ?? null,
@@ -1013,9 +1023,9 @@ router.patch("/orders/:orderId", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const payload: ResolvedCheckoutPayload = { ...parsedPayload, branchId: branchContext.branchId };
     const delivery = payload.serviceType === "DELIVERY" ? payload.delivery : undefined;
-    const deliveryArea = delivery ? getDeliveryArea(delivery.sector) : null;
-    if (delivery && !deliveryArea) {
-      return res.status(400).json({ message: "Choose a supported delivery sector." });
+    const deliverySector = delivery ? await findDeliverySector(payload.branchId, delivery.sector, true) : null;
+    if (delivery && (!deliverySector || !isDeliverySubsector(deliverySector.name, delivery.subsector))) {
+      return res.status(400).json({ message: "Choose a valid delivery sector and sub-sector." });
     }
     const deliveryPhone = delivery ? normalizePakistanWhatsAppNumber(payload.customerPhone ?? "") : null;
     if (delivery && !deliveryPhone) {
@@ -1122,9 +1132,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
             : OrderStatus.CONFIRMED,
           paymentMethod,
           paymentStatus: delivery
-            ? existingOrder.serviceType === ServiceType.DELIVERY
-              ? existingOrder.paymentStatus
-              : PaymentStatus.PENDING
+            ? paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID
             : PaymentStatus.UNSET,
           cashierId: existingOrder.channel === OrderChannel.POS ? req.user!.id : existingOrder.cashierId,
           // Preserve the original punch time when a paid POS order is edited.
@@ -1133,7 +1141,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           subtotal: orderPayload.subtotal,
           taxRate: 0,
           taxAmount: 0,
-          deliveryFee: deliveryArea?.fee ?? 0,
+          deliveryFee: deliverySector ? Number(deliverySector.deliveryFee) : 0,
           discountAmount: orderPayload.discountAmount,
           manualDiscountType: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
           manualDiscountValue: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
@@ -1141,7 +1149,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           promotionDiscountAmount: orderPayload.promotionDiscountAmount,
           cashReceivedAmount: delivery ? null : orderPayload.paidAmount,
           changeDueAmount: delivery ? null : orderPayload.changeDueAmount,
-          totalAmount: Number((orderPayload.totalAmount + (deliveryArea?.fee ?? 0)).toFixed(2)),
+          totalAmount: Number((orderPayload.totalAmount + (deliverySector ? Number(deliverySector.deliveryFee) : 0)).toFixed(2)),
           deliveryInstructions: delivery?.orderInstructions?.trim() || null,
           deliverySector: delivery?.sector ?? null,
           deliverySubsector: delivery?.subsector ?? null,

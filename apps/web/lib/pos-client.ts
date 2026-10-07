@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminOrder, Branch, DeliveryRider, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
+import type { AdminOrder, Branch, DeliveryConfig, DeliveryRider, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { getSelectedBranchId } from "@/lib/branch-selection";
 import { resolvePocketImagePath } from "@/lib/image-paths";
 
@@ -154,6 +154,10 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
       })
     )
   };
+}
+
+export async function fetchPosDeliveryConfig() {
+  return posFetch<DeliveryConfig>("/api/ops/delivery-config");
 }
 
 export async function createPosOrder(payload: Record<string, unknown>) {

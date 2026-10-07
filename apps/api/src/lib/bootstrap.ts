@@ -5,6 +5,7 @@ import { env } from "../config.js";
 import { ensurePermissionCatalog } from "./permissions.js";
 import { buildUniqueUsername } from "./username.js";
 import { randomUUID } from "node:crypto";
+import { ensureDeliveryConfigurations } from "./delivery-config.js";
 
 const ADMIN_USERNAME = "superadmin_pocket";
 const ADMIN_EMAIL = "admin@pocketshawarma.com";
@@ -55,6 +56,7 @@ async function ensureLegacyRiderUsers(riderRoleId: string) {
  */
 export async function ensureBootstrapAdmin() {
   await ensurePermissionCatalog();
+  await ensureDeliveryConfigurations();
   const role = await prisma.role.upsert({
     where: { code: RoleCode.SUPER_ADMIN },
     update: { label: "Super Admin" },
