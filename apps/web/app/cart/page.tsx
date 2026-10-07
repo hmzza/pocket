@@ -31,7 +31,6 @@ export default function CartPage() {
   const [editedOptions, setEditedOptions] = useState<Record<string, string[]>>({});
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
   const cartProducts = getCartProducts(products);
-  const missingItems = Math.max(0, cart.length - cartProducts.length);
   const subtotal = useMemo(() => cartProducts.reduce((total, product) => total + product.price * product.quantity, 0), [cartProducts]);
   const totals = useMemo(() => calculateOrderTotals(subtotal, 0, couponDiscount), [couponDiscount, subtotal]);
   const editingProduct = cartProducts.find((product) => product.cartItemId === editingCartItemId) ?? null;
@@ -150,11 +149,6 @@ export default function CartPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Cart</p>
             <h1 className="text-4xl font-black text-pocket-navy">Review your order</h1>
           </div>
-          {missingItems ? (
-            <Card className="border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-              Some saved items are no longer in the live catalog and were excluded from checkout.
-            </Card>
-          ) : null}
           {catalogError ? (
             <Card className="border-red-300 bg-red-50 p-4 text-sm text-red-700">
               Live catalog is unavailable right now. Cart quantities are still saved, but checkout is blocked until the API connection is restored.
