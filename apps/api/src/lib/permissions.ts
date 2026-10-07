@@ -54,6 +54,7 @@ export function resolveAdminPermission(path: string): PermissionKey | null {
     ["/api/admin/customer-reviews", "WEBSITE"],
     ["/api/admin/users", "USERS"],
     ["/api/admin/inventory", "INVENTORY"],
+    ["/api/admin/delivery", "ORDERS"],
     ["/api/admin/delivery-riders", "ORDERS"],
     ["/api/admin/delivery-logs", "ORDERS"],
     ["/api/admin/delivery-events", "ORDERS"],
