@@ -288,10 +288,10 @@ export async function updatePosOrderPaymentStatus(orderId: string, paymentStatus
   });
 }
 
-export async function recordPosReceiptEvent(orderId: string, copy: "all" | "customer" | "store" | "chef" | "store-chef") {
+export async function recordPosReceiptEvent(orderId: string, copy: "all" | "customer" | "store" | "chef" | "store-chef", printAttemptId?: string) {
   return posFetch<{ event: { id: string; copy: string; createdAt: string } }>(`/api/ops/orders/${orderId}/receipt-events`, {
     method: "POST",
-    body: JSON.stringify({ copy })
+    body: JSON.stringify({ copy, printAttemptId })
   });
 }
 

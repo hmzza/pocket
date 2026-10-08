@@ -1091,6 +1091,8 @@ model OrderAuditEvent {
   placedAt    DateTime
   snapshot    Json
   changes     Json?
+  meaningfulEdit Boolean @default(false)
+  printAttemptId String?
   createdAt   DateTime @default(now())
 
   @@index([branchId, createdAt])
@@ -1098,6 +1100,8 @@ model OrderAuditEvent {
   @@index([branchId, orderNumber])
   @@index([orderId, createdAt])
   @@index([eventType, createdAt])
+  @@index([orderId, eventType, printAttemptId])
+  @@unique([orderId, eventType, printAttemptId])
 }
 
 model Setting {

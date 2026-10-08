@@ -921,10 +921,12 @@ export function PosTerminal() {
       return;
     }
 
+    const printAttemptId = crypto.randomUUID();
+
     if (window.pocketDesktop) {
       try {
-        await window.pocketDesktop.printReceipt({ orderId: lastReceiptOrderId, copy });
-        void recordPosReceiptEvent(lastReceiptOrderId, copy === "all" ? "all" : copy).catch(() => undefined);
+        await window.pocketDesktop.printReceipt({ orderId: lastReceiptOrderId, copy, printAttemptId });
+        void recordPosReceiptEvent(lastReceiptOrderId, copy === "all" ? "all" : copy, printAttemptId).catch(() => undefined);
       } catch (printError) {
         setError(printError instanceof Error ? printError.message : "Unable to print the receipt.");
       }
@@ -939,7 +941,7 @@ export function PosTerminal() {
     iframe.style.height = "0";
     iframe.style.border = "0";
     iframe.setAttribute("aria-hidden", "true");
-    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=${copy}&autoPrint=1`;
+    iframe.src = `/pos/receipt/${lastReceiptOrderId}?copy=${copy}&autoPrint=1&printAttemptId=${encodeURIComponent(printAttemptId)}`;
 
     const cleanup = () => {
       window.removeEventListener("message", handleMessage);
@@ -951,8 +953,8 @@ export function PosTerminal() {
         return;
       }
 
-      if (event.data?.type === "pos-receipt-printed" && event.data?.orderId === lastReceiptOrderId && event.data?.copy === copy) {
-        void recordPosReceiptEvent(lastReceiptOrderId, copy === "all" ? "all" : copy).catch(() => undefined);
+      if (event.data?.type === "pos-receipt-printed" && event.data?.orderId === lastReceiptOrderId && event.data?.copy === copy && event.data?.printAttemptId === printAttemptId) {
+        void recordPosReceiptEvent(lastReceiptOrderId, copy === "all" ? "all" : copy, printAttemptId).catch(() => undefined);
         cleanup();
       }
     };

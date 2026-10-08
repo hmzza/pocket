@@ -361,7 +361,10 @@ router.patch("/orders/:id/payment-status", async (req, res, next) => {
 router.post("/orders/:id/receipt-events", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
-    const payload = z.object({ copy: z.enum(["all", "customer", "store", "chef", "store-chef"]) }).parse(req.body);
+    const payload = z.object({
+      copy: z.enum(["all", "customer", "store", "chef", "store-chef"]),
+      printAttemptId: z.string().trim().min(8).max(120).optional()
+    }).parse(req.body);
     const order = await prisma.order.findFirst({
       where: { id: req.params.id, branchId: branchContext.branchId },
       include: orderAuditInclude
@@ -374,8 +377,10 @@ router.post("/orders/:id/receipt-events", async (req, res, next) => {
       source: "POS",
       actorId: req.user!.id,
       actorName: req.user!.name || req.user!.username,
-      changes: { receipt: { copy: payload.copy } }
+      changes: { receipt: { copy: payload.copy } },
+      printAttemptId: payload.printAttemptId
     });
+    if (!event) return res.status(409).json({ message: "Receipt event could not be recorded." });
 
     return res.status(201).json({ event: { id: event.id, copy: payload.copy, createdAt: event.createdAt } });
   } catch (error) {

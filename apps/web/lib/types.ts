@@ -125,7 +125,7 @@ export type TrackedOrder = {
 };
 
 export type AdminRangePreset = "today" | "yesterday" | "tomorrow" | "7d" | "30d" | "month" | "year" | "custom";
-export type AdminOrderSegment = "all" | "inshop" | "foodpanda" | "delivery";
+export type AdminOrderSegment = "all" | "inshop" | "dine_in" | "takeaway" | "foodpanda" | "delivery";
 
 export type DashboardData = {
   range: {

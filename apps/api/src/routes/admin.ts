@@ -11,7 +11,7 @@ import { buildUniqueUsername } from "../lib/username.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
-import { buildOrderAuditSnapshot, orderAuditInclude, recordOrderAuditEvent } from "../lib/order-audit.js";
+import { buildOrderAuditSnapshot, formatStoredAuditChanges, hasMeaningfulOrderEdit, orderAuditInclude, recordOrderAuditEvent } from "../lib/order-audit.js";
 import { applyOrderInventory, calculateCompatibleBatchOutputQuantity, recordInventoryChange } from "../lib/inventory.js";
 import { CANONICAL_MEAL_PRODUCT_SLUG, MEAL_BASE_PRICE, MEAL_CATEGORY_SLUG, THELA_FRIES_SLUG, syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
@@ -1105,7 +1105,7 @@ async function recalculateIngredientAverageCost(branchInventoryId: string) {
   return averageCost;
 }
 
-function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda" | "delivery"): Prisma.OrderWhereInput {
+function buildAdminSegmentWhere(segment: "all" | "inshop" | "dine_in" | "takeaway" | "foodpanda" | "delivery"): Prisma.OrderWhereInput {
   if (segment === "foodpanda") {
     return { serviceType: ServiceType.FOODPANDA };
   }
@@ -1116,6 +1116,14 @@ function buildAdminSegmentWhere(segment: "all" | "inshop" | "foodpanda" | "deliv
 
   if (segment === "inshop") {
     return { serviceType: { in: [ServiceType.INSHOP, ServiceType.TAKEAWAY, ServiceType.DINE_IN] } };
+  }
+
+  if (segment === "dine_in") {
+    return { serviceType: { in: [ServiceType.INSHOP, ServiceType.DINE_IN] } };
+  }
+
+  if (segment === "takeaway") {
+    return { serviceType: ServiceType.TAKEAWAY };
   }
 
   return {};
@@ -1210,6 +1218,33 @@ function serializeOrderAuditSnapshot(snapshot: any) {
         unitPrice: Number(component.unitPrice ?? 0)
       }))
     }))
+  };
+}
+
+function formatLegacyOrderAuditEvent(event: any) {
+  const payload = event.payload && typeof event.payload === "object" ? event.payload as Record<string, any> : {};
+  const status = typeof payload.status === "string" ? payload.status.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter: string) => letter.toUpperCase()) : null;
+  let message = "Older order activity.";
+  if (["pos.checkout", "delivery.order_placed"].includes(event.action)) {
+    message = "Older record: order created. Detailed audit fields were not stored.";
+  } else if (["pos.order_update", "delivery.order_updated"].includes(event.action)) {
+    message = "Older record: order update. Detailed field changes were not stored.";
+  } else if (["delivery.accepted", "delivery.delivered", "delivery.cancelled", "delivery.status_updated", "order.status_update"].includes(event.action)) {
+    message = status ? `Older record: order status changed to ${status}.` : "Older record: order status update.";
+  } else if (event.action === "order.payment_status_update") {
+    message = status ? `Older record: payment status changed to ${status}.` : "Older record: payment status update.";
+  } else if (event.action === "delivery.whatsapp_opened") {
+    message = payload.riderName ? `Older record: WhatsApp message opened for ${payload.riderName}.` : "Older record: WhatsApp delivery message opened.";
+  }
+
+  return {
+    id: `legacy-${event.id}`,
+    eventType: "LEGACY",
+    source: "LEGACY",
+    actorName: event.actor?.name ?? event.actor?.username ?? null,
+    createdAt: event.createdAt,
+    changes: { message },
+    snapshot: null
   };
 }
 
@@ -5939,10 +5974,10 @@ router.get("/order-audit", async (req, res, next) => {
     const query = z.object({
       status: z.nativeEnum(OrderStatus).optional(),
       search: z.string().trim().max(120).optional(),
-      preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
+      preset: z.enum(["today", "yesterday", "tomorrow", "7d", "30d", "month", "year", "custom"]).default("today"),
       start: z.string().datetime().optional(),
       end: z.string().datetime().optional(),
-      segment: z.enum(["all", "inshop", "foodpanda", "delivery"]).default("all"),
+      segment: z.enum(["all", "inshop", "dine_in", "takeaway", "foodpanda", "delivery"]).default("all"),
       payment: z.enum(["CASH", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT"]).optional(),
       scope: z.enum(["all", "active", "deleted"]).default("all")
     }).superRefine((value, context) => {
@@ -6001,7 +6036,7 @@ router.get("/order-audit", async (req, res, next) => {
           id: key,
           orderNumber: order.orderNumber,
           deleted: value.deleted,
-          edited: value.events.some((event) => ["UPDATED", "STATUS_CHANGED", "PAYMENT_STATUS_CHANGED", "RIDER_DISPATCHED"].includes(event.eventType)),
+          edited: value.events.some((event) => event.eventType === "UPDATED" && (event.meaningfulEdit || hasMeaningfulOrderEdit(event.changes))),
           eventCount: value.events.length,
           lastEventAt: value.latestEventAt,
           order
@@ -6057,28 +6092,26 @@ router.get("/order-audit/:orderId", async (req, res, next) => {
     const firstDetailedEventAt = events[0]?.createdAt?.getTime() ?? Number.POSITIVE_INFINITY;
     const legacyTimeline = legacyEvents
       .filter((event) => event.createdAt.getTime() < firstDetailedEventAt)
-      .map((event) => ({
-        id: `legacy-${event.id}`,
-        eventType: "LEGACY",
-        source: "LEGACY",
-        actorName: event.actor?.name ?? event.actor?.username ?? null,
-        createdAt: event.createdAt,
-        changes: { action: event.action, details: event.payload ?? null },
-        snapshot: null
-      }));
+      .map(formatLegacyOrderAuditEvent);
 
     return res.json({
       order: serializeOrderAuditSnapshot(latestSnapshot),
       deleted: events.some((event) => event.eventType === "DELETED"),
-      events: [...legacyTimeline, ...events.map((event) => ({
-        id: event.id,
-        eventType: event.eventType,
-        source: event.source,
-        actorName: event.actorName,
-        createdAt: event.createdAt,
-        changes: event.changes,
-        snapshot: event.snapshot
-      }))].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+      events: [...legacyTimeline, ...events.map((event) => {
+        const formattedChanges = formatStoredAuditChanges(event.eventType, event.changes, event.snapshot);
+        const meaningfulEdit = event.eventType === "UPDATED" && (event.meaningfulEdit || hasMeaningfulOrderEdit(formattedChanges) || hasMeaningfulOrderEdit(event.changes));
+        return {
+          id: event.id,
+          eventType: event.eventType === "UPDATED" && !meaningfulEdit ? "LEGACY" : event.eventType,
+          source: event.eventType === "UPDATED" && !meaningfulEdit ? "LEGACY" : event.source,
+          actorName: event.actorName,
+          createdAt: event.createdAt,
+          changes: event.eventType === "UPDATED" && !meaningfulEdit
+            ? { message: "Older record: an update was recorded, but no meaningful order change was stored." }
+            : formattedChanges,
+          snapshot: event.snapshot
+        };
+      })].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
     });
   } catch (error) {
     return next(error);
