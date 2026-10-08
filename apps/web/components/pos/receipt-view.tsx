@@ -267,6 +267,7 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
   const [error, setError] = useState("");
   const autoPrint = searchParams.get("autoPrint") === "1";
   const desktopPrint = searchParams.get("desktopPrint") === "1";
+  const printAttemptId = searchParams.get("printAttemptId") ?? "";
   const printedRef = useRef(false);
   const mode = (searchParams.get("copy") as ReceiptMode | null) ?? "customer";
 
@@ -369,14 +370,15 @@ export function ReceiptView({ orderId, publicToken }: { orderId: string; publicT
         {
           type: "pos-receipt-printed",
           orderId,
-          copy: isBundle ? "all" : isStoreChef ? "store-chef" : isChef ? "chef" : copy
+          copy: isBundle ? "all" : isStoreChef ? "store-chef" : isChef ? "chef" : copy,
+          printAttemptId
         },
         window.location.origin
       );
     }, 0);
 
     return () => window.clearTimeout(timer);
-  }, [autoPrint, copy, desktopPrint, isBundle, isChef, isStoreChef, order, orderId, receiptMeta]);
+  }, [autoPrint, copy, desktopPrint, isBundle, isChef, isStoreChef, order, orderId, printAttemptId, receiptMeta]);
 
   if (error) {
     return <div className="mx-auto max-w-sm px-4 py-10 text-sm text-red-600">{error}</div>;

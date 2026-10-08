@@ -9,7 +9,7 @@ declare global {
         printers: Array<{ name: string; displayName: string; isDefault: boolean; status: number }>;
       }>;
       setPrinter: (printerName: string) => Promise<{ selectedPrinter: string }>;
-      printReceipt: (request: { orderId: string; copy: "all" | "chef" | "store" | "store-chef" }) => Promise<{ success: true }>;
+      printReceipt: (request: { orderId: string; copy: "all" | "chef" | "store" | "store-chef"; printAttemptId?: string }) => Promise<{ success: true }>;
       printCurrentReceipt: () => Promise<{ success: true }>;
       startDeliveryAlarm: () => Promise<{ playing: boolean }>;
       stopDeliveryAlarm: () => Promise<{ playing: boolean }>;
