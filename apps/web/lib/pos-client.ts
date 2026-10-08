@@ -288,6 +288,13 @@ export async function updatePosOrderPaymentStatus(orderId: string, paymentStatus
   });
 }
 
+export async function recordPosReceiptEvent(orderId: string, copy: "all" | "customer" | "store" | "chef" | "store-chef") {
+  return posFetch<{ event: { id: string; copy: string; createdAt: string } }>(`/api/ops/orders/${orderId}/receipt-events`, {
+    method: "POST",
+    body: JSON.stringify({ copy })
+  });
+}
+
 export async function fetchPosPromotion() {
   const data = await posFetch<{ promotion: PosPromotion }>("/api/pos/promotion");
   return data.promotion;

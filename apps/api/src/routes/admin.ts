@@ -11,6 +11,7 @@ import { buildUniqueUsername } from "../lib/username.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { buildOrderAuditSnapshot, orderAuditInclude, recordOrderAuditEvent } from "../lib/order-audit.js";
 import { applyOrderInventory, calculateCompatibleBatchOutputQuantity, recordInventoryChange } from "../lib/inventory.js";
 import { CANONICAL_MEAL_PRODUCT_SLUG, MEAL_BASE_PRICE, MEAL_CATEGORY_SLUG, THELA_FRIES_SLUG, syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
@@ -1190,6 +1191,28 @@ function serializeOrderForOperations(order: any) {
     items: order.items
   };
 }
+
+function serializeOrderAuditSnapshot(snapshot: any) {
+  return {
+    ...snapshot,
+    branch: snapshot.branchName ?? "Selected branch",
+    items: (snapshot.items ?? []).map((item: any) => ({
+      ...item,
+      unitPrice: Number(item.unitPrice ?? 0),
+      addOns: (item.addOns ?? []).map((addOn: any) => ({
+        ...addOn,
+        priceDelta: Number(addOn.priceDelta ?? 0)
+      })),
+      bundleComponents: (item.bundleComponents ?? []).map((component: any) => ({
+        ...component,
+        productName: component.componentProductName,
+        quantity: Number(component.quantity ?? 0),
+        unitPrice: Number(component.unitPrice ?? 0)
+      }))
+    }))
+  };
+}
+
 
 function isTerminalStatus(status: OrderStatus) {
   return status === OrderStatus.DELIVERED || status === OrderStatus.CANCELLED;
@@ -4236,6 +4259,65 @@ router.get("/finance/other-money-in", async (req, res, next) => {
   }
 });
 
+router.get("/finance/closing-variance", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const query = dashboardQuerySchema.parse(req.query);
+    const range = buildDashboardRange(query);
+    const closings = await prisma.dailyClosing.findMany({
+      where: {
+        branchId: branchContext.branchId,
+        closingDate: { gte: range.start, lte: range.end },
+        isLocked: true
+      },
+      orderBy: { closingDate: "asc" },
+      select: {
+        closingDate: true,
+        cashExpected: true,
+        cashCounted: true,
+        easypaisaExpected: true,
+        easypaisaCounted: true,
+        jazzcashExpected: true,
+        jazzcashCounted: true
+      }
+    });
+
+    const entries = closings.map((closing) => {
+      const surplus = roundMoney(
+        Math.max(0, parseDecimal(closing.cashCounted) - parseDecimal(closing.cashExpected))
+          + Math.max(0, parseDecimal(closing.easypaisaCounted) - parseDecimal(closing.easypaisaExpected))
+          + Math.max(0, parseDecimal(closing.jazzcashCounted) - parseDecimal(closing.jazzcashExpected))
+      );
+      const leakage = roundMoney(
+        Math.max(0, parseDecimal(closing.cashExpected) - parseDecimal(closing.cashCounted))
+          + Math.max(0, parseDecimal(closing.easypaisaExpected) - parseDecimal(closing.easypaisaCounted))
+          + Math.max(0, parseDecimal(closing.jazzcashExpected) - parseDecimal(closing.jazzcashCounted))
+      );
+      return {
+        businessDate: closing.closingDate.toISOString(),
+        surplus,
+        leakage,
+        netVariance: roundMoney(surplus - leakage)
+      };
+    });
+    const surplus = roundMoney(entries.reduce((sum, entry) => sum + entry.surplus, 0));
+    const leakage = roundMoney(entries.reduce((sum, entry) => sum + entry.leakage, 0));
+
+    return res.json({
+      range,
+      summary: {
+        surplus,
+        leakage,
+        netVariance: roundMoney(surplus - leakage),
+        closingDays: entries.length
+      },
+      entries
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.post("/inventory/closing", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
@@ -5851,6 +5933,158 @@ router.patch("/inventory/transactions/:id", async (req, res, next) => {
   }
 });
 
+router.get("/order-audit", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const query = z.object({
+      status: z.nativeEnum(OrderStatus).optional(),
+      search: z.string().trim().max(120).optional(),
+      preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
+      start: z.string().datetime().optional(),
+      end: z.string().datetime().optional(),
+      segment: z.enum(["all", "inshop", "foodpanda", "delivery"]).default("all"),
+      payment: z.enum(["CASH", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT"]).optional(),
+      scope: z.enum(["all", "active", "deleted"]).default("all")
+    }).superRefine((value, context) => {
+      if (value.preset === "custom" && (!value.start || !value.end)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "Custom range requires start and end dates.", path: ["start"] });
+      }
+    }).parse(req.query);
+
+    const range = buildDashboardRange(query as z.infer<typeof dashboardQuerySchema>);
+    const baseWhere = {
+      branchId: branchContext.branchId,
+      placedAt: { gte: range.start, lte: range.end }
+    };
+
+    const [liveOrders, events] = await Promise.all([
+      prisma.order.findMany({
+        where: {
+          ...baseWhere,
+          ...(query.status ? { status: query.status } : {}),
+          ...buildAdminSegmentWhere(query.segment),
+          ...(query.payment ? { paymentMethod: query.payment } : {})
+        },
+        include: orderAuditInclude,
+        orderBy: { placedAt: "desc" }
+      }),
+      prisma.orderAuditEvent.findMany({
+        where: baseWhere,
+        orderBy: { createdAt: "desc" }
+      })
+    ]);
+
+    const grouped = new Map<string, { snapshot: any; events: any[]; deleted: boolean; latestEventAt: Date | null }>();
+    for (const event of events) {
+      const key = event.orderId ?? event.orderNumber;
+      const current = grouped.get(key) ?? { snapshot: event.snapshot, events: [], deleted: false, latestEventAt: null };
+      current.events.push(event);
+      current.deleted ||= event.eventType === "DELETED";
+      current.latestEventAt ??= event.createdAt;
+      if (!current.snapshot) current.snapshot = event.snapshot;
+      grouped.set(key, current);
+    }
+
+    for (const order of liveOrders) {
+      const key = order.id;
+      const current = grouped.get(key) ?? { snapshot: null, events: [], deleted: false, latestEventAt: null };
+      current.snapshot = buildOrderAuditSnapshot(order);
+      grouped.set(key, current);
+    }
+
+    const searchText = query.search?.toLowerCase();
+    const rows = Array.from(grouped.entries())
+      .map(([key, value]) => {
+        const snapshot = value.snapshot as any;
+        const order = serializeOrderAuditSnapshot(snapshot);
+        return {
+          id: key,
+          orderNumber: order.orderNumber,
+          deleted: value.deleted,
+          edited: value.events.some((event) => ["UPDATED", "STATUS_CHANGED", "PAYMENT_STATUS_CHANGED", "RIDER_DISPATCHED"].includes(event.eventType)),
+          eventCount: value.events.length,
+          lastEventAt: value.latestEventAt,
+          order
+        };
+      })
+      .filter((row) => {
+        const order = row.order as any;
+        if (query.scope === "active" && row.deleted) return false;
+        if (query.scope === "deleted" && !row.deleted) return false;
+        if (query.status && order.status !== query.status) return false;
+        if (query.payment && order.paymentMethod !== query.payment) return false;
+        if (query.segment !== "all") {
+          const matchesSegment = query.segment === "foodpanda"
+            ? order.serviceType === ServiceType.FOODPANDA
+            : query.segment === "delivery"
+              ? order.serviceType === ServiceType.DELIVERY
+              : [ServiceType.INSHOP, ServiceType.DINE_IN, ServiceType.TAKEAWAY].includes(order.serviceType);
+          if (!matchesSegment) return false;
+        }
+        if (searchText) {
+          const haystack = JSON.stringify(order).toLowerCase();
+          if (!haystack.includes(searchText)) return false;
+        }
+        return true;
+      })
+      .sort((left, right) => new Date(right.order.placedAt).getTime() - new Date(left.order.placedAt).getTime());
+
+    return res.json({ orders: rows });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/order-audit/:orderId", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const events = await prisma.orderAuditEvent.findMany({
+      where: { orderId: req.params.orderId, branchId: branchContext.branchId },
+      orderBy: { createdAt: "asc" }
+    });
+    const legacyEvents = await prisma.auditLog.findMany({
+      where: { entityType: "order", entityId: req.params.orderId },
+      include: { actor: { select: { name: true, username: true } } },
+      orderBy: { createdAt: "asc" }
+    });
+    const liveOrder = await prisma.order.findFirst({
+      where: { id: req.params.orderId, branchId: branchContext.branchId },
+      include: orderAuditInclude
+    });
+    const latestSnapshot = events.at(-1)?.snapshot ?? (liveOrder ? buildOrderAuditSnapshot(liveOrder) : null);
+    if (!latestSnapshot) return res.status(404).json({ message: "Order audit record not found." });
+
+    const firstDetailedEventAt = events[0]?.createdAt?.getTime() ?? Number.POSITIVE_INFINITY;
+    const legacyTimeline = legacyEvents
+      .filter((event) => event.createdAt.getTime() < firstDetailedEventAt)
+      .map((event) => ({
+        id: `legacy-${event.id}`,
+        eventType: "LEGACY",
+        source: "LEGACY",
+        actorName: event.actor?.name ?? event.actor?.username ?? null,
+        createdAt: event.createdAt,
+        changes: { action: event.action, details: event.payload ?? null },
+        snapshot: null
+      }));
+
+    return res.json({
+      order: serializeOrderAuditSnapshot(latestSnapshot),
+      deleted: events.some((event) => event.eventType === "DELETED"),
+      events: [...legacyTimeline, ...events.map((event) => ({
+        id: event.id,
+        eventType: event.eventType,
+        source: event.source,
+        actorName: event.actorName,
+        createdAt: event.createdAt,
+        changes: event.changes,
+        snapshot: event.snapshot
+      }))].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/orders", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
@@ -5936,7 +6170,7 @@ router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next)
     const branchContext = await resolveBranchContext(req);
     const orders = await prisma.order.findMany({
       where: { branchId: branchContext.branchId },
-      include: { items: { include: { addOns: true, bundleComponents: true } } }
+      include: orderAuditInclude
     });
     const deletedCount = orders.length;
     await prisma.$transaction(async (transaction) => {
@@ -5952,6 +6186,14 @@ router.delete("/orders", authorize(RoleCode.SUPER_ADMIN), async (req, res, next)
             serviceType: order.serviceType
           });
         }
+
+        await recordOrderAuditEvent(transaction, {
+          order,
+          eventType: "DELETED",
+          source: "ADMIN",
+          actorId: req.user!.id,
+          actorName: req.user!.name || req.user!.username
+        });
       }
       await transaction.order.deleteMany({ where: { branchId: branchContext.branchId } });
     }, INVENTORY_TRANSACTION_OPTIONS);
@@ -5977,12 +6219,7 @@ router.delete("/orders/:id", async (req, res, next) => {
       const currentOrder = await transaction.order.findUnique({
         where: { id: req.params.id },
         include: {
-          items: {
-            include: {
-              addOns: true,
-              bundleComponents: true
-            }
-          }
+          ...orderAuditInclude
         }
       });
 
@@ -6004,6 +6241,14 @@ router.delete("/orders/:id", async (req, res, next) => {
           serviceType: currentOrder.serviceType
         });
       }
+
+      await recordOrderAuditEvent(transaction, {
+        order: currentOrder,
+        eventType: "DELETED",
+        source: "ADMIN",
+        actorId: req.user!.id,
+        actorName: req.user!.name || req.user!.username
+      });
 
       // Detach optional restrictive relations so permanent order deletion works for
       // delivery orders without deleting customer, address, or coupon history.
@@ -6039,6 +6284,13 @@ router.patch("/orders/:id/status", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
     const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);
+    const previousOrder = await prisma.order.findFirst({
+      where: { id: req.params.id, branchId: branchContext.branchId },
+      include: orderAuditInclude
+    });
+    if (!previousOrder) {
+      return res.status(404).json({ message: "Order not found." });
+    }
     const order = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
         where: { id: req.params.id },
@@ -6096,9 +6348,21 @@ router.patch("/orders/:id/status", async (req, res, next) => {
           ...(currentOrder.serviceType === ServiceType.DELIVERY && currentOrder.status === OrderStatus.PENDING && payload.status === OrderStatus.CONFIRMED
             ? { acceptedById: req.user!.id, acceptedAt: new Date() }
             : {})
-        }
+        },
+        include: orderAuditInclude
       });
     }, INVENTORY_TRANSACTION_OPTIONS);
+
+    if (previousOrder.status !== order.status) {
+      await recordOrderAuditEvent(prisma, {
+        order,
+        previousOrder,
+        eventType: "STATUS_CHANGED",
+        source: "ADMIN",
+        actorId: req.user!.id,
+        actorName: req.user!.name || req.user!.username
+      });
+    }
 
     await prisma.notification.create({
       data: {
@@ -6147,12 +6411,34 @@ router.patch("/orders/:id/dispatch", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
     const payload = z.object({ riderId: z.string().cuid() }).parse(req.body);
+    const previousOrder = await prisma.order.findFirst({
+      where: { id: req.params.id, branchId: branchContext.branchId },
+      include: orderAuditInclude
+    });
+    if (!previousOrder) {
+      return res.status(404).json({ message: "Delivery order not found." });
+    }
     const { order, whatsappUrl, resentToRider } = await dispatchDeliveryOrder({
       orderId: req.params.id,
       branchId: branchContext.branchId,
       actorId: req.user!.id,
       riderId: payload.riderId
     });
+    const auditOrder = await prisma.order.findUnique({ where: { id: order.id }, include: orderAuditInclude });
+    if (auditOrder) {
+      await recordOrderAuditEvent(prisma, {
+        order: auditOrder,
+        previousOrder,
+        eventType: "RIDER_DISPATCHED",
+        source: "ADMIN",
+        actorId: req.user!.id,
+        actorName: req.user!.name || req.user!.username,
+        changes: {
+          rider: { from: previousOrder.riderName ?? null, to: auditOrder.riderName ?? null },
+          status: { from: previousOrder.status, to: auditOrder.status }
+        }
+      });
+    }
 
     if (order.customerId) {
       await prisma.notification.create({

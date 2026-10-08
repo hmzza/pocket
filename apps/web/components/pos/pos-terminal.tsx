@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PosOrderQueue } from "@/components/pos/order-queue";
 import { PosToolbar } from "@/components/pos/pos-toolbar";
 import { DesktopPrinterSettings } from "@/components/pos/desktop-printer-settings";
-import { createPosOrder, fetchPosCatalog, fetchPosDeliveryConfig, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, isPosAuthError, lookupPosCustomer, updatePosOrder } from "@/lib/pos-client";
+import { createPosOrder, fetchPosCatalog, fetchPosDeliveryConfig, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, isPosAuthError, lookupPosCustomer, recordPosReceiptEvent, updatePosOrder } from "@/lib/pos-client";
 import type { AddOnGroup, DeliveryConfig, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 import { formatAddOnNames, formatBundleSummary, formatItemDetailLines } from "@/lib/item-detail-display";
@@ -924,6 +924,7 @@ export function PosTerminal() {
     if (window.pocketDesktop) {
       try {
         await window.pocketDesktop.printReceipt({ orderId: lastReceiptOrderId, copy });
+        void recordPosReceiptEvent(lastReceiptOrderId, copy === "all" ? "all" : copy).catch(() => undefined);
       } catch (printError) {
         setError(printError instanceof Error ? printError.message : "Unable to print the receipt.");
       }
@@ -951,6 +952,7 @@ export function PosTerminal() {
       }
 
       if (event.data?.type === "pos-receipt-printed" && event.data?.orderId === lastReceiptOrderId && event.data?.copy === copy) {
+        void recordPosReceiptEvent(lastReceiptOrderId, copy === "all" ? "all" : copy).catch(() => undefined);
         cleanup();
       }
     };

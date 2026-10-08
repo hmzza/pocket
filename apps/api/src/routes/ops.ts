@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { orderAuditInclude, recordOrderAuditEvent } from "../lib/order-audit.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { businessDayRange, getBusinessDateKey } from "../lib/business-day.js";
@@ -209,16 +210,18 @@ router.patch("/orders/:id/status", async (req, res, next) => {
   try {
     const payload = z.object({ status: z.nativeEnum(OrderStatus) }).parse(req.body);
     const branchContext = await resolveBranchContext(req);
+    const previousOrder = await prisma.order.findFirst({
+      where: { id: req.params.id, branchId: branchContext.branchId },
+      include: orderAuditInclude
+    });
+    if (!previousOrder) {
+      return res.status(404).json({ message: "Order not found." });
+    }
     const order = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
         where: { id: req.params.id },
         include: {
-          items: {
-            include: {
-              addOns: true,
-              bundleComponents: true
-            }
-          }
+          ...orderAuditInclude
         }
       });
 
@@ -252,9 +255,21 @@ router.patch("/orders/:id/status", async (req, res, next) => {
           ...(currentOrder.serviceType === "DELIVERY" && currentOrder.status === OrderStatus.PENDING && payload.status === OrderStatus.CONFIRMED
             ? { acceptedById: req.user!.id, acceptedAt: new Date() }
             : {})
-        }
+        },
+        include: orderAuditInclude
       });
     }, INVENTORY_TRANSACTION_OPTIONS);
+
+    if (previousOrder.status !== order.status) {
+      await recordOrderAuditEvent(prisma, {
+        order,
+        previousOrder,
+        eventType: "STATUS_CHANGED",
+        source: "POS",
+        actorId: req.user!.id,
+        actorName: req.user!.name || req.user!.username
+      });
+    }
 
     if (order.customerId) {
       await prisma.notification.create({
@@ -305,7 +320,7 @@ router.patch("/orders/:id/payment-status", async (req, res, next) => {
   try {
     const payload = paymentStatusSchema.parse(req.body);
     const branchContext = await resolveBranchContext(req);
-    const currentOrder = await prisma.order.findUnique({ where: { id: req.params.id }, select: { branchId: true } });
+    const currentOrder = await prisma.order.findUnique({ where: { id: req.params.id }, include: orderAuditInclude });
     if (!currentOrder) {
       return res.status(404).json({ message: "Order not found." });
     }
@@ -314,8 +329,20 @@ router.patch("/orders/:id/payment-status", async (req, res, next) => {
     }
     const order = await prisma.order.update({
       where: { id: req.params.id },
-      data: { paymentStatus: payload.paymentStatus }
+      data: { paymentStatus: payload.paymentStatus },
+      include: orderAuditInclude
     });
+
+    if (currentOrder.paymentStatus !== order.paymentStatus) {
+      await recordOrderAuditEvent(prisma, {
+        order,
+        previousOrder: currentOrder,
+        eventType: "PAYMENT_STATUS_CHANGED",
+        source: "POS",
+        actorId: req.user!.id,
+        actorName: req.user!.name || req.user!.username
+      });
+    }
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -331,16 +358,63 @@ router.patch("/orders/:id/payment-status", async (req, res, next) => {
   }
 });
 
+router.post("/orders/:id/receipt-events", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ copy: z.enum(["all", "customer", "store", "chef", "store-chef"]) }).parse(req.body);
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id, branchId: branchContext.branchId },
+      include: orderAuditInclude
+    });
+    if (!order) return res.status(404).json({ message: "Order not found." });
+
+    const event = await recordOrderAuditEvent(prisma, {
+      order,
+      eventType: "RECEIPT_PRINTED",
+      source: "POS",
+      actorId: req.user!.id,
+      actorName: req.user!.name || req.user!.username,
+      changes: { receipt: { copy: payload.copy } }
+    });
+
+    return res.status(201).json({ event: { id: event.id, copy: payload.copy, createdAt: event.createdAt } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.patch("/orders/:id/dispatch", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
     const payload = z.object({ riderId: z.string().cuid() }).parse(req.body);
+    const previousOrder = await prisma.order.findFirst({
+      where: { id: req.params.id, branchId: branchContext.branchId },
+      include: orderAuditInclude
+    });
+    if (!previousOrder) {
+      return res.status(404).json({ message: "Delivery order not found." });
+    }
     const { order, whatsappUrl, resentToRider } = await dispatchDeliveryOrder({
       orderId: req.params.id,
       branchId: branchContext.branchId,
       actorId: req.user!.id,
       riderId: payload.riderId
     });
+    const auditOrder = await prisma.order.findUnique({ where: { id: order.id }, include: orderAuditInclude });
+    if (auditOrder) {
+      await recordOrderAuditEvent(prisma, {
+        order: auditOrder,
+        previousOrder,
+        eventType: "RIDER_DISPATCHED",
+        source: "POS",
+        actorId: req.user!.id,
+        actorName: req.user!.name || req.user!.username,
+        changes: {
+          rider: { from: previousOrder.riderName ?? null, to: auditOrder.riderName ?? null },
+          status: { from: previousOrder.status, to: auditOrder.status }
+        }
+      });
+    }
 
     if (order.customerId) {
       await prisma.notification.create({
@@ -389,7 +463,8 @@ router.patch("/orders/bulk-status", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const updatedOrders = await prisma.$transaction(async (transaction) => {
       const orders = await transaction.order.findMany({
-        where: { id: { in: payload.orderIds } }
+        where: { id: { in: payload.orderIds } },
+        include: orderAuditInclude
       });
 
       if (orders.length !== payload.orderIds.length) {
@@ -406,6 +481,27 @@ router.patch("/orders/bulk-status", async (req, res, next) => {
 
       return orders;
     });
+
+    const currentOrders = await prisma.order.findMany({
+      where: { id: { in: payload.orderIds }, branchId: branchContext.branchId },
+      include: orderAuditInclude
+    });
+    await Promise.all(
+      updatedOrders
+        .filter((order) => order.status !== payload.status)
+        .map(async (previousOrder) => {
+          const currentOrder = currentOrders.find((order) => order.id === previousOrder.id);
+          if (!currentOrder) return;
+          await recordOrderAuditEvent(prisma, {
+            order: currentOrder,
+            previousOrder,
+            eventType: "STATUS_CHANGED",
+            source: "POS",
+            actorId: req.user!.id,
+            actorName: req.user!.name || req.user!.username
+          });
+        })
+    );
 
     await Promise.all(
       updatedOrders.flatMap((order) =>
@@ -445,14 +541,7 @@ router.delete("/orders/:id", async (req, res, next) => {
     const deletedOrder = await prisma.$transaction(async (transaction) => {
       const currentOrder = await transaction.order.findUnique({
         where: { id: req.params.id },
-        include: {
-          items: {
-            include: {
-              addOns: true,
-              bundleComponents: true
-            }
-          }
-        }
+        include: orderAuditInclude
       });
 
       if (!currentOrder) {
@@ -484,6 +573,14 @@ router.delete("/orders/:id", async (req, res, next) => {
           }))
         });
       }
+
+      await recordOrderAuditEvent(transaction, {
+        order: currentOrder,
+        eventType: "DELETED",
+        source: "POS",
+        actorId: req.user!.id,
+        actorName: req.user!.name || req.user!.username
+      });
 
       // Delivery orders may reference guest customer/address/coupon rows with restrictive
       // foreign keys. Detach those optional links before deleting only the order itself.

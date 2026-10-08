@@ -27,12 +27,11 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "custom", label: "Custom" }
 ];
 
-type PaymentFilter = "all" | "cash" | "cod" | "easypaisa" | "jazzcash" | "foodpanda";
+type PaymentFilter = "all" | "cash" | "easypaisa" | "jazzcash" | "foodpanda";
 
 const paymentFilters: Array<{ value: PaymentFilter; label: string; method?: string }> = [
   { value: "all", label: "All Payments" },
   { value: "cash", label: "Cash", method: "CASH" },
-  { value: "cod", label: "Delivery", method: "CASH_ON_DELIVERY" },
   { value: "easypaisa", label: "Easypaisa", method: "EASYPAISA" },
   { value: "jazzcash", label: "JazzCash", method: "JAZZCASH" },
   { value: "foodpanda", label: "Foodpanda Payout", method: "FOODPANDA_PAYOUT" }
@@ -207,13 +206,12 @@ export function OrderManagement() {
       (counts, order) => {
         counts.all += 1;
         if (order.paymentMethod === "CASH") counts.cash += 1;
-        if (order.paymentMethod === "CASH_ON_DELIVERY") counts.cod += 1;
         if (order.paymentMethod === "EASYPAISA") counts.easypaisa += 1;
         if (order.paymentMethod === "JAZZCASH") counts.jazzcash += 1;
         if (order.paymentMethod === "FOODPANDA_PAYOUT") counts.foodpanda += 1;
         return counts;
       },
-      { all: 0, cash: 0, cod: 0, easypaisa: 0, jazzcash: 0, foodpanda: 0 }
+      { all: 0, cash: 0, easypaisa: 0, jazzcash: 0, foodpanda: 0 }
     );
   }, [orders]);
 

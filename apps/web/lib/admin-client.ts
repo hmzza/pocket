@@ -5,6 +5,7 @@ import type {
   AdminExpenseData,
   AdminFixedExpenseData,
   AdminDailyClosingData,
+  AdminClosingVarianceData,
   AdminCashPositionData,
   AdminFoodpandaSettlementData,
   AdminInventoryForecast,
@@ -17,6 +18,8 @@ import type {
   AdminOrderSegment,
   AdminPackagingRuleData,
   AdminOrder,
+  AdminOrderAuditEvent,
+  AdminOrderAuditRow,
   AdminProduct,
   AdminRangePreset,
   AdminUser,
@@ -426,6 +429,7 @@ export async function fetchAdminOrders(params?: {
     branch: typeof order.branch === "string" ? order.branch : order.branch?.name ?? "Unknown branch",
     totalAmount: Number(order.totalAmount),
     subtotal: Number(order.subtotal),
+    deliveryFee: Number(order.deliveryFee ?? 0),
     discountAmount: Number(order.discountAmount),
     taxRate: Number(order.taxRate),
     taxAmount: Number(order.taxAmount),
@@ -479,6 +483,110 @@ export async function fetchAdminOrders(params?: {
   }));
 
   return orders;
+}
+
+function mapAdminAuditOrder(order: any): AdminOrder {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    channel: order.channel,
+    serviceType: order.serviceType,
+    foodpandaOrderNumber: order.foodpandaOrderNumber ?? null,
+    customerName: order.customerName ?? "Walk-in Customer",
+    customerPhone: order.customerPhone ?? undefined,
+    status: order.status,
+    branch: order.branch ?? "Selected branch",
+    totalAmount: Number(order.totalAmount ?? 0),
+    subtotal: Number(order.subtotal ?? 0),
+    deliveryFee: Number(order.deliveryFee ?? 0),
+    discountAmount: Number(order.discountAmount ?? 0),
+    taxRate: Number(order.taxRate ?? 0),
+    taxAmount: Number(order.taxAmount ?? 0),
+    paidAmount: Number(order.cashReceivedAmount ?? order.totalAmount ?? 0),
+    changeDueAmount: Number(order.changeDueAmount ?? 0),
+    manualDiscountType: order.manualDiscountType ?? undefined,
+    manualDiscountValue: order.manualDiscountValue == null ? undefined : Number(order.manualDiscountValue),
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    cashierUsername: order.cashierUsername ?? null,
+    cashierName: order.cashierName ?? null,
+    placedAt: order.placedAt,
+    deliveryInstructions: order.deliveryInstructions ?? undefined,
+    deliverySector: order.deliverySector ?? null,
+    deliverySubsector: order.deliverySubsector ?? null,
+    riderName: order.riderName ?? null,
+    riderPhone: order.riderPhone ?? null,
+    riderAssignedAt: order.riderAssignedAt ?? null,
+    acceptedByName: order.acceptedByName ?? null,
+    acceptedAt: order.acceptedAt ?? null,
+    dispatchedByName: order.dispatchedByName ?? null,
+    dispatchedAt: order.dispatchedAt ?? null,
+    address: order.address
+      ? {
+          addressLine1: order.address.addressLine1,
+          addressLine2: order.address.addressLine2 ?? undefined,
+          city: order.address.city,
+          instructions: order.address.instructions ?? undefined
+        }
+      : undefined,
+    items: (order.items ?? []).map((item: any) => ({
+      id: item.id,
+      productName: item.productName,
+      customDescription: item.customDescription ?? undefined,
+      quantity: Number(item.quantity ?? 0),
+      unitPrice: Number(item.unitPrice ?? 0),
+      note: item.note ?? undefined,
+      bundleComponents: (item.bundleComponents ?? []).map((component: any) => ({
+        productId: component.productId ?? "",
+        productName: component.productName ?? component.componentProductName,
+        quantity: Number(component.quantity ?? 0),
+        sortOrder: component.sortOrder ?? undefined
+      })),
+      addOns: (item.addOns ?? []).map((addOn: any) => ({
+        id: addOn.id,
+        optionId: addOn.optionId,
+        optionName: addOn.optionName,
+        priceDelta: Number(addOn.priceDelta ?? 0),
+        quantity: Number(addOn.quantity ?? 1)
+      }))
+    }))
+  };
+}
+
+export async function fetchAdminOrderAudit(params?: {
+  segment?: AdminOrderSegment;
+  preset?: AdminRangePreset;
+  start?: string;
+  end?: string;
+  search?: string;
+  status?: string;
+  payment?: string;
+  scope?: "all" | "active" | "deleted";
+}) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value) query.set(key, String(value));
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const data = await adminFetch<{ orders: any[] }>(`/api/admin/order-audit${suffix}`);
+  return data.orders.map((row): AdminOrderAuditRow => ({
+    id: row.id,
+    orderNumber: row.orderNumber,
+    deleted: Boolean(row.deleted),
+    edited: Boolean(row.edited),
+    eventCount: Number(row.eventCount ?? 0),
+    lastEventAt: row.lastEventAt ?? null,
+    order: mapAdminAuditOrder(row.order)
+  }));
+}
+
+export async function fetchAdminOrderAuditDetail(orderId: string) {
+  const data = await adminFetch<{ order: any; deleted: boolean; events: AdminOrderAuditEvent[] }>(`/api/admin/order-audit/${orderId}`);
+  return {
+    order: mapAdminAuditOrder(data.order),
+    deleted: data.deleted,
+    events: data.events
+  };
 }
 
 export async function updateAdminDeliveryStatus(orderId: string, status: "CONFIRMED" | "READY" | "DELIVERED" | "CANCELLED") {
@@ -1218,6 +1326,10 @@ export async function resetAdminDailyClosing(closingId: string) {
 
 export async function fetchAdminOtherMoneyIn(preset: "today" | "7d" | "30d" | "month" | "year" = "month") {
   return adminFetch<{ amount: number; range: { start: string; end: string; label: string } }>(`/api/admin/finance/other-money-in?preset=${preset}`);
+}
+
+export async function fetchAdminClosingVariance(preset: AdminRangePreset = "month") {
+  return adminFetch<AdminClosingVarianceData>(`/api/admin/finance/closing-variance?preset=${preset}`);
 }
 
 export async function createAdminMoneyAddition(payload: Record<string, unknown>) {
