@@ -4,6 +4,7 @@ import { z } from "zod";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { generateOrderNumber, withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { recordOrderAuditEvent } from "../lib/order-audit.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { env } from "../config.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
@@ -991,8 +992,14 @@ router.post("/checkout", async (req, res, next) => {
       initialOrderNumber
     );
 
-    // The audit log is not awaited, so it never blocks the cashier response.
-    // Failures are logged, not surfaced.
+    await recordOrderAuditEvent(prisma, {
+      order,
+      eventType: "CREATED",
+      source: "POS",
+      actorId: req.user!.id,
+      actorName: req.user!.name || req.user!.username
+    });
+
     void writeAuditLog({
       actorId: req.user!.id,
       action: payload.serviceType === "DELIVERY" ? "delivery.order_placed" : "pos.checkout",
@@ -1181,6 +1188,15 @@ router.patch("/orders/:orderId", async (req, res, next) => {
 
       return order;
     }, INVENTORY_TRANSACTION_OPTIONS);
+
+    await recordOrderAuditEvent(prisma, {
+      order: updatedOrder,
+      previousOrder: existingOrder,
+      eventType: "UPDATED",
+      source: "POS",
+      actorId: req.user!.id,
+      actorName: req.user!.name || req.user!.username
+    });
 
     void writeAuditLog({
       actorId: req.user!.id,

@@ -404,14 +404,14 @@ export function DailyClosingManagement() {
                 <div key={transfer.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-pocket-navy/10 px-4 py-3 text-sm">
                   <div>
                     <p className="font-bold text-pocket-navy">{formatCurrency(transfer.amount)} <span className="font-semibold text-pocket-navy/55">{moneyLabel(transfer.fromSource)}</span> <ArrowRight className="inline h-4 w-4" /> <span className="font-semibold text-pocket-navy/55">{moneyLabel(transfer.toSource)}</span></p>
-                    <p className="text-pocket-navy/55">{formatDateTime(transfer.transferDate)}{transfer.note ? ` - ${transfer.note}` : ""}</p>
+                    <p className="text-pocket-navy/55">{formatDateTime(transfer.createdAt)}{transfer.note ? ` - ${transfer.note}` : ""}</p>
                   </div>
                   <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void deleteTransfer(transfer.id)}><Trash2 className="h-4 w-4" />Delete</Button>
                 </div>
               ))}
               {data.additionsToday.map((addition) => (
                 <div key={addition.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/50 px-4 py-3 text-sm">
-                  <div><p className="font-bold text-pocket-navy"><span className="mr-2 rounded-full bg-emerald-100 px-2 py-1 text-[10px] uppercase tracking-wide text-emerald-800">Money added</span>{formatCurrency(addition.amount)} to {moneyLabel(addition.toSource)}</p><p className="text-pocket-navy/55">{addition.reason} · {formatDateTime(addition.additionDate)}</p></div>
+                  <div><p className="font-bold text-pocket-navy"><span className="mr-2 rounded-full bg-emerald-100 px-2 py-1 text-[10px] uppercase tracking-wide text-emerald-800">Money added</span>{formatCurrency(addition.amount)} to {moneyLabel(addition.toSource)}</p><p className="text-pocket-navy/55">{addition.reason} · {formatDateTime(addition.createdAt)}</p></div>
                   <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void deleteAddition(addition.id)}><Trash2 className="h-4 w-4" />Delete</Button>
                 </div>
               ))}

@@ -176,6 +176,27 @@ export type DashboardData = {
   };
 };
 
+export type AdminClosingVarianceData = {
+  range: {
+    preset: AdminRangePreset;
+    start: string;
+    end: string;
+    label: string;
+  };
+  summary: {
+    surplus: number;
+    leakage: number;
+    netVariance: number;
+    closingDays: number;
+  };
+  entries: Array<{
+    businessDate: string;
+    surplus: number;
+    leakage: number;
+    netVariance: number;
+  }>;
+};
+
 export type AdminInventorySummary = {
   totalItems: number;
   lowStockItems: number;
@@ -893,6 +914,7 @@ export type AdminOrder = {
   branch: string;
   totalAmount: number;
   subtotal: number;
+  deliveryFee?: number;
   discountAmount: number;
   taxRate: number;
   taxAmount: number;
@@ -937,6 +959,26 @@ export type AdminOrder = {
       quantity?: number;
     }>;
   }>;
+};
+
+export type AdminOrderAuditRow = {
+  id: string;
+  orderNumber: string;
+  deleted: boolean;
+  edited: boolean;
+  eventCount: number;
+  lastEventAt?: string | null;
+  order: AdminOrder;
+};
+
+export type AdminOrderAuditEvent = {
+  id: string;
+  eventType: string;
+  source: string;
+  actorName?: string | null;
+  createdAt: string;
+  changes?: unknown;
+  snapshot?: unknown;
 };
 
 export type PosCatalogProduct = {

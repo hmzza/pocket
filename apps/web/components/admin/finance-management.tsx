@@ -6,10 +6,10 @@ import { ArrowRight, Wallet } from "lucide-react";
 import { SalesChart } from "@/components/admin/sales-chart";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchAdminCashPosition, fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminOtherMoneyIn, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
+import { fetchAdminCashPosition, fetchAdminClosingVariance, fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminOtherMoneyIn, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
 import { estimateFoodpandaPayout, FOODPANDA_COMMISSION_RATE, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
 import { Input } from "@/components/ui/input";
-import type { AdminCashPositionData, AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
+import type { AdminCashPositionData, AdminClosingVarianceData, AdminExpenseData, AdminLoanData, AdminRangePreset, DashboardData } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, formatCompactNumber } from "@/lib/utils";
 
 function ProgressBar({ value }: { value: number }) {
@@ -153,6 +153,10 @@ export function FinanceManagement() {
   const [todayExpenses, setTodayExpenses] = useState<AdminExpenseData | null>(null);
   const [monthLoans, setMonthLoans] = useState<AdminLoanData | null>(null);
   const [monthOtherMoneyIn, setMonthOtherMoneyIn] = useState<{ amount: number } | null>(null);
+  const [monthClosingVariance, setMonthClosingVariance] = useState<AdminClosingVarianceData | null>(null);
+  const [closingVariance, setClosingVariance] = useState<AdminClosingVarianceData | null>(null);
+  const [closingVariancePreset, setClosingVariancePreset] = useState<AdminRangePreset>("month");
+  const [closingVarianceLoading, setClosingVarianceLoading] = useState(false);
   const [monthlyTarget, setMonthlyTarget] = useState<number>(MONTHLY_BREAKEVEN_TARGET);
   const [monthlyTargetInput, setMonthlyTargetInput] = useState(String(MONTHLY_BREAKEVEN_TARGET));
   const [savingTarget, setSavingTarget] = useState(false);
@@ -176,6 +180,7 @@ export function FinanceManagement() {
           todayExpenseData,
           monthLoanData,
           monthOtherMoneyInData,
+          monthClosingVarianceData,
           cashPositionData,
           settings
         ] = await Promise.all([
@@ -188,6 +193,7 @@ export function FinanceManagement() {
           fetchAdminExpenses({ preset: "today" }),
           fetchAdminLoans({ preset: "month" }),
           fetchAdminOtherMoneyIn("month"),
+          fetchAdminClosingVariance("month"),
           fetchAdminCashPosition(),
           fetchAdminSettings()
         ]);
@@ -202,6 +208,8 @@ export function FinanceManagement() {
           setTodayExpenses(todayExpenseData);
           setMonthLoans(monthLoanData);
           setMonthOtherMoneyIn(monthOtherMoneyInData);
+          setMonthClosingVariance(monthClosingVarianceData);
+          setClosingVariance(monthClosingVarianceData);
           setCashPosition(cashPositionData);
 
           const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
@@ -228,6 +236,31 @@ export function FinanceManagement() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!monthClosingVariance) return;
+    if (closingVariancePreset === "month") {
+      setClosingVariance(monthClosingVariance);
+      return;
+    }
+
+    let cancelled = false;
+    setClosingVarianceLoading(true);
+    void fetchAdminClosingVariance(closingVariancePreset)
+      .then((data) => {
+        if (!cancelled) setClosingVariance(data);
+      })
+      .catch(() => {
+        if (!cancelled) setClosingVariance(null);
+      })
+      .finally(() => {
+        if (!cancelled) setClosingVarianceLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [closingVariancePreset, monthClosingVariance]);
 
   async function saveMonthlyTarget() {
     const nextTarget = Number(monthlyTargetInput.replace(/[^\d.]/g, ""));
@@ -263,6 +296,7 @@ export function FinanceManagement() {
     const weekRevenue = getRevenueAfterFoodpandaCut(weekGrossRevenue, weekFoodpandaGross);
     const todayRevenue = getRevenueAfterFoodpandaCut(todayGrossRevenue, todayFoodpandaGross);
     const monthNet = monthRevenue - monthExpensesTotal;
+    const monthClosingNetVariance = monthClosingVariance?.summary.netVariance ?? 0;
     const weekNet = weekRevenue - weekExpensesTotal;
     const todayNet = todayRevenue - todayExpensesTotal;
     const remainingToBreakeven = Math.max(0, breakevenTarget - monthRevenue);
@@ -285,6 +319,8 @@ export function FinanceManagement() {
       monthGrossRevenue,
       monthExpensesTotal,
       monthNet,
+      monthClosingNetVariance,
+      monthNetProfit: monthNet + monthClosingNetVariance,
       weekRevenue,
       weekExpensesTotal,
       weekNet,
@@ -305,7 +341,7 @@ export function FinanceManagement() {
       topCategories,
       breakevenTarget
     };
-  }, [monthDashboard, monthExpenses, monthFoodpandaDashboard, monthLoans, monthOtherMoneyIn, monthlyTarget, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
+  }, [monthClosingVariance, monthDashboard, monthExpenses, monthFoodpandaDashboard, monthLoans, monthOtherMoneyIn, monthlyTarget, todayDashboard, todayExpenses, weekDashboard, weekExpenses]);
 
   if (loading || !monthDashboard || !monthExpenses || !weekDashboard || !weekExpenses || !todayDashboard || !todayExpenses || !monthFoodpandaDashboard || !monthLoans || !monthOtherMoneyIn || !cashPosition) {
     return <Card className="p-6 text-sm text-pocket-navy/60">Loading finance view...</Card>;
@@ -353,6 +389,7 @@ export function FinanceManagement() {
         <MetricCard title="Month net revenue" value={formatCompactCurrency(summary.monthRevenue)} description="Revenue after subtracting the fixed 38% Foodpanda commission." tone="positive" />
         <MetricCard title="Month expenses" value={formatCompactCurrency(summary.monthExpensesTotal)} description="Tracked expenses recorded in the same period." tone="negative" />
         <MetricCard title="Operating profit" value={formatCompactCurrency(summary.monthNet)} description="Net revenue minus tracked operating expenses." tone={summary.monthNet >= 0 ? "positive" : "negative"} />
+        <MetricCard title="Net profit / loss" value={formatCompactCurrency(summary.monthNetProfit)} description="Operating profit adjusted by daily closing surplus or leakage." tone={summary.monthNetProfit >= 0 ? "positive" : "negative"} />
         <MetricCard title="Break-even gap" value={summary.remainingToBreakeven > 0 ? formatCompactCurrency(summary.remainingToBreakeven) : "Reached"} description="Amount still needed before profit can start." tone={summary.remainingToBreakeven > 0 ? "warning" : "positive"} />
         <MetricCard title="Foodpanda payout" value={formatCompactCurrency(summary.foodpandaPayout.estimated)} description="Amount left after the fixed 38% Foodpanda commission." />
         <MetricCard title="Today net" value={formatCompactCurrency(summary.todayNet)} description="Today's net revenue minus today's expenses." tone={summary.todayNet >= 0 ? "positive" : "negative"} />
@@ -361,6 +398,37 @@ export function FinanceManagement() {
         <MetricCard title="Loan balance" value={formatCompactCurrency(summary.loanSummary.outstandingLoanBalance)} description="Outstanding tracked loan balance." tone={summary.loanSummary.outstandingLoanBalance > 0 ? "negative" : "positive"} />
         <MetricCard title="Other money added" value={formatCompactCurrency(summary.otherMoneyAdded)} description="Rare cash adjustments, separate from revenue and profit." tone="warning" />
       </div>
+
+      <Card className="p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-lg font-black text-pocket-navy">Daily closing surplus / leakage</p>
+            <p className="text-sm text-pocket-navy/60">Actual counted money compared with expected money from locked daily closings.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              ["today", "Today"],
+              ["7d", "7 days"],
+              ["30d", "30 days"],
+              ["month", "This month"],
+              ["year", "This year"]
+            ] as const).map(([preset, label]) => (
+              <Button key={preset} type="button" size="sm" variant={closingVariancePreset === preset ? "default" : "outline"} onClick={() => setClosingVariancePreset(preset)}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        </div>
+        {closingVarianceLoading ? <p className="mt-5 text-sm text-pocket-navy/60">Loading closing variance...</p> : closingVariance ? <>
+          <p className="mt-3 text-xs text-pocket-navy/50">{closingVariance.range.label}</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard title="Surplus" value={formatCompactCurrency(closingVariance.summary.surplus)} description="Counted above expected." tone="positive" />
+            <MetricCard title="Leakage" value={formatCompactCurrency(closingVariance.summary.leakage)} description="Counted below expected." tone="negative" />
+            <MetricCard title="Net variance" value={formatCompactCurrency(closingVariance.summary.netVariance)} description="Surplus minus leakage." tone={closingVariance.summary.netVariance >= 0 ? "positive" : "negative"} />
+            <MetricCard title="Closing days" value={formatCompactNumber(closingVariance.summary.closingDays)} description="Locked closings included." />
+          </div>
+        </> : <p className="mt-5 text-sm text-pocket-navy/60">No locked daily closings were found for this period.</p>}
+      </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         <Card className="p-5">

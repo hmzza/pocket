@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, MonitorDown, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
+import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, ClipboardList, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, MonitorDown, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { DesktopDeliveryAlerts } from "@/components/admin/desktop-delivery-alerts";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ const links: Array<{
   { href: "/admin/users", label: "Users", icon: Users, permissionKey: "USERS" },
   { href: "/admin/inventory", label: "Inventory", icon: Package2, permissionKey: "INVENTORY" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart, permissionKey: "ORDERS" },
+  { href: "/admin/order-audit", label: "Order Audit", icon: ClipboardList, permissionKey: "ORDERS" },
   { href: "/admin/delivery", label: "Delivery", icon: Bike, permissionKey: "ORDERS" },
   { href: "/admin/customers", label: "Customers", icon: Users, permissionKey: "CUSTOMERS" },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt, permissionKey: "EXPENSES" },

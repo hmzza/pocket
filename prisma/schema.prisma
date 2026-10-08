@@ -1079,6 +1079,27 @@ model AuditLog {
   actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
 }
 
+model OrderAuditEvent {
+  id          String   @id @default(cuid())
+  orderId     String?
+  branchId    String
+  orderNumber String
+  eventType   String
+  source      String
+  actorId     String?
+  actorName   String?
+  placedAt    DateTime
+  snapshot    Json
+  changes     Json?
+  createdAt   DateTime @default(now())
+
+  @@index([branchId, createdAt])
+  @@index([branchId, placedAt])
+  @@index([branchId, orderNumber])
+  @@index([orderId, createdAt])
+  @@index([eventType, createdAt])
+}
+
 model Setting {
   id        String   @id @default(cuid())
   key       String   @unique

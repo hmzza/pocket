@@ -59,6 +59,7 @@ export function resolveAdminPermission(path: string): PermissionKey | null {
     ["/api/admin/delivery-logs", "ORDERS"],
     ["/api/admin/delivery-events", "ORDERS"],
     ["/api/admin/orders", "ORDERS"],
+    ["/api/admin/order-audit", "ORDERS"],
     ["/api/admin/customers", "CUSTOMERS"],
     ["/api/admin/expense-title-favorites", "EXPENSES"],
     ["/api/admin/expenses", "EXPENSES"],

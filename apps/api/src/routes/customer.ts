@@ -5,6 +5,7 @@ import { authenticate } from "../middleware/auth.js";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
 import { withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { orderAuditInclude, recordOrderAuditEvent } from "../lib/order-audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { DELIVERY_CITY, findActiveDeliverySector, getDeliveryConfigSnapshot, isDeliverySubsector } from "../lib/delivery-config.js";
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
@@ -474,6 +475,18 @@ router.post("/checkout", async (req, res, next) => {
         return createdOrder;
       }, INVENTORY_TRANSACTION_OPTIONS)
     );
+
+    const auditOrder = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: orderAuditInclude
+    });
+    if (auditOrder) {
+      await recordOrderAuditEvent(prisma, {
+        order: auditOrder,
+        eventType: "CREATED",
+        source: "WEBSITE"
+      });
+    }
 
     await writeAuditLog({
       actorId: req.user!.id,
