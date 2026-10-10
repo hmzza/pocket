@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, MessageCircle } from "lucide-react";
 import { useLiveProducts } from "@/components/site/use-live-products";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,7 @@ function pickupSlots(snapshot: { shopScheduleConfigured?: boolean; shopOpenTime?
 }
 
 export default function CheckoutPage() {
+  const router = useRouter();
   const { cart, getCartProducts, clearCart } = useStore();
   const { selectedBranch } = usePublicBranch();
   const availability = useDeliveryAvailability(selectedBranch?.slug);
@@ -120,7 +122,16 @@ export default function CheckoutPage() {
   const modeClosed = !shopEnabled || (fulfillment === "DELIVERY" && !deliveryEnabled);
 
   useEffect(() => { window.scrollTo({ top: 0, left: 0, behavior: "auto" }); }, []);
-  useEffect(() => { if (!availabilityLoading && !deliveryEnabled && pickupEnabled) setFulfillment("PICKUP"); }, [availabilityLoading, deliveryEnabled, pickupEnabled]);
+  useEffect(() => {
+    if (availabilityLoading) return;
+    if (!shopEnabled) {
+      router.replace("/cart");
+      return;
+    }
+    if (fulfillment === "DELIVERY" && !deliveryEnabled && pickupEnabled) {
+      setFulfillment("PICKUP");
+    }
+  }, [availabilityLoading, deliveryEnabled, fulfillment, pickupEnabled, router, shopEnabled]);
 
   useEffect(() => {
     const storedCoupon = readStoredCouponState();
@@ -183,6 +194,9 @@ export default function CheckoutPage() {
       setConfirmedOrderNumber(data.order.orderNumber); setConfirmedTotal(Number(data.order.totalAmount)); writeStoredCoupon(""); clearCart();
     } catch (submitError) { setError(submitError instanceof Error ? submitError.message : "Unable to place your order."); } finally { setLoading(false); }
   }
+
+  if (availabilityLoading && !confirmedOrderNumber) return <div className="mx-auto max-w-2xl px-4 py-14 text-center text-sm font-semibold text-pocket-navy/65 md:px-6">Checking shop availability...</div>;
+  if (!shopEnabled && !confirmedOrderNumber) return null;
 
   if (confirmedOrderNumber) return <div className="mx-auto max-w-2xl px-4 py-14 md:px-6"><Card className="border-emerald-200 bg-emerald-50 p-7 text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" /><p className="mt-5 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">Order received</p><h1 className="mt-2 text-3xl font-black text-pocket-navy">{confirmedOrderNumber}</h1><p className="mt-3 text-base text-pocket-navy/75">Your order is waiting for Pocket to accept it. We will contact you on WhatsApp if we need anything.</p><p className="mt-5 text-xl font-black text-pocket-orange">{formatCurrency(confirmedTotal)}</p><p className="mt-1 text-sm text-pocket-navy/60">{fulfillment === "PICKUP" ? "Pay at the branch" : "Cash on Delivery"}</p><Link href="/menu" className="mt-7 inline-flex"><Button>Order more items</Button></Link></Card></div>;
 

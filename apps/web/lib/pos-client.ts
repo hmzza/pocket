@@ -221,6 +221,7 @@ export async function fetchPosOrders(params?: { scope?: "active" | "watch_later"
       cashierUsername: order.cashierUsername ?? null,
       cashierName: order.cashierName ?? null,
       placedAt: order.placedAt,
+      expectedPickupAt: order.expectedPickupAt ?? null,
       deliveryInstructions: order.deliveryInstructions ?? undefined,
       deliverySector: order.deliverySector ?? null,
       deliverySubsector: order.deliverySubsector ?? null,

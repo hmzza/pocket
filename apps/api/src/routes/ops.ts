@@ -65,6 +65,7 @@ function serializeOrder(order: any) {
     cashierUsername: order.cashier?.username ?? null,
     cashierName: order.cashier?.name ?? null,
     placedAt: order.placedAt,
+    expectedPickupAt: order.expectedPickupAt ?? null,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
     deliverySector: order.deliverySector ?? undefined,
     deliverySubsector: order.deliverySubsector ?? undefined,
