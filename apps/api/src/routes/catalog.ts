@@ -9,7 +9,7 @@ import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { verifyReceiptToken } from "../lib/receipt-token.js";
-import { DELIVERY_CITY, findActiveDeliverySector, getDeliveryConfigSnapshot, isDeliverySubsector } from "../lib/delivery-config.js";
+import { DELIVERY_CITY, findActiveDeliverySector, getDeliveryConfigSnapshot, isDeliverySubsector, isWithinScheduleAt } from "../lib/delivery-config.js";
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 import rateLimit from "express-rate-limit";
 import { publicBranchPricingInclude, publicProductWhere, PUBLIC_HIDDEN_CATEGORY_SLUGS, resolvePublicBranch } from "../lib/public-catalog.js";
@@ -449,12 +449,21 @@ router.get("/settings", async (_req, res) => {
 
 router.post("/coupons/validate", async (req, res, next) => {
   try {
-    const payload = z.object({ code: z.string().min(3), subtotal: z.coerce.number().nonnegative(), branchSlug: z.string().min(1) }).parse(req.body);
+    const payload = z.object({
+      code: z.string().min(3),
+      subtotal: z.coerce.number().nonnegative(),
+      branchSlug: z.string().min(1),
+      channel: z.enum(["DELIVERY", "PICKUP"]).optional()
+    }).parse(req.body);
     const branch = await resolvePublicBranch(payload.branchSlug);
     const coupon = branch ? await prisma.coupon.findUnique({ where: { branchId_code: { branchId: branch.id, code: payload.code.toUpperCase() } } }) : null;
 
     if (!coupon || !coupon.isActive || (coupon.expiresAt && coupon.expiresAt < new Date())) {
       return res.status(404).json({ message: "Coupon is invalid or expired." });
+    }
+
+    if (payload.channel && coupon.appliesTo !== "BOTH" && coupon.appliesTo !== payload.channel) {
+      return res.status(409).json({ message: `This coupon is not valid for ${payload.channel === "PICKUP" ? "pickup" : "delivery"} orders.` });
     }
 
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
@@ -591,9 +600,12 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
         name: z.string().min(2).max(80),
         phone: z.string().min(8).max(24),
         branchSlug: z.string().min(1).max(100),
-        paymentMethod: z.literal(PaymentMethod.CASH_ON_DELIVERY),
-        deliverySector: z.string().trim().min(1).max(80),
-        deliverySubsector: z.string().trim().min(5).max(120),
+        fulfillment: z.enum(["DELIVERY", "PICKUP"]).default("DELIVERY"),
+        paymentMethod: z.enum([PaymentMethod.CASH_ON_DELIVERY, PaymentMethod.PAY_AT_COUNTER]).default(PaymentMethod.CASH_ON_DELIVERY),
+        deliverySector: z.string().trim().min(1).max(80).optional(),
+        deliverySubsector: z.string().trim().min(5).max(120).optional(),
+        pickupAt: z.string().datetime().optional(),
+        pickupInstructions: z.string().max(240).optional(),
         couponCode: z.string().trim().max(40).optional(),
         deliveryInstructions: z.string().max(240).optional(),
         address: z.object({
@@ -601,7 +613,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
           addressLine1: z.string().trim().min(5).max(240),
           city: z.literal(DELIVERY_CITY),
           instructions: z.string().max(240).optional()
-        }),
+        }).optional(),
         items: z
           .array(
             z.object({
@@ -618,6 +630,16 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
           .max(50)
           .refine((items) => items.reduce((sum, item) => sum + item.quantity, 0) <= 100, "Maximum 100 items per order.")
       })
+      .superRefine((value, context) => {
+        if (value.fulfillment === "DELIVERY") {
+          if (!value.deliverySector) context.addIssue({ code: z.ZodIssueCode.custom, path: ["deliverySector"], message: "Choose your delivery sector." });
+          if (!value.deliverySubsector) context.addIssue({ code: z.ZodIssueCode.custom, path: ["deliverySubsector"], message: "Choose your sub-sector." });
+          if (!value.address) context.addIssue({ code: z.ZodIssueCode.custom, path: ["address"], message: "Enter your delivery address." });
+          if (value.paymentMethod !== PaymentMethod.CASH_ON_DELIVERY) context.addIssue({ code: z.ZodIssueCode.custom, path: ["paymentMethod"], message: "Delivery orders use Cash on Delivery." });
+        } else if (value.paymentMethod !== PaymentMethod.PAY_AT_COUNTER) {
+          context.addIssue({ code: z.ZodIssueCode.custom, path: ["paymentMethod"], message: "Pickup payment is selected at the branch." });
+        }
+      })
       .parse(req.body);
 
     const customerPhone = normalizePakistanWhatsAppNumber(payload.phone);
@@ -630,16 +652,29 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       return res.status(404).json({ message: "Pocket G-11 is unavailable right now." });
     }
 
-    const deliveryConfig = await getDeliveryConfigSnapshot(branch.id);
-    if (!deliveryConfig.deliveryEnabled) {
-      return res.status(503).json({ message: deliveryConfig.message ?? "Deliveries are closed at the moment." });
+    const storefrontConfig = await getDeliveryConfigSnapshot(branch.id);
+    if (!storefrontConfig.shopEnabled) {
+      return res.status(503).json({ message: storefrontConfig.shopMessage ?? "Our shop is closed at the moment." });
     }
-    const deliverySector = await findActiveDeliverySector(branch.id, payload.deliverySector);
-    if (!deliverySector) {
+    if (payload.fulfillment === "DELIVERY" && !storefrontConfig.deliveryEnabled) {
+      return res.status(503).json({ message: storefrontConfig.message ?? "Deliveries are closed at the moment." });
+    }
+
+    const deliverySector = payload.fulfillment === "DELIVERY" && payload.deliverySector
+      ? await findActiveDeliverySector(branch.id, payload.deliverySector)
+      : null;
+    if (payload.fulfillment === "DELIVERY" && !deliverySector) {
       return res.status(400).json({ message: "We currently deliver only to the listed sectors." });
     }
-    if (!isDeliverySubsector(deliverySector.name, payload.deliverySubsector)) {
+    if (payload.fulfillment === "DELIVERY" && (!payload.deliverySubsector || !isDeliverySubsector(deliverySector!.name, payload.deliverySubsector))) {
       return res.status(400).json({ message: "Choose a valid sub-sector for your selected sector." });
+    }
+    if (payload.fulfillment === "PICKUP" && payload.pickupAt) {
+      const pickupAt = new Date(payload.pickupAt);
+      if (pickupAt.getTime() <= Date.now()) return res.status(400).json({ message: "Choose a future pickup time." });
+      if (storefrontConfig.shopScheduleConfigured && (!isWithinScheduleAt(pickupAt, storefrontConfig.shopOpenTime!, storefrontConfig.shopCloseTime!))) {
+        return res.status(400).json({ message: "Choose a pickup time during shop hours." });
+      }
     }
 
     const requestedProductIds = [...new Set(payload.items.map((item) => item.productId))];
@@ -814,6 +849,9 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       if (!coupon || !coupon.isActive || (coupon.expiresAt && coupon.expiresAt <= new Date())) {
         return res.status(400).json({ message: "Coupon is invalid or expired." });
       }
+      if (coupon.appliesTo !== "BOTH" && coupon.appliesTo !== payload.fulfillment) {
+        return res.status(400).json({ message: `This coupon is not valid for ${payload.fulfillment === "PICKUP" ? "pickup" : "delivery"} orders.` });
+      }
       if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
         return res.status(409).json({ message: "Coupon usage limit reached." });
       }
@@ -829,7 +867,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
     }
 
     const taxAmount = 0;
-    const deliveryFee = Number(deliverySector.deliveryFee);
+    const deliveryFee = deliverySector ? Number(deliverySector.deliveryFee) : 0;
     const totalAmount = Math.max(0, subtotal + taxAmount + deliveryFee - discountAmount);
 
     const role = await prisma.role.findUniqueOrThrow({ where: { code: RoleCode.CUSTOMER } });
@@ -867,15 +905,17 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       return res.status(500).json({ message: "Unable to create customer session." });
     }
 
-    const address = await prisma.address.create({
-      data: {
-        userId: customerId,
-        label: payload.address.label,
-        addressLine1: payload.address.addressLine1,
-        city: payload.address.city,
-        instructions: payload.address.instructions
-      }
-    });
+    const address = payload.fulfillment === "DELIVERY" && payload.address
+      ? await prisma.address.create({
+          data: {
+            userId: customerId,
+            label: payload.address.label,
+            addressLine1: payload.address.addressLine1,
+            city: payload.address.city,
+            instructions: payload.address.instructions
+          }
+        })
+      : null;
 
     const { orderNumber, result: order } = await withGeneratedOrderNumber((orderNumber) =>
       prisma.$transaction(async (transaction) => {
@@ -884,23 +924,24 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
             orderNumber,
             customerId,
             branchId: branch.id,
-            addressId: address.id,
+            addressId: address?.id,
             couponId,
             channel: OrderChannel.ONLINE,
-            serviceType: ServiceType.DELIVERY,
+            serviceType: payload.fulfillment === "PICKUP" ? ServiceType.TAKEAWAY : ServiceType.DELIVERY,
             status: OrderStatus.PENDING,
             customerName: payload.name,
             customerPhone,
             paymentMethod: payload.paymentMethod,
-            paymentStatus: payload.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID,
+            paymentStatus: PaymentStatus.PENDING,
             subtotal,
             taxRate: 0,
             taxAmount,
             deliveryFee,
             discountAmount,
             totalAmount,
-            expectedDeliveryAt: new Date(Date.now() + 35 * 60 * 1000),
-            deliveryInstructions: payload.deliveryInstructions,
+            expectedDeliveryAt: payload.fulfillment === "DELIVERY" ? new Date(Date.now() + 35 * 60 * 1000) : undefined,
+            expectedPickupAt: payload.fulfillment === "PICKUP" && payload.pickupAt ? new Date(payload.pickupAt) : undefined,
+            deliveryInstructions: payload.fulfillment === "PICKUP" ? payload.pickupInstructions : payload.deliveryInstructions,
             deliverySector: payload.deliverySector,
             deliverySubsector: payload.deliverySubsector,
             items: {
@@ -961,7 +1002,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
           actorId: customerId,
           items: createdOrder.items,
           mode: "consume",
-          serviceType: ServiceType.DELIVERY
+            serviceType: payload.fulfillment === "PICKUP" ? ServiceType.TAKEAWAY : ServiceType.DELIVERY
         });
 
         if (couponId) {

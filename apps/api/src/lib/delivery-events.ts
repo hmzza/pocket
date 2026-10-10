@@ -1,4 +1,4 @@
-import { OrderStatus, ServiceType } from "@prisma/client";
+import { OrderChannel, OrderStatus, ServiceType } from "@prisma/client";
 import type { Request, Response } from "express";
 import { prisma } from "./prisma.js";
 
@@ -36,8 +36,11 @@ async function pollPendingDeliveryOrders() {
     const pendingOrders = await prisma.order.findMany({
       where: {
         branchId: { in: branchIds },
-        serviceType: ServiceType.DELIVERY,
-        status: OrderStatus.PENDING
+        status: OrderStatus.PENDING,
+        OR: [
+          { serviceType: ServiceType.DELIVERY },
+          { channel: OrderChannel.ONLINE, serviceType: ServiceType.TAKEAWAY }
+        ]
       },
       select: {
         id: true,

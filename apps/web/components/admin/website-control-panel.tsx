@@ -8,7 +8,7 @@ import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { fetchAdminSettings, updateAdminSetting, uploadAdminImage } from "@/lib/admin-client";
+import { fetchAdminSettings, fetchAdminStorefrontConfig, updateAdminSetting, updateAdminStorefrontTimings, updateAdminStorefrontToggle, uploadAdminImage } from "@/lib/admin-client";
 import { getPocketImageAltFromFilename, isSupportedPocketImageFile } from "@/lib/image-upload";
 import { homeContent } from "@/lib/mock-data";
 import { resolvePocketImagePath } from "@/lib/image-paths";
@@ -71,6 +71,10 @@ export function WebsiteControlPanel() {
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [storefront, setStorefront] = useState<Awaited<ReturnType<typeof fetchAdminStorefrontConfig>> | null>(null);
+  const [storefrontOpenTime, setStorefrontOpenTime] = useState("");
+  const [storefrontCloseTime, setStorefrontCloseTime] = useState("");
+  const [storefrontSaving, setStorefrontSaving] = useState(false);
   const activeImage = savedImages[0] ?? { url: "/images/pocket-mai-rocket-shawarma.png", alt: "Pocket hero image" };
 
   useEffect(() => {
@@ -78,7 +82,7 @@ export function WebsiteControlPanel() {
 
     async function loadSettings() {
       try {
-        const settings = await fetchAdminSettings();
+        const [settings, storefrontConfig] = await Promise.all([fetchAdminSettings(), fetchAdminStorefrontConfig()]);
         const sliderSetting = settings.find((setting) => setting.key === "homepage.slider");
         const normalized = normalizeSetting(sliderSetting?.value);
 
@@ -87,6 +91,9 @@ export function WebsiteControlPanel() {
           setImages(nextImages);
           setSavedImages(nextImages);
           setIntervalMs(String(normalized.intervalMs));
+          setStorefront(storefrontConfig);
+          setStorefrontOpenTime(storefrontConfig.shopOpenTime ?? "");
+          setStorefrontCloseTime(storefrontConfig.shopCloseTime ?? "");
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -183,10 +190,55 @@ export function WebsiteControlPanel() {
     setIntervalMs(String(homeContent.heroSliderIntervalMs));
   }
 
+  async function toggleStorefront() {
+    if (!storefront) return;
+    try {
+      setStorefrontSaving(true);
+      setStorefront(await updateAdminStorefrontToggle(!storefront.shopEnabled));
+      setNotice(storefront.shopEnabled ? "Shop and pickup are closed." : "Shop and pickup are open.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to update shop availability.");
+    } finally {
+      setStorefrontSaving(false);
+    }
+  }
+
+  async function saveStorefrontTimings(nextOpenTime = storefrontOpenTime, nextCloseTime = storefrontCloseTime) {
+    if ((nextOpenTime && !nextCloseTime) || (!nextOpenTime && nextCloseTime)) {
+      setError("Set both shop opening and closing times, or clear both.");
+      return;
+    }
+    try {
+      setStorefrontSaving(true);
+      setStorefront(await updateAdminStorefrontTimings(nextOpenTime || null, nextCloseTime || null));
+      setNotice("Shop and pickup timings saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to save shop timings.");
+    } finally {
+      setStorefrontSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {notice ? <AdminToast message={notice} variant="success" onClose={() => setNotice("")} className="top-4" /> : null}
       {error ? <AdminToast message={error} variant="error" onClose={() => setError("")} className="top-20" /> : null}
+      <Card className="p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Shop and pickup</p>
+            <h2 className="mt-1 text-2xl font-black text-pocket-navy">Website shop hours</h2>
+            <p className="mt-2 max-w-2xl text-sm text-pocket-navy/65">Pickup follows these shop hours. Delivery is automatically closed whenever the shop is closed.</p>
+          </div>
+          <button type="button" onClick={() => void toggleStorefront()} disabled={!storefront || storefrontSaving} className={`relative h-7 w-12 shrink-0 rounded-full transition ${storefront?.shopEnabled ? "bg-pocket-orange" : "bg-pocket-navy/20"}`} aria-label="Toggle website shop availability"><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${storefront?.shopEnabled ? "left-6" : "left-1"}`} /></button>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Opening time</span><Input type="time" value={storefrontOpenTime} onChange={(event) => setStorefrontOpenTime(event.target.value)} /></label>
+          <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Closing time</span><Input type="time" value={storefrontCloseTime} onChange={(event) => setStorefrontCloseTime(event.target.value)} /></label>
+          <div className="flex flex-wrap gap-2"><Button type="button" onClick={() => void saveStorefrontTimings()} disabled={storefrontSaving}>{storefrontSaving ? "Saving..." : "Save timings"}</Button><Button type="button" variant="outline" onClick={() => { setStorefrontOpenTime(""); setStorefrontCloseTime(""); void saveStorefrontTimings("", ""); }} disabled={storefrontSaving}>Clear timings</Button></div>
+        </div>
+        {storefront ? <p className="mt-3 text-sm font-semibold text-pocket-navy/65">Shop is currently {storefront.shopEnabled ? "open" : "closed"}. Pickup is {storefront.pickupEnabled ? "available" : "unavailable"}.</p> : null}
+      </Card>
       <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,_#102a43,_#172554_48%,_#1f2937)] p-6 text-white shadow-[0_24px_64px_rgba(16,42,67,0.28)]">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>

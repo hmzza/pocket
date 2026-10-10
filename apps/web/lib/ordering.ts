@@ -31,7 +31,7 @@ export function calculateOrderTotals(subtotal: number, delivery: number, discoun
   };
 }
 
-export async function validateCouponCode(code: string, subtotal: number, branchSlug?: string): Promise<CouponValidationResult> {
+export async function validateCouponCode(code: string, subtotal: number, branchSlug?: string, channel?: "DELIVERY" | "PICKUP"): Promise<CouponValidationResult> {
   const normalizedCode = code.trim().toUpperCase();
 
   if (!normalizedCode) {
@@ -49,7 +49,8 @@ export async function validateCouponCode(code: string, subtotal: number, branchS
     body: JSON.stringify({
       code: normalizedCode,
       subtotal,
-      branchSlug
+      branchSlug,
+      ...(channel ? { channel } : {})
     })
   });
 

@@ -38,6 +38,8 @@ export function formatOrderForReceipt(order: any) {
     paidAmount: Number(order.cashReceivedAmount ?? 0),
     changeDueAmount: Number(order.changeDueAmount ?? 0),
     placedAt: order.placedAt,
+    expectedPickupAt: order.expectedPickupAt ?? null,
+    deliveryInstructions: order.deliveryInstructions ?? null,
     branch: {
       id: order.branch.id,
       name: order.branch.name,

@@ -3,6 +3,8 @@ import { addDateKeyDays, getPakistanDateParts } from "./business-day.js";
 
 export const DELIVERY_CITY = "Islamabad";
 export const DELIVERY_CLOSED_MESSAGE = "Our riders are currently busy at the moment, you can call or text on 03295196981 to place your order.";
+export const SHOP_CLOSED_MESSAGE = "Our shop is closed at the moment.";
+export const SHOP_TEMPORARILY_CLOSED_MESSAGE = "Our branch is temporarily closed. We will open again soon.";
 
 const LEGACY_SECTORS = [
   { name: "G-11", fee: 70 },
@@ -33,6 +35,14 @@ export type DeliveryConfigSnapshot = {
   nextTransitionAt: string | null;
   message: string | null;
   sectors: DeliverySectorSnapshot[];
+  shopEnabled: boolean;
+  pickupEnabled: boolean;
+  shopScheduleConfigured: boolean;
+  shopOpenTime: string | null;
+  shopCloseTime: string | null;
+  shopIsWithinSchedule: boolean;
+  shopNextTransitionAt: string | null;
+  shopMessage: string | null;
 };
 
 function dateKeyFromParts(parts: { year: number; month: number; day: number }) {
@@ -64,6 +74,10 @@ export function getDeliverySubsectors(sectorName: string) {
 
 export function isDeliverySubsector(sectorName: string, subsector: string) {
   return getDeliverySubsectors(sectorName).includes(subsector);
+}
+
+export function isWithinScheduleAt(date: Date, openTime: string, closeTime: string) {
+  return scheduleWindow(date, openTime, closeTime).within;
 }
 
 export async function ensureDeliveryConfiguration(branchId: string) {
@@ -103,6 +117,14 @@ export async function ensureDeliveryConfigurations() {
   }
 }
 
+export async function ensureStorefrontConfiguration(branchId: string) {
+  return prisma.storefrontConfiguration.upsert({
+    where: { branchId },
+    update: {},
+    create: { branchId, manualEnabled: true }
+  });
+}
+
 function scheduleWindow(now: Date, openTime: string, closeTime: string) {
   const openMinutes = parseTime(openTime);
   const closeMinutes = parseTime(closeTime);
@@ -134,8 +156,10 @@ function scheduleWindow(now: Date, openTime: string, closeTime: string) {
 
 export async function getDeliveryConfigSnapshot(branchId: string, options: { includeInactive?: boolean; now?: Date } = {}): Promise<DeliveryConfigSnapshot> {
   await ensureDeliveryConfiguration(branchId);
-  const [configuration, branch, sectors] = await Promise.all([
+  await ensureStorefrontConfiguration(branchId);
+  const [configuration, storefront, branch, sectors] = await Promise.all([
     prisma.deliveryConfiguration.findUniqueOrThrow({ where: { branchId } }),
+    prisma.storefrontConfiguration.findUniqueOrThrow({ where: { branchId } }),
     prisma.branch.findUniqueOrThrow({ where: { id: branchId }, select: { phone: true } }),
     prisma.deliverySector.findMany({
       where: { branchId, ...(options.includeInactive ? {} : { isActive: true }) },
@@ -149,20 +173,50 @@ export async function getDeliveryConfigSnapshot(branchId: string, options: { inc
     ? scheduleWindow(now, configuration.openTime!, configuration.closeTime!)
     : { within: true, windowKey: null, nextTransitionAt: null };
   const manualAllowed = !scheduleConfigured || schedule.within;
-  const manualEnabled = configuration.manualOverrideWindowKey === schedule.windowKey
-    ? configuration.manualEnabled
-    : configuration.manualEnabled;
-  const deliveryEnabled = manualAllowed && (!scheduleConfigured || (schedule.within && (configuration.manualOverrideWindowKey !== schedule.windowKey || manualEnabled)));
+  const deliveryScheduleEnabled = manualAllowed && (
+    scheduleConfigured
+      ? (configuration.manualOverrideWindowKey !== schedule.windowKey || configuration.manualEnabled)
+      : configuration.manualEnabled
+  );
+
+  const shopScheduleConfigured = Boolean(storefront.openTime && storefront.closeTime);
+  const shopSchedule = shopScheduleConfigured
+    ? scheduleWindow(now, storefront.openTime!, storefront.closeTime!)
+    : { within: true, windowKey: null, nextTransitionAt: null };
+  const shopManualAllowed = !shopScheduleConfigured || shopSchedule.within;
+  const shopEnabled = shopManualAllowed && (
+    shopScheduleConfigured
+      ? (storefront.manualOverrideWindowKey !== shopSchedule.windowKey || storefront.manualEnabled)
+      : storefront.manualEnabled
+  );
+  const pickupEnabled = shopEnabled;
+  const deliveryEnabled = shopEnabled && deliveryScheduleEnabled;
+  const deliveryClosedMessage = `${DELIVERY_CLOSED_MESSAGE.replace("03295196981", normalizePhone(branch.phone))} You can visit our branch or place a pickup order from the website.`;
+  const shopMessage = shopEnabled
+    ? (deliveryEnabled ? null : deliveryClosedMessage)
+    : storefront.manualOverrideWindowKey === shopSchedule.windowKey && shopSchedule.within
+      ? SHOP_TEMPORARILY_CLOSED_MESSAGE
+      : shopScheduleConfigured && shopSchedule.nextTransitionAt
+        ? `${SHOP_CLOSED_MESSAGE} It will open at ${new Intl.DateTimeFormat("en-PK", { timeZone: "Asia/Karachi", hour: "numeric", minute: "2-digit" }).format(new Date(shopSchedule.nextTransitionAt))}.`
+        : SHOP_CLOSED_MESSAGE;
 
   return {
     deliveryEnabled,
     scheduleConfigured,
     openTime: configuration.openTime,
     closeTime: configuration.closeTime,
-    manualEnabled,
+    manualEnabled: configuration.manualEnabled,
     isWithinSchedule: schedule.within,
     nextTransitionAt: schedule.nextTransitionAt,
-    message: deliveryEnabled ? null : DELIVERY_CLOSED_MESSAGE.replace("03295196981", normalizePhone(branch.phone)),
+    message: deliveryEnabled ? null : shopEnabled ? deliveryClosedMessage : shopMessage,
+    shopEnabled,
+    pickupEnabled,
+    shopScheduleConfigured,
+    shopOpenTime: storefront.openTime,
+    shopCloseTime: storefront.closeTime,
+    shopIsWithinSchedule: shopSchedule.within,
+    shopNextTransitionAt: shopSchedule.nextTransitionAt,
+    shopMessage,
     sectors: sectors.map((sector) => ({
       id: sector.id,
       name: sector.name,
@@ -172,6 +226,34 @@ export async function getDeliveryConfigSnapshot(branchId: string, options: { inc
       subsectors: getDeliverySubsectors(sector.name)
     }))
   };
+}
+
+export async function setStorefrontManualState(branchId: string, enabled: boolean) {
+  const configuration = await ensureStorefrontConfiguration(branchId);
+  const now = new Date();
+  const snapshot = await getDeliveryConfigSnapshot(branchId, { now });
+  const windowKey = snapshot.shopScheduleConfigured && snapshot.shopIsWithinSchedule
+    ? scheduleWindow(now, snapshot.shopOpenTime!, snapshot.shopCloseTime!).windowKey
+    : null;
+
+  return prisma.storefrontConfiguration.update({
+    where: { id: configuration.id },
+    data: { manualEnabled: enabled, manualOverrideWindowKey: windowKey }
+  });
+}
+
+export async function setStorefrontTimings(branchId: string, openTime: string | null, closeTime: string | null) {
+  if ((openTime && !closeTime) || (!openTime && closeTime)) {
+    throw new Error("Set both shop opening and closing times, or clear both.");
+  }
+  if (openTime) parseTime(openTime);
+  if (closeTime) parseTime(closeTime);
+
+  await ensureStorefrontConfiguration(branchId);
+  return prisma.storefrontConfiguration.update({
+    where: { branchId },
+    data: { openTime, closeTime, manualEnabled: true, manualOverrideWindowKey: null }
+  });
 }
 
 export async function setDeliveryManualState(branchId: string, enabled: boolean) {

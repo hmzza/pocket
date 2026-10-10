@@ -1,4 +1,4 @@
-import { OrderStatus, PaymentStatus, RoleCode } from "@prisma/client";
+import { OrderChannel, OrderStatus, PaymentStatus, RoleCode, ServiceType } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { INVENTORY_TRANSACTION_OPTIONS, prisma } from "../lib/prisma.js";
@@ -300,7 +300,7 @@ router.patch("/orders/:id/status", async (req, res, next) => {
       payload: { ...payload, orderNumber: order.orderNumber, branchId: order.branchId }
     });
 
-    if (order.serviceType === "DELIVERY") {
+    if (order.serviceType === ServiceType.DELIVERY || (order.channel === OrderChannel.ONLINE && order.serviceType === ServiceType.TAKEAWAY)) {
       publishDeliveryOrderEvent({
         branchId: order.branchId,
         orderId: order.id,

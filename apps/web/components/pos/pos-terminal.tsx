@@ -34,7 +34,7 @@ type TicketLine = {
 
 type ProductSelection = { groupId: string; optionIds: string[]; optionQuantities?: Record<string, number> };
 
-type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT" | "CASH_ON_DELIVERY";
+type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT" | "CASH_ON_DELIVERY" | "PAY_AT_COUNTER";
 type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA" | "DELIVERY";
 type ServiceTypeSelection = ServiceTypeValue | "";
 
@@ -154,6 +154,7 @@ function formatWhatsAppPhone(value: string) {
 function formatPaymentMethod(value: string) {
   const map: Record<string, string> = {
     CASH: "Cash",
+    PAY_AT_COUNTER: "Payment pending",
     CASH_ON_DELIVERY: "Cash on Delivery",
     CARD: "Card",
     ONLINE: "Online",
@@ -181,6 +182,17 @@ function formatServiceType(value: string) {
   };
 
   return map[value] ?? value.replaceAll("_", " ");
+}
+
+function formatPickupTime(value: string | null | undefined) {
+  if (!value) return "Fast pickup";
+  return new Intl.DateTimeFormat("en-PK", {
+    timeZone: "Asia/Karachi",
+    day: "2-digit",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function formatReceiptDateTime(value: string) {
@@ -531,7 +543,7 @@ export function PosTerminal() {
       return;
     }
 
-    if (paymentMethod === "FOODPANDA_PAYOUT" || paymentMethod === "CASH_ON_DELIVERY") {
+    if (paymentMethod === "FOODPANDA_PAYOUT" || paymentMethod === "CASH_ON_DELIVERY" || paymentMethod === "PAY_AT_COUNTER") {
       setPaymentMethod("");
     }
   }, [paymentMethod, serviceType]);
@@ -1175,6 +1187,12 @@ export function PosTerminal() {
               ) : customerPhone.replace(/\D/g, "").length >= 7 ? (
                 <div className={splitView ? "rounded-xl border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-600" : "rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600"}>
                   New customer phone. Receipt sharing will be available after checkout.
+                </div>
+              ) : null}
+              {lastReceiptOrder?.channel === "ONLINE" && serviceType === "TAKEAWAY" ? (
+                <div className={splitView ? "rounded-xl border border-sky-200 bg-sky-50 px-2 py-1 text-[10px] text-sky-950" : "rounded-xl border border-sky-200 bg-sky-50 px-2.5 py-1.5 text-[11px] text-sky-950"}>
+                  <p className="font-bold leading-tight">Website pickup: {formatPickupTime(lastReceiptOrder.expectedPickupAt)}</p>
+                  {lastReceiptOrder.deliveryInstructions ? <p className="mt-0.5 leading-tight">Note: {lastReceiptOrder.deliveryInstructions}</p> : null}
                 </div>
               ) : null}
               <div className="grid gap-3 md:grid-cols-2">

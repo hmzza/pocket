@@ -254,6 +254,8 @@ function formatEditablePosOrder(order: any) {
     customerPhone: order.customerPhone ?? "",
     serviceType: order.serviceType,
     paymentMethod: order.paymentMethod,
+    expectedPickupAt: order.expectedPickupAt ?? null,
+    pickupInstructions: order.serviceType === ServiceType.TAKEAWAY && order.channel === OrderChannel.ONLINE ? order.deliveryInstructions ?? null : null,
     discountType: order.coupon?.type ?? order.manualDiscountType ?? "NONE",
     discountValue: Number(order.coupon?.value ?? order.manualDiscountValue ?? 0),
     promotionName: order.promotionName ?? null,
@@ -816,7 +818,7 @@ router.get("/orders/lookup", async (req, res, next) => {
       include: posOrderInclude
     });
 
-    if (!order || (order.channel !== OrderChannel.POS && order.serviceType !== ServiceType.DELIVERY) || order.branchId !== branchContext.branchId) {
+    if (!order || (order.channel !== OrderChannel.POS && !(order.serviceType === ServiceType.DELIVERY || order.serviceType === ServiceType.TAKEAWAY)) || order.branchId !== branchContext.branchId) {
       return res.status(404).json({ message: "POS order not found." });
     }
 
@@ -840,7 +842,7 @@ router.get("/orders/:orderId", async (req, res, next) => {
     include: posOrderInclude
   });
 
-  if (!order || order.channel !== OrderChannel.POS || order.branchId !== branchContext.branchId) {
+  if (!order || (order.channel !== OrderChannel.POS && !(order.serviceType === ServiceType.DELIVERY || order.serviceType === ServiceType.TAKEAWAY)) || order.branchId !== branchContext.branchId) {
     return res.status(404).json({ message: "POS order not found." });
   }
 
@@ -1064,7 +1066,7 @@ router.patch("/orders/:orderId", async (req, res, next) => {
       }
     });
 
-    if (!existingOrder || (existingOrder.channel !== OrderChannel.POS && existingOrder.serviceType !== ServiceType.DELIVERY)) {
+    if (!existingOrder || (existingOrder.channel !== OrderChannel.POS && !(existingOrder.serviceType === ServiceType.DELIVERY || existingOrder.serviceType === ServiceType.TAKEAWAY))) {
       return res.status(404).json({ message: "POS order not found." });
     }
 
@@ -1150,7 +1152,9 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           paymentMethod,
           paymentStatus: delivery
             ? paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? PaymentStatus.PENDING : PaymentStatus.PAID
-            : PaymentStatus.UNSET,
+            : existingOrder.channel === OrderChannel.ONLINE && payload.serviceType === "TAKEAWAY"
+              ? PaymentStatus.PAID
+              : PaymentStatus.UNSET,
           cashierId: existingOrder.channel === OrderChannel.POS ? req.user!.id : existingOrder.cashierId,
           // Preserve the original punch time when a paid POS order is edited.
           placedAt: existingOrder.placedAt,
