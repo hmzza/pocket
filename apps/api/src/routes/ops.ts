@@ -248,11 +248,13 @@ router.patch("/orders/:id/status", async (req, res, next) => {
         });
       }
 
+      const incomingOnlineOrder = currentOrder.serviceType === ServiceType.DELIVERY || (currentOrder.channel === OrderChannel.ONLINE && currentOrder.serviceType === ServiceType.TAKEAWAY);
+
       return transaction.order.update({
         where: { id: req.params.id },
         data: {
           status: payload.status,
-          ...(currentOrder.serviceType === "DELIVERY" && currentOrder.status === OrderStatus.PENDING && payload.status === OrderStatus.CONFIRMED
+          ...(incomingOnlineOrder && currentOrder.status === OrderStatus.PENDING && payload.status === OrderStatus.CONFIRMED
             ? { acceptedById: req.user!.id, acceptedAt: new Date() }
             : {})
         },

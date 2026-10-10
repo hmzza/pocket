@@ -45,20 +45,44 @@ function pakistanParts(date: Date) {
   return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate(), hour: shifted.getUTCHours(), minute: shifted.getUTCMinutes() };
 }
 
+function addPakistanCalendarDay(year: number, month: number, day: number, days: number) {
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
+function pakistanTimeAt(parts: { year: number; month: number; day: number }, minutes: number) {
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, Math.floor(minutes / 60) - 5, minutes % 60));
+}
+
 function pickupSlots(snapshot: { shopScheduleConfigured?: boolean; shopOpenTime?: string | null; shopCloseTime?: string | null }) {
   if (!snapshot.shopScheduleConfigured || !snapshot.shopOpenTime || !snapshot.shopCloseTime) return [];
   const open = Number(snapshot.shopOpenTime.slice(0, 2)) * 60 + Number(snapshot.shopOpenTime.slice(3, 5));
   const close = Number(snapshot.shopCloseTime.slice(0, 2)) * 60 + Number(snapshot.shopCloseTime.slice(3, 5));
+  const now = new Date();
+  const nowParts = pakistanParts(now);
+  const nowMinutes = nowParts.hour * 60 + nowParts.minute;
+  let windowEnd: Date;
+
+  if (open === close) {
+    windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  } else if (close > open) {
+    if (nowMinutes < open || nowMinutes >= close) return [];
+    windowEnd = pakistanTimeAt(nowParts, close);
+  } else {
+    if (nowMinutes >= open) {
+      windowEnd = pakistanTimeAt(addPakistanCalendarDay(nowParts.year, nowParts.month, nowParts.day, 1), close);
+    } else if (nowMinutes < close) {
+      windowEnd = pakistanTimeAt(nowParts, close);
+    } else {
+      return [];
+    }
+  }
+
   const start = Math.ceil((Date.now() + 60_000) / (15 * 60_000)) * 15 * 60_000;
   const slots: Array<{ value: string; label: string }> = [];
-  for (let timestamp = start; timestamp <= start + 24 * 60 * 60 * 1000; timestamp += 15 * 60_000) {
+  for (let timestamp = start; timestamp <= windowEnd.getTime(); timestamp += 15 * 60_000) {
     const candidate = new Date(timestamp);
-    const parts = pakistanParts(candidate);
-    const minutes = parts.hour * 60 + parts.minute;
-    const within = open === close || (close > open ? minutes >= open && minutes < close : minutes >= open || minutes < close);
-    if (!within) continue;
     slots.push({ value: candidate.toISOString(), label: candidate.toLocaleTimeString("en-PK", { timeZone: "Asia/Karachi", hour: "numeric", minute: "2-digit" }) });
-    if (slots.length >= 48) break;
   }
   return slots;
 }
@@ -119,6 +143,8 @@ export default function CheckoutPage() {
   function clearFieldError(field: CheckoutField) { setFieldErrors((current) => current[field] ? { ...current, [field]: undefined } : current); }
 
   function switchFulfillment(next: Fulfillment) {
+    if (next === "DELIVERY" && (!deliveryEnabled || !shopEnabled)) return;
+    if (next === "PICKUP" && (!pickupEnabled || !shopEnabled)) return;
     setFulfillment(next); setError(""); setFieldErrors({});
     if (next === "PICKUP") { setDeliverySector(""); setDeliverySubsector(""); setAddressLine1(""); setAddressNotes(""); }
     else { setPickupAt(""); setPickupNotes(""); }
@@ -161,7 +187,7 @@ export default function CheckoutPage() {
   if (confirmedOrderNumber) return <div className="mx-auto max-w-2xl px-4 py-14 md:px-6"><Card className="border-emerald-200 bg-emerald-50 p-7 text-center"><CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" /><p className="mt-5 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-700">Order received</p><h1 className="mt-2 text-3xl font-black text-pocket-navy">{confirmedOrderNumber}</h1><p className="mt-3 text-base text-pocket-navy/75">Your order is waiting for Pocket to accept it. We will contact you on WhatsApp if we need anything.</p><p className="mt-5 text-xl font-black text-pocket-orange">{formatCurrency(confirmedTotal)}</p><p className="mt-1 text-sm text-pocket-navy/60">{fulfillment === "PICKUP" ? "Pay at the branch" : "Cash on Delivery"}</p><Link href="/menu" className="mt-7 inline-flex"><Button>Order more items</Button></Link></Card></div>;
 
   return <div className="mx-auto max-w-7xl px-4 py-10 md:px-6"><form onSubmit={handleSubmit} className="grid gap-8 lg:grid-cols-[1fr_360px]"><div className="space-y-6"><div><p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Checkout</p><h1 className="text-4xl font-black text-pocket-navy">A few details, then we'll take it from here.</h1></div>
-    <div className="grid grid-cols-2 gap-2 rounded-xl bg-pocket-cream p-1"><button type="button" onClick={() => switchFulfillment("DELIVERY")} className={`rounded-lg px-4 py-3 text-sm font-bold ${fulfillment === "DELIVERY" ? "bg-white text-pocket-navy shadow-sm" : "text-pocket-navy/60"}`}>Delivery</button><button type="button" onClick={() => switchFulfillment("PICKUP")} disabled={!pickupEnabled} className={`rounded-lg px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40 ${fulfillment === "PICKUP" ? "bg-white text-pocket-navy shadow-sm" : "text-pocket-navy/60"}`}>Pickup</button></div>
+    <div className="grid grid-cols-2 gap-2 rounded-xl bg-pocket-cream p-1"><button type="button" onClick={() => switchFulfillment("DELIVERY")} disabled={!deliveryEnabled || !shopEnabled || availabilityLoading} className={`rounded-lg px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40 ${fulfillment === "DELIVERY" ? "bg-white text-pocket-navy shadow-sm" : "text-pocket-navy/60"}`}>Delivery</button><button type="button" onClick={() => switchFulfillment("PICKUP")} disabled={!pickupEnabled || !shopEnabled || availabilityLoading} className={`rounded-lg px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40 ${fulfillment === "PICKUP" ? "bg-white text-pocket-navy shadow-sm" : "text-pocket-navy/60"}`}>Pickup</button></div>
     {catalogError ? <Card className="border-red-300 bg-red-50 p-4 text-sm text-red-700">Live catalog is unavailable right now. Checkout is blocked until it reconnects.</Card> : null}{catalogLoading && !cartProducts.length && cart.length ? <Card className="p-4 text-sm text-pocket-navy/70">Refreshing your cart...</Card> : null}{modeClosed ? <Card className="border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{!shopEnabled ? shopMessage : deliveryMessage}</Card> : null}
     <Card className="p-5"><p className="text-lg font-black text-pocket-navy">{fulfillment === "DELIVERY" ? "Delivery details" : "Pickup details"}</p>{fulfillment === "DELIVERY" ? <p className="mt-1 text-sm leading-6 text-pocket-navy/60">Pocket currently delivers only within Islamabad, and only to the sectors listed below. Choose the sub-sector as well and use the WhatsApp number that Pocket should use to contact you.</p> : <p className="mt-1 text-sm leading-6 text-pocket-navy/60">Choose Fast pickup or a 15-minute pickup time during today’s shop hours. We will contact you on WhatsApp if needed.</p>}<div className="mt-4 grid gap-4 md:grid-cols-2">
       {fulfillment === "DELIVERY" ? <><label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sector</span><select className={`flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm ${fieldClasses(Boolean(fieldErrors.deliverySector))}`} value={deliverySector} onChange={(event) => { setDeliverySector(event.target.value); setDeliverySubsector(""); clearFieldError("deliverySector"); clearFieldError("deliverySubsector"); }} required><option value="">Choose your sector</option>{deliveryAreas.map((area) => <option key={area.id} value={area.name}>{area.name}</option>)}</select>{fieldErrors.deliverySector ? <p className="text-xs font-medium text-red-600">{fieldErrors.deliverySector}</p> : null}</label><label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Sub-sector</span><select className={`flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm disabled:bg-pocket-cream ${fieldClasses(Boolean(fieldErrors.deliverySubsector))}`} value={deliverySubsector} onChange={(event) => { setDeliverySubsector(event.target.value); clearFieldError("deliverySubsector"); }} disabled={!selectedArea} required><option value="">{selectedArea ? `Choose ${selectedArea.name} sub-sector` : "Choose a sector first"}</option>{deliverySubsectors.map((subsector) => <option key={subsector} value={subsector}>{subsector}</option>)}</select>{fieldErrors.deliverySubsector ? <p className="text-xs font-medium text-red-600">{fieldErrors.deliverySubsector}</p> : null}</label></> : <label className="space-y-1 text-sm font-semibold text-pocket-navy md:col-span-2"><span>Pickup time</span><select className={`flex h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm ${fieldClasses(Boolean(fieldErrors.pickupAt))}`} value={pickupAt} onChange={(event) => { setPickupAt(event.target.value); clearFieldError("pickupAt"); }}><option value="">Fast pickup</option>{slots.map((slot) => <option key={slot.value} value={slot.value}>{slot.label}</option>)}</select>{fieldErrors.pickupAt ? <p className="text-xs font-medium text-red-600">{fieldErrors.pickupAt}</p> : null}</label>}
