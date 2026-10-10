@@ -3685,6 +3685,13 @@ const moneyAdditionSchema = z.object({
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 });
 
+const savingsMovementSchema = z.object({
+  type: z.enum(["ADD", "RELEASE"]),
+  amount: z.number().positive(),
+  source: z.enum(MONEY_SOURCES),
+  businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+});
+
 const closingQuerySchema = z.object({
   branchId: z.string().cuid(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
@@ -3772,6 +3779,22 @@ async function readInvestmentCashflow(branchId: string, start: Date, end: Date) 
   }
 }
 
+async function readSavingsCashflow(branchId: string, start: Date, end: Date) {
+  try {
+    return await prisma.savingsMovement.findMany({
+      where: {
+        branchId,
+        businessDate: { gte: start, lte: end },
+        source: { in: [...MONEY_SOURCES] }
+      },
+      select: { id: true, type: true, source: true, amount: true, businessDate: true, createdAt: true, createdBy: { select: { name: true } } }
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) return [];
+    throw error;
+  }
+}
+
 async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   const date = normalizeClosingDate(closingDate);
   const start = startOfDay(date);
@@ -3781,7 +3804,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     prisma.openingBalance.findFirst({ where: { branchId, balanceDate: { lte: start } }, orderBy: { balanceDate: "desc" } })
   ]);
 
-  const [orders, foodpandaOrders, expenses, transfers, additions, loanCashflow, investmentCashflow, currentClosing, recentClosings] = await Promise.all([
+  const [orders, foodpandaOrders, expenses, transfers, additions, loanCashflow, investmentCashflow, savingsCashflow, currentClosing, recentClosings] = await Promise.all([
     prisma.order.findMany({
       where: {
         branchId,
@@ -3831,6 +3854,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     }),
     readLoanCashflow(branchId, start, end),
     readInvestmentCashflow(branchId, start, end),
+    readSavingsCashflow(branchId, start, end),
     prisma.dailyClosing.findUnique({
       where: { branchId_closingDate: { branchId, closingDate: start } },
       include: { closedBy: true }
@@ -3881,10 +3905,19 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
   for (const payment of investmentCashflow) {
     investmentIn[payment.receivedSource as keyof typeof investmentIn] += parseDecimal(payment.amount);
   }
+  const savingsIn = emptyMoneyTotals();
+  const savingsOut = emptyMoneyTotals();
+  for (const movement of savingsCashflow) {
+    if (movement.type === "RELEASE") {
+      savingsIn[movement.source as keyof typeof savingsIn] += parseDecimal(movement.amount);
+    } else {
+      savingsOut[movement.source as keyof typeof savingsOut] += parseDecimal(movement.amount);
+    }
+  }
   const expected = {
-    CASH: roundMoney(opening.CASH + sales.CASH - expenseTotals.CASH - transferOut.CASH + transferIn.CASH + additionIn.CASH + loanIn.CASH + investmentIn.CASH - loanOut.CASH),
-    EASYPAISA: roundMoney(opening.EASYPAISA + sales.EASYPAISA - expenseTotals.EASYPAISA - transferOut.EASYPAISA + transferIn.EASYPAISA + additionIn.EASYPAISA + loanIn.EASYPAISA + investmentIn.EASYPAISA - loanOut.EASYPAISA),
-    JAZZCASH: roundMoney(opening.JAZZCASH + sales.JAZZCASH - expenseTotals.JAZZCASH - transferOut.JAZZCASH + transferIn.JAZZCASH + additionIn.JAZZCASH + loanIn.JAZZCASH + investmentIn.JAZZCASH - loanOut.JAZZCASH)
+    CASH: roundMoney(opening.CASH + sales.CASH - expenseTotals.CASH - transferOut.CASH + transferIn.CASH + additionIn.CASH + loanIn.CASH + investmentIn.CASH + savingsIn.CASH - loanOut.CASH - savingsOut.CASH),
+    EASYPAISA: roundMoney(opening.EASYPAISA + sales.EASYPAISA - expenseTotals.EASYPAISA - transferOut.EASYPAISA + transferIn.EASYPAISA + additionIn.EASYPAISA + loanIn.EASYPAISA + investmentIn.EASYPAISA + savingsIn.EASYPAISA - loanOut.EASYPAISA - savingsOut.EASYPAISA),
+    JAZZCASH: roundMoney(opening.JAZZCASH + sales.JAZZCASH - expenseTotals.JAZZCASH - transferOut.JAZZCASH + transferIn.JAZZCASH + additionIn.JAZZCASH + loanIn.JAZZCASH + investmentIn.JAZZCASH + savingsIn.JAZZCASH - loanOut.JAZZCASH - savingsOut.JAZZCASH)
   };
 
   return {
@@ -3903,6 +3936,17 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     loanIn,
     investmentIn,
     loanOut,
+    savingsIn,
+    savingsOut,
+    savingsMovementsToday: savingsCashflow.map((movement) => ({
+      id: movement.id,
+      type: movement.type,
+      source: movement.source,
+      amount: parseDecimal(movement.amount),
+      businessDate: movement.businessDate.toISOString(),
+      createdByName: movement.createdBy?.name ?? null,
+      createdAt: movement.createdAt.toISOString()
+    })),
     additionsToday: additions.map((addition) => ({
       id: addition.id,
       branchId: addition.branchId,
@@ -4218,6 +4262,104 @@ router.delete("/inventory/closing/additions/:id", async (req, res, next) => {
     if (!addition) return res.status(404).json({ message: "Money addition not found." });
     await prisma.moneyAddition.delete({ where: { id: addition.id } });
     await writeAuditLog({ actorId: req.user!.id, action: "finance.money_addition_delete", entityType: "money_addition", entityId: addition.id, payload: { mode: "deleted" } });
+    return res.json({ deleted: true });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/savings", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const movements = await prisma.savingsMovement.findMany({
+      where: { branchId: branchContext.branchId },
+      include: { createdBy: true },
+      orderBy: [{ businessDate: "desc" }, { createdAt: "desc" }]
+    });
+    const balances = emptyMoneyTotals();
+    for (const movement of movements) {
+      const source = movement.source as keyof typeof balances;
+      balances[source] += movement.type === "ADD" ? parseDecimal(movement.amount) : -parseDecimal(movement.amount);
+    }
+    return res.json({
+      sources: MONEY_SOURCES,
+      balances: Object.fromEntries(Object.entries(balances).map(([source, value]) => [source, roundMoney(value)])),
+      totalBalance: roundMoney(Object.values(balances).reduce((sum, value) => sum + value, 0)),
+      movements: movements.map((movement) => ({
+        id: movement.id,
+        branchId: movement.branchId,
+        type: movement.type,
+        amount: parseDecimal(movement.amount),
+        source: movement.source,
+        businessDate: movement.businessDate.toISOString(),
+        createdByName: movement.createdBy?.name ?? null,
+        createdAt: movement.createdAt.toISOString()
+      }))
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/savings", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = savingsMovementSchema.parse(req.body);
+    const businessDate = normalizeClosingDate(new Date(`${payload.businessDate}T12:00:00+05:00`));
+    const movement = await prisma.$transaction(async (tx) => {
+      if (payload.type === "RELEASE") {
+        const existingMovements = await tx.savingsMovement.findMany({
+          where: { branchId: branchContext.branchId, source: payload.source },
+          select: { type: true, amount: true }
+        });
+        const balance = existingMovements.reduce((sum, entry) => sum + (entry.type === "ADD" ? parseDecimal(entry.amount) : -parseDecimal(entry.amount)), 0);
+        if (payload.amount > roundMoney(balance)) {
+          throw Object.assign(new Error(`Release cannot exceed ${payload.source.toLowerCase()} savings balance of Rs ${roundMoney(balance)}.`), { statusCode: 400 });
+        }
+      }
+      return tx.savingsMovement.create({
+        data: {
+          branchId: branchContext.branchId,
+          type: payload.type,
+          amount: payload.amount,
+          source: payload.source,
+          businessDate,
+          createdById: req.user!.id
+        },
+        include: { createdBy: true }
+      });
+    });
+    await writeAuditLog({ actorId: req.user!.id, action: `capital.savings_${payload.type.toLowerCase()}`, entityType: "savings_movement", entityId: movement.id, payload });
+    return res.status(201).json({ movement: {
+      id: movement.id,
+      branchId: movement.branchId,
+      type: movement.type,
+      amount: parseDecimal(movement.amount),
+      source: movement.source,
+      businessDate: movement.businessDate.toISOString(),
+      createdByName: movement.createdBy?.name ?? null,
+      createdAt: movement.createdAt.toISOString()
+    } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/savings/:id", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const movement = await prisma.savingsMovement.findFirst({ where: { id: req.params.id, branchId: branchContext.branchId } });
+    if (!movement) return res.status(404).json({ message: "Savings movement not found." });
+    const remainingMovements = await prisma.savingsMovement.findMany({
+      where: { branchId: branchContext.branchId, source: movement.source, id: { not: movement.id } },
+      select: { type: true, amount: true }
+    });
+    const remainingBalance = remainingMovements.reduce((sum, entry) => sum + (entry.type === "ADD" ? parseDecimal(entry.amount) : -parseDecimal(entry.amount)), 0);
+    if (remainingBalance < -0.01) {
+      return res.status(400).json({ message: "This savings entry cannot be deleted because existing releases depend on it." });
+    }
+    await prisma.savingsMovement.delete({ where: { id: movement.id } });
+    await writeAuditLog({ actorId: req.user!.id, action: "capital.savings_delete", entityType: "savings_movement", entityId: movement.id, payload: { mode: "deleted" } });
     return res.json({ deleted: true });
   } catch (error) {
     return next(error);

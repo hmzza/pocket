@@ -143,22 +143,26 @@ export function DailyClosingManagement() {
   }, [actual, data]);
 
   const totals = useMemo(() => {
-    if (!data) return { sales: 0, expenses: 0, loanIn: 0, investmentIn: 0, additionIn: 0, loanOut: 0, inflow: 0, outflow: 0, difference: 0 };
+    if (!data) return { sales: 0, expenses: 0, loanIn: 0, investmentIn: 0, additionIn: 0, savingsIn: 0, loanOut: 0, savingsOut: 0, inflow: 0, outflow: 0, difference: 0 };
     const sales = data.sales.CASH + data.sales.EASYPAISA + data.sales.JAZZCASH;
     const loanIn = data.loanIn.CASH + data.loanIn.EASYPAISA + data.loanIn.JAZZCASH;
     const investmentIn = data.investmentIn.CASH + data.investmentIn.EASYPAISA + data.investmentIn.JAZZCASH;
     const additionIn = data.additionIn.CASH + data.additionIn.EASYPAISA + data.additionIn.JAZZCASH;
+    const savingsIn = data.savingsIn.CASH + data.savingsIn.EASYPAISA + data.savingsIn.JAZZCASH;
     const expenses = data.expenses.CASH + data.expenses.EASYPAISA + data.expenses.JAZZCASH;
     const loanOut = data.loanOut.CASH + data.loanOut.EASYPAISA + data.loanOut.JAZZCASH;
-    const inflow = sales + loanIn + investmentIn + additionIn;
-    const outflow = expenses + loanOut;
+    const savingsOut = data.savingsOut.CASH + data.savingsOut.EASYPAISA + data.savingsOut.JAZZCASH;
+    const inflow = sales + loanIn + investmentIn + additionIn + savingsIn;
+    const outflow = expenses + loanOut + savingsOut;
     return {
       sales,
       expenses,
       loanIn,
       investmentIn,
       additionIn,
+      savingsIn,
       loanOut,
+      savingsOut,
       inflow,
       outflow,
       difference: inflow - outflow
@@ -370,8 +374,8 @@ export function DailyClosingManagement() {
           </Card>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <MovementSummaryCard label="Inflow" value={totals.inflow} tone="positive" lines={[`Sales ${formatCurrency(totals.sales)}`, `Capital received ${formatCurrency(totals.investmentIn)}`, `Loans received ${formatCurrency(totals.loanIn)}`, `Other money added ${formatCurrency(totals.additionIn)}`]} />
-            <MovementSummaryCard label="Outflow" value={totals.outflow} tone="negative" lines={[`Expenses ${formatCurrency(totals.expenses)}`, `Loan repayments ${formatCurrency(totals.loanOut)}`]} />
+            <MovementSummaryCard label="Inflow" value={totals.inflow} tone="positive" lines={[`Sales ${formatCurrency(totals.sales)}`, `Capital received ${formatCurrency(totals.investmentIn)}`, `Loans received ${formatCurrency(totals.loanIn)}`, `Other money added ${formatCurrency(totals.additionIn)}`, `Savings released ${formatCurrency(totals.savingsIn)}`]} />
+            <MovementSummaryCard label="Outflow" value={totals.outflow} tone="negative" lines={[`Expenses ${formatCurrency(totals.expenses)}`, `Loan repayments ${formatCurrency(totals.loanOut)}`, `Savings added ${formatCurrency(totals.savingsOut)}`]} />
             <MovementSummaryCard label={totals.difference < -1 ? "Deficit" : totals.difference > 1 ? "Surplus" : "Balanced"} value={Math.abs(totals.difference)} tone={totals.difference < -1 ? "negative" : totals.difference > 1 ? "positive" : "neutral"} lines={[`Inflow ${formatCurrency(totals.inflow)}`, `Outflow ${formatCurrency(totals.outflow)}`]} />
           </div>
 
@@ -382,7 +386,7 @@ export function DailyClosingManagement() {
                 <p className="text-sm text-pocket-navy/60">Record transfers between accounts or unusual money added on this business day.</p>
               </div>
               <button type="button" className="inline-flex items-center gap-2 text-sm font-bold text-pocket-orange" onClick={() => setShowTransferHistory((value) => !value)} aria-expanded={showTransferHistory}>
-                {data.transfersToday.length + data.additionsToday.length} movement{data.transfersToday.length + data.additionsToday.length === 1 ? "" : "s"} history
+                {data.transfersToday.length + data.additionsToday.length + data.savingsMovementsToday.length} movement{data.transfersToday.length + data.additionsToday.length + data.savingsMovementsToday.length === 1 ? "" : "s"} history
                 <ChevronDown className={`h-4 w-4 transition-transform ${showTransferHistory ? "rotate-180" : ""}`} />
               </button>
             </div>
@@ -415,7 +419,12 @@ export function DailyClosingManagement() {
                   <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void deleteAddition(addition.id)}><Trash2 className="h-4 w-4" />Delete</Button>
                 </div>
               ))}
-              {!data.transfersToday.length && !data.additionsToday.length ? <p className="text-sm text-pocket-navy/60">No money movement recorded for this business day.</p> : null}
+              {data.savingsMovementsToday.map((movement) => (
+                <div key={movement.id} className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${movement.type === "ADD" ? "border-amber-200 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/60"}`}>
+                  <div><p className="font-bold text-pocket-navy"><span className={`mr-2 rounded-full px-2 py-1 text-[10px] uppercase tracking-wide ${movement.type === "ADD" ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>{movement.type === "ADD" ? "Savings added" : "Savings released"}</span>{formatCurrency(movement.amount)} · {moneyLabel(movement.source)}</p><p className="text-pocket-navy/55">{formatDateTime(movement.createdAt)}{movement.createdByName ? ` · ${movement.createdByName}` : ""}</p></div>
+                </div>
+              ))}
+              {!data.transfersToday.length && !data.additionsToday.length && !data.savingsMovementsToday.length ? <p className="text-sm text-pocket-navy/60">No money movement recorded for this business day.</p> : null}
             </div> : null}
           </Card>
 
@@ -444,9 +453,11 @@ export function DailyClosingManagement() {
                       <MovementRow label="Loan received" value={data.loanIn[key]} sign="plus" />
                       <MovementRow label="Investment received" value={data.investmentIn[key]} sign="plus" />
                       <MovementRow label="Other money added" value={data.additionIn[key]} sign="plus" />
+                      <MovementRow label="Savings released" value={data.savingsIn[key]} sign="plus" />
                       <MovementRow label="Transfers in" value={data.transferIn[key]} sign="plus" />
                       <MovementRow label="Expenses" value={data.expenses[key]} sign="minus" />
                       <MovementRow label="Loan repayments" value={data.loanOut[key]} sign="minus" />
+                      <MovementRow label="Savings added" value={data.savingsOut[key]} sign="minus" />
                       <MovementRow label="Transfers out" value={data.transferOut[key]} sign="minus" />
                     </div>
                     <div className="mt-4 border-t border-pocket-navy/10 pt-3">
