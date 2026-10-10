@@ -596,6 +596,24 @@ export type AdminInvestmentData = {
   transfers: AdminShareTransfer[];
 };
 
+export type AdminSavingsMovement = {
+  id: string;
+  branchId: string;
+  type: "ADD" | "RELEASE";
+  amount: number;
+  source: MoneySource;
+  businessDate: string;
+  createdByName?: string | null;
+  createdAt: string;
+};
+
+export type AdminSavingsData = {
+  sources: MoneySource[];
+  balances: Record<MoneySource, number>;
+  totalBalance: number;
+  movements: AdminSavingsMovement[];
+};
+
 export type AdminPackagingRuleData = {
   serviceTypes: string[];
   quantityModes: Array<"FIXED" | "PER_ITEM_STEP">;
@@ -658,6 +676,17 @@ export type AdminDailyClosingData = {
   loanIn: Record<MoneySource, number>;
   investmentIn: Record<MoneySource, number>;
   loanOut: Record<MoneySource, number>;
+  savingsIn: Record<MoneySource, number>;
+  savingsOut: Record<MoneySource, number>;
+  savingsMovementsToday: Array<{
+    id: string;
+    type: "ADD" | "RELEASE";
+    source: MoneySource;
+    amount: number;
+    businessDate: string;
+    createdByName?: string | null;
+    createdAt: string;
+  }>;
   additionsToday: Array<{
     id: string;
     branchId: string;

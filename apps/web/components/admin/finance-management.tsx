@@ -9,7 +9,7 @@ import { Card } from "@/components/ui/card";
 import { fetchAdminCashPosition, fetchAdminClosingVariance, fetchAdminDashboard, fetchAdminExpenses, fetchAdminLoans, fetchAdminOtherMoneyIn, fetchAdminSettings, updateAdminSetting } from "@/lib/admin-client";
 import { estimateFoodpandaPayout, FOODPANDA_COMMISSION_RATE, getFoodpandaRevenueFromBreakdowns, getRevenueAfterFoodpandaCut, MONTHLY_BREAKEVEN_TARGET } from "@/lib/finance";
 import { Input } from "@/components/ui/input";
-import type { AdminCashPositionData, AdminClosingVarianceData, AdminExpenseData, AdminLoanData, AdminRangePreset, DashboardData } from "@/lib/types";
+import type { AdminCashPositionData, AdminClosingVarianceData, AdminExpenseData, AdminLoanData, DashboardData } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, formatCompactNumber } from "@/lib/utils";
 
 function ProgressBar({ value }: { value: number }) {
@@ -154,9 +154,6 @@ export function FinanceManagement() {
   const [monthLoans, setMonthLoans] = useState<AdminLoanData | null>(null);
   const [monthOtherMoneyIn, setMonthOtherMoneyIn] = useState<{ amount: number } | null>(null);
   const [monthClosingVariance, setMonthClosingVariance] = useState<AdminClosingVarianceData | null>(null);
-  const [closingVariance, setClosingVariance] = useState<AdminClosingVarianceData | null>(null);
-  const [closingVariancePreset, setClosingVariancePreset] = useState<AdminRangePreset>("month");
-  const [closingVarianceLoading, setClosingVarianceLoading] = useState(false);
   const [monthlyTarget, setMonthlyTarget] = useState<number>(MONTHLY_BREAKEVEN_TARGET);
   const [monthlyTargetInput, setMonthlyTargetInput] = useState(String(MONTHLY_BREAKEVEN_TARGET));
   const [savingTarget, setSavingTarget] = useState(false);
@@ -209,7 +206,6 @@ export function FinanceManagement() {
           setMonthLoans(monthLoanData);
           setMonthOtherMoneyIn(monthOtherMoneyInData);
           setMonthClosingVariance(monthClosingVarianceData);
-          setClosingVariance(monthClosingVarianceData);
           setCashPosition(cashPositionData);
 
           const targetSetting = settings.find((setting) => setting.key === "finance.monthlyTarget");
@@ -236,31 +232,6 @@ export function FinanceManagement() {
       cancelled = true;
     };
   }, []);
-
-  useEffect(() => {
-    if (!monthClosingVariance) return;
-    if (closingVariancePreset === "month") {
-      setClosingVariance(monthClosingVariance);
-      return;
-    }
-
-    let cancelled = false;
-    setClosingVarianceLoading(true);
-    void fetchAdminClosingVariance(closingVariancePreset)
-      .then((data) => {
-        if (!cancelled) setClosingVariance(data);
-      })
-      .catch(() => {
-        if (!cancelled) setClosingVariance(null);
-      })
-      .finally(() => {
-        if (!cancelled) setClosingVarianceLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [closingVariancePreset, monthClosingVariance]);
 
   async function saveMonthlyTarget() {
     const nextTarget = Number(monthlyTargetInput.replace(/[^\d.]/g, ""));
@@ -403,31 +374,18 @@ export function FinanceManagement() {
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-lg font-black text-pocket-navy">Daily closing surplus / leakage</p>
-            <p className="text-sm text-pocket-navy/60">Actual counted money compared with expected money from locked daily closings.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {([
-              ["today", "Today"],
-              ["7d", "7 days"],
-              ["30d", "30 days"],
-              ["month", "This month"],
-              ["year", "This year"]
-            ] as const).map(([preset, label]) => (
-              <Button key={preset} type="button" size="sm" variant={closingVariancePreset === preset ? "default" : "outline"} onClick={() => setClosingVariancePreset(preset)}>
-                {label}
-              </Button>
-            ))}
+            <p className="text-sm text-pocket-navy/60">Current business month: actual counted money compared with expected money from locked daily closings.</p>
           </div>
         </div>
-        {closingVarianceLoading ? <p className="mt-5 text-sm text-pocket-navy/60">Loading closing variance...</p> : closingVariance ? <>
-          <p className="mt-3 text-xs text-pocket-navy/50">{closingVariance.range.label}</p>
+        {monthClosingVariance ? <>
+          <p className="mt-3 text-xs text-pocket-navy/50">{monthClosingVariance.range.label}</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard title="Surplus" value={formatCompactCurrency(closingVariance.summary.surplus)} description="Counted above expected." tone="positive" />
-            <MetricCard title="Leakage" value={formatCompactCurrency(closingVariance.summary.leakage)} description="Counted below expected." tone="negative" />
-            <MetricCard title="Net variance" value={formatCompactCurrency(closingVariance.summary.netVariance)} description="Surplus minus leakage." tone={closingVariance.summary.netVariance >= 0 ? "positive" : "negative"} />
-            <MetricCard title="Closing days" value={formatCompactNumber(closingVariance.summary.closingDays)} description="Locked closings included." />
+            <MetricCard title="Surplus" value={formatCompactCurrency(monthClosingVariance.summary.surplus)} description="Counted above expected." tone="positive" />
+            <MetricCard title="Leakage" value={formatCompactCurrency(monthClosingVariance.summary.leakage)} description="Counted below expected." tone="negative" />
+            <MetricCard title="Net variance" value={formatCompactCurrency(monthClosingVariance.summary.netVariance)} description="Surplus minus leakage." tone={monthClosingVariance.summary.netVariance >= 0 ? "positive" : "negative"} />
+            <MetricCard title="Closing days" value={formatCompactNumber(monthClosingVariance.summary.closingDays)} description="Locked closings included." />
           </div>
-        </> : <p className="mt-5 text-sm text-pocket-navy/60">No locked daily closings were found for this period.</p>}
+        </> : <p className="mt-5 text-sm text-pocket-navy/60">No locked daily closings were found for this business month.</p>}
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">

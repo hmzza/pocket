@@ -79,9 +79,19 @@ function eventLabel(event: AdminOrderAuditEvent) {
 }
 
 function displayValue(value: unknown) {
-  if (Array.isArray(value)) return value.join("; ");
+  if (Array.isArray(value)) return value.length ? value.join("; ") : "None";
   if (value === null || value === undefined || value === "") return "None";
+  if (typeof value === "object") return "Recorded change";
   return String(value);
+}
+
+function AuditValue({ value }: { value: unknown }) {
+  const values = Array.isArray(value) ? value : [value];
+  return (
+    <div className="space-y-1 break-words">
+      {values.map((entry, index) => <p key={`${String(entry)}-${index}`}>{displayValue(entry)}</p>)}
+    </div>
+  );
 }
 
 function AuditTimeline({ events }: { events: AdminOrderAuditEvent[] }) {
@@ -116,13 +126,22 @@ function AuditTimeline({ events }: { events: AdminOrderAuditEvent[] }) {
             {event.eventType === "CREATED" ? <p className="mt-2 text-sm text-pocket-navy/75">The order was created.</p> : null}
             {event.eventType === "DELETED" ? <p className="mt-2 text-sm text-red-700">The order was permanently deleted from the live order list.</p> : null}
             {changes.length ? (
-              <div className="mt-2 space-y-1 text-sm text-pocket-navy/75">
+              <div className="mt-3 overflow-hidden rounded-lg border border-pocket-navy/10 text-sm text-pocket-navy/75">
+                <div className="hidden grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-b border-pocket-navy/10 bg-pocket-cream px-3 py-2 text-xs font-bold uppercase tracking-wide text-pocket-navy/55 sm:grid">
+                  <span>Field</span><span>Before</span><span>After</span>
+                </div>
                 {changes.map(([key, value]) => {
-                  if (key === "message") return <p key={key}>{displayValue(value)}</p>;
-                  if (key === "receipt") return <p key={key}>Receipt copy: {displayValue((value as any)?.copy)}</p>;
+                  if (key === "message") return <p key={key} className="px-3 py-3">{displayValue(value)}</p>;
+                  if (key === "receipt") return <p key={key} className="px-3 py-3">Receipt copy: {displayValue((value as any)?.copy)}</p>;
                   const transition = value as any;
                   if (!transition || typeof transition !== "object" || !("from" in transition) || !("to" in transition)) return null;
-                  return <p key={key}><span className="font-semibold">{labels[key] ?? key}:</span> {displayValue(transition.from)} <span className="text-pocket-orange">→</span> {displayValue(transition.to)}</p>;
+                  return (
+                    <div key={key} className="grid gap-2 border-b border-pocket-navy/10 px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)_minmax(0,1fr)] sm:gap-3">
+                      <p className="font-semibold text-pocket-navy">{labels[key] ?? key}</p>
+                      <div><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-pocket-navy/45 sm:hidden">Before</p><AuditValue value={transition.from} /></div>
+                      <div><p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-pocket-navy/45 sm:hidden">After</p><AuditValue value={transition.to} /></div>
+                    </div>
+                  );
                 })}
               </div>
             ) : null}

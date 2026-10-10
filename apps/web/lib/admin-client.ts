@@ -11,6 +11,7 @@ import type {
   AdminInventoryForecast,
   AdminInventoryDeductionStatus,
   AdminInvestmentData,
+  AdminSavingsData,
   AdminRecipeData,
   AdminInventoryData,
   AdminLoanData,
@@ -1342,6 +1343,22 @@ export async function createAdminMoneyAddition(payload: Record<string, unknown>)
 
 export async function deleteAdminMoneyAddition(additionId: string) {
   await adminFetch(`/api/admin/inventory/closing/additions/${additionId}`, { method: "DELETE" });
+}
+
+export async function fetchAdminSavings() {
+  return adminFetch<AdminSavingsData>("/api/admin/savings");
+}
+
+export async function createAdminSavingsMovement(payload: Record<string, unknown>) {
+  const data = await adminFetch<{ movement: any }>("/api/admin/savings", {
+    method: "POST",
+    body: JSON.stringify(withSelectedBranch(payload))
+  });
+  return data.movement;
+}
+
+export async function deleteAdminSavingsMovement(movementId: string) {
+  await adminFetch(`/api/admin/savings/${movementId}`, { method: "DELETE" });
 }
 
 export async function fetchAdminPermissions() {

@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { HandCoins, Landmark } from "lucide-react";
+import { HandCoins, Landmark, PiggyBank } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { InvestmentManagement } from "@/components/admin/investment-management";
 import { LoanManagement } from "@/components/admin/loan-management";
+import { SavingsManagement } from "@/components/admin/savings-management";
 import { cn } from "@/lib/utils";
 
-type CapitalTab = "loans" | "investments";
+type CapitalTab = "loans" | "investments" | "savings";
 
 const tabs: Array<{ id: CapitalTab; label: string; icon: typeof HandCoins; description: string }> = [
   { id: "loans", label: "Loans", icon: HandCoins, description: "Loans taken, repayments, and outstanding balances." },
-  { id: "investments", label: "Investments", icon: Landmark, description: "Partner commitments, paid capital, unpaid balances, and equity." }
+  { id: "investments", label: "Investments", icon: Landmark, description: "Partner commitments, paid capital, unpaid balances, and equity." },
+  { id: "savings", label: "Savings", icon: PiggyBank, description: "Wallet reserves added and released by account." }
 ];
 
 export function CapitalManagement() {
@@ -43,7 +45,7 @@ export function CapitalManagement() {
         <p className="text-sm text-pocket-navy/60">{active.description}</p>
       </div>
 
-      {activeTab === "loans" ? <LoanManagement /> : <InvestmentManagement />}
+      {activeTab === "loans" ? <LoanManagement /> : activeTab === "investments" ? <InvestmentManagement /> : <SavingsManagement />}
     </div>
   );
 }

@@ -95,6 +95,11 @@ enum ContentStatus {
   PUBLISHED
 }
 
+enum SavingsMovementType {
+  ADD
+  RELEASE
+}
+
 model Role {
   id               String           @id @default(cuid())
   code             RoleCode         @unique
@@ -139,6 +144,7 @@ model User {
   fixedExpenses            FixedExpense[]           @relation("FixedExpenseActor")
   moneyTransfers           MoneyTransfer[]          @relation("MoneyTransferActor")
   moneyAdditions           MoneyAddition[]          @relation("MoneyAdditionActor")
+  savingsMovements         SavingsMovement[]        @relation("SavingsMovementActor")
   dailyClosings            DailyClosing[]           @relation("DailyClosingActor")
   openingBalances          OpeningBalance[]         @relation("OpeningBalanceActor")
   foodpandaSettlements     FoodpandaSettlement[]    @relation("FoodpandaSettlementReceiver")
@@ -230,6 +236,7 @@ model Branch {
   fixedExpenses         FixedExpense[]
   moneyTransfers        MoneyTransfer[]
   moneyAdditions        MoneyAddition[]
+  savingsMovements      SavingsMovement[]
   dailyClosings         DailyClosing[]
   openingBalances       OpeningBalance[]
   loans                 Loan[]
@@ -994,6 +1001,22 @@ model MoneyAddition {
 
   @@index([branchId, additionDate])
   @@index([toSource])
+}
+
+model SavingsMovement {
+  id          String              @id @default(cuid())
+  branchId    String
+  type        SavingsMovementType
+  amount      Decimal             @db.Decimal(10, 2)
+  source      String
+  businessDate DateTime
+  createdById String?
+  createdAt   DateTime            @default(now())
+  branch      Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdBy   User?               @relation("SavingsMovementActor", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([branchId, businessDate])
+  @@index([branchId, source])
 }
 
 model InvestmentPartner {
