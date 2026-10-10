@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { calculateOrderTotals, readStoredCouponState, validateCouponCode, writeStoredCoupon } from "@/lib/ordering";
 import { formatCompactCurrency, formatCurrency } from "@/lib/utils";
 import { usePublicBranch } from "@/components/site/public-branch-provider";
+import { useDeliveryAvailability } from "@/components/site/use-delivery-availability";
 import { formatSelectionLines } from "@/lib/item-detail-display";
 import { BOX_OF_SIX_SIZE, isBoxOfSixGroup, isBoxOfSixProduct } from "@/lib/box-of-six";
 
@@ -22,6 +23,7 @@ function getOptionDisplayName(groupName: string, optionName: string) {
 export default function CartPage() {
   const { cart, getCartProducts, updateCartItem, updateQuantity } = useStore();
   const { selectedBranch } = usePublicBranch();
+  const { shopEnabled, loading: availabilityLoading, shopMessage } = useDeliveryAvailability(selectedBranch?.slug);
   const { products, loading, error: catalogError } = useLiveProducts();
   const [coupon, setCoupon] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
@@ -241,8 +243,16 @@ export default function CartPage() {
             </div>
           </div>
           <p className="mt-4 text-xs leading-5 text-pocket-navy/60">Delivery fee is selected next, after you choose your sector.</p>
-          <Link href="/checkout" className="mt-6 inline-flex w-full">
-            <Button className="w-full" disabled={!cartProducts.length || loading || Boolean(catalogError)}>
+          {!availabilityLoading && !shopEnabled ? <p className="mt-4 text-sm font-semibold text-amber-800">{shopMessage ?? "Our shop is closed at the moment."}</p> : null}
+          <Link
+            href={!availabilityLoading && shopEnabled ? "/checkout" : "#"}
+            onClick={(event) => {
+              if (availabilityLoading || !shopEnabled) event.preventDefault();
+            }}
+            aria-disabled={availabilityLoading || !shopEnabled}
+            className="mt-6 inline-flex w-full"
+          >
+            <Button className="w-full" disabled={!cartProducts.length || loading || availabilityLoading || !shopEnabled || Boolean(catalogError)}>
               Continue to Checkout
             </Button>
           </Link>

@@ -8,8 +8,8 @@ export function useDeliveryAvailability(branchSlug?: string, initialValue = true
   const [deliveryEnabled, setDeliveryEnabled] = useState(initialValue);
   const [message, setMessage] = useState<string | null>(null);
   const [sectors, setSectors] = useState<DeliverySector[]>([]);
-  const [shopEnabled, setShopEnabled] = useState(true);
-  const [pickupEnabled, setPickupEnabled] = useState(true);
+  const [shopEnabled, setShopEnabled] = useState(initialValue);
+  const [pickupEnabled, setPickupEnabled] = useState(initialValue);
   const [snapshot, setSnapshot] = useState<Partial<DeliveryConfig>>({});
   const [loading, setLoading] = useState(true);
 

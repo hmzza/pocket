@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, CheckCircle2, Clock3, ExternalLink, ListChecks, PencilLine, RefreshCcw, Search, Trash2, Volume2, VolumeX } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, Clock3, ExternalLink, ListChecks, PackageCheck, PencilLine, RefreshCcw, Search, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -156,6 +156,7 @@ function CompactOrderCard({
   const isUnpaid = order.paymentStatus === "PENDING";
   const isDelivery = order.serviceType === "DELIVERY";
   const isPickup = order.channel === "ONLINE" && order.serviceType === "TAKEAWAY";
+  const isIncomingPickup = isPickup && order.status === "PENDING";
   const canSendDeliveryUpdate = order.status === "CONFIRMED" || order.status === "READY" || order.status === "OUT_FOR_DELIVERY";
   const labelText = isDelivery ? "text-blue-100" : isPickup ? "text-amber-100" : "text-orange-600";
   const primaryText = isDelivery || isPickup ? "text-white" : "text-slate-900";
@@ -185,7 +186,7 @@ function CompactOrderCard({
           <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 font-semibold ${mutedText}`}>
             {formatServiceType(order.serviceType)} · {formatPaymentMethod(order.paymentMethod)}
           </p>
-          {order.channel === "ONLINE" && order.serviceType === "TAKEAWAY" ? <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 font-semibold ${mutedText}`}>Pickup: {order.expectedPickupAt ? formatDateTime(order.expectedPickupAt) : "Fast pickup"}</p> : null}
+          {isPickup ? <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-1 inline-flex rounded-full bg-white/20 px-2 py-0.5 font-black text-white`}>Pickup: {order.expectedPickupAt ? formatDateTime(order.expectedPickupAt) : "Fast pickup"}</p> : null}
         </div>
         <div className="text-right">
           <p className={`${embedded ? "text-[9px]" : "text-[10px]"} font-semibold uppercase tracking-[0.22em] ${mutedText}`}>Total</p>
@@ -263,22 +264,22 @@ function CompactOrderCard({
 
       <div className={embedded ? "mt-auto pt-1.5" : "mt-auto pt-2"}>
         {!isTerminal ? (
-          isDelivery ? (
+          isDelivery || isIncomingPickup ? (
             <div className="flex flex-wrap items-center justify-end gap-1">
               <OrderActionButton
-                title="Edit delivery order"
-                label="Edit delivery order"
-                className="border-white/80 bg-white text-blue-700 hover:bg-blue-50"
+                title={isDelivery ? "Edit delivery order" : "Edit pickup order"}
+                label={isDelivery ? "Edit delivery order" : "Edit pickup order"}
+                className={isDelivery ? "border-white/80 bg-white text-blue-700 hover:bg-blue-50" : "border-white/80 bg-white text-amber-950 hover:bg-amber-50"}
                 icon={<PencilLine className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
                 disabled={busy}
                 onClick={() => onEdit(order)}
               />
               {order.status === "PENDING" ? (
                 <OrderActionButton
-                  title="Accept delivery order"
-                  label="Accept delivery order"
-                  className="border-sky-600 bg-sky-600 text-white hover:bg-sky-700"
-                  icon={<CheckCircle2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                  title={isDelivery ? "Accept delivery order" : "Accept pickup order"}
+                  label={isDelivery ? "Accept delivery order" : "Accept pickup order"}
+                  className="border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700"
+                  icon={<PackageCheck className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
                   disabled={busy}
                   onClick={() => onChangeStatus(order, "CONFIRMED")}
                 />
@@ -309,7 +310,7 @@ function CompactOrderCard({
                 disabled={busy}
                 onClick={() => onChangeStatus(order, "WATCH_LATER")}
               /> : null}
-              {canSendDeliveryUpdate && order.status !== "OUT_FOR_DELIVERY" ? riders.length ? <div className="flex flex-wrap items-center gap-1">
+              {isDelivery && canSendDeliveryUpdate && order.status !== "OUT_FOR_DELIVERY" ? riders.length ? <div className="flex flex-wrap items-center gap-1">
                 <select value={selectedRiderId} onChange={(event) => onSelectRider(event.target.value)} className="h-10 min-w-36 rounded-full border border-white/70 bg-white px-3 text-[11px] font-bold text-blue-700">
                   <option value="">Select rider</option>
                   {riders.map((rider) => <option key={rider.id} value={rider.id}>{rider.name}</option>)}

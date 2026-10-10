@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Sparkles, Upload } from "lucide-react";
+import { ChevronDown, ChevronUp, Clock3, Plus, RefreshCcw, RotateCcw, Save, Sparkles, Store, Upload } from "lucide-react";
 import { HeroSlider } from "@/components/site/hero-slider";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { Button } from "@/components/ui/button";
@@ -219,25 +219,47 @@ export function WebsiteControlPanel() {
     }
   }
 
+  async function refreshStorefront() {
+    try {
+      setStorefrontSaving(true);
+      const next = await fetchAdminStorefrontConfig();
+      setStorefront(next);
+      setStorefrontOpenTime(next.shopOpenTime ?? "");
+      setStorefrontCloseTime(next.shopCloseTime ?? "");
+      setNotice("Shop availability refreshed.");
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh shop availability.");
+    } finally {
+      setStorefrontSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {notice ? <AdminToast message={notice} variant="success" onClose={() => setNotice("")} className="top-4" /> : null}
       {error ? <AdminToast message={error} variant="error" onClose={() => setError("")} className="top-20" /> : null}
       <Card className="p-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Shop and pickup</p>
-            <h2 className="mt-1 text-2xl font-black text-pocket-navy">Website shop hours</h2>
-            <p className="mt-2 max-w-2xl text-sm text-pocket-navy/65">Pickup follows these shop hours. Delivery is automatically closed whenever the shop is closed.</p>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-pocket-orange/10 text-pocket-orange"><Store className="h-5 w-5" /></div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">Website shop and pickup</p>
+              <h2 className="mt-1 text-2xl font-black text-pocket-navy">{storefront?.shopEnabled ? "Open" : "Closed"}</h2>
+              <p className="mt-1 text-sm text-pocket-navy/65">Current Pakistan time: {new Intl.DateTimeFormat("en-PK", { timeZone: "Asia/Karachi", dateStyle: "medium", timeStyle: "short" }).format(new Date())}</p>
+              {storefront?.shopMessage ? <p className="mt-2 max-w-xl text-sm text-rose-700">{storefront.shopMessage}</p> : null}
+            </div>
           </div>
-          <button type="button" onClick={() => void toggleStorefront()} disabled={!storefront || storefrontSaving} className={`relative h-7 w-12 shrink-0 rounded-full transition ${storefront?.shopEnabled ? "bg-pocket-orange" : "bg-pocket-navy/20"}`} aria-label="Toggle website shop availability"><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${storefront?.shopEnabled ? "left-6" : "left-1"}`} /></button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" onClick={() => void toggleStorefront()} disabled={!storefront || storefrontSaving || Boolean(storefront?.shopScheduleConfigured && !storefront.shopIsWithinSchedule)}>{storefront?.shopScheduleConfigured && !storefront.shopIsWithinSchedule ? "Outside schedule" : storefront?.shopEnabled ? "Turn shop off" : "Turn shop on"}</Button>
+            <Button type="button" variant="outline" onClick={() => void refreshStorefront()} disabled={storefrontSaving}><RefreshCcw className="h-4 w-4" />Refresh</Button>
+          </div>
         </div>
-        <div className="mt-5 grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
-          <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Opening time</span><Input type="time" value={storefrontOpenTime} onChange={(event) => setStorefrontOpenTime(event.target.value)} /></label>
-          <label className="space-y-1 text-sm font-semibold text-pocket-navy"><span>Closing time</span><Input type="time" value={storefrontCloseTime} onChange={(event) => setStorefrontCloseTime(event.target.value)} /></label>
-          <div className="flex flex-wrap gap-2"><Button type="button" onClick={() => void saveStorefrontTimings()} disabled={storefrontSaving}>{storefrontSaving ? "Saving..." : "Save timings"}</Button><Button type="button" variant="outline" onClick={() => { setStorefrontOpenTime(""); setStorefrontCloseTime(""); void saveStorefrontTimings("", ""); }} disabled={storefrontSaving}>Clear timings</Button></div>
-        </div>
-        {storefront ? <p className="mt-3 text-sm font-semibold text-pocket-navy/65">Shop is currently {storefront.shopEnabled ? "open" : "closed"}. Pickup is {storefront.pickupEnabled ? "available" : "unavailable"}.</p> : null}
+        <form onSubmit={(event) => { event.preventDefault(); void saveStorefrontTimings(); }} className="mt-5 grid gap-3 rounded-2xl border border-pocket-navy/10 bg-pocket-cream/45 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
+          <label className="space-y-1 text-sm font-semibold text-pocket-navy">Opens daily<Input type="time" value={storefrontOpenTime} onChange={(event) => setStorefrontOpenTime(event.target.value)} /></label>
+          <label className="space-y-1 text-sm font-semibold text-pocket-navy">Closes daily<Input type="time" value={storefrontCloseTime} onChange={(event) => setStorefrontCloseTime(event.target.value)} /></label>
+          <div className="flex flex-wrap gap-2"><Button type="submit" disabled={storefrontSaving}><Clock3 className="h-4 w-4" />{storefront?.shopScheduleConfigured ? "Update timings" : "Set timings"}</Button><Button type="button" variant="ghost" onClick={() => { setStorefrontOpenTime(""); setStorefrontCloseTime(""); void saveStorefrontTimings("", ""); }} disabled={storefrontSaving}>Clear timings</Button></div>
+        </form>
+        <p className="mt-3 text-xs text-pocket-navy/55">{storefront?.shopScheduleConfigured ? `Automatic window: ${storefront.shopOpenTime} to ${storefront.shopCloseTime}. Next transition: ${storefront.shopNextTransitionAt ? new Date(storefront.shopNextTransitionAt).toLocaleString("en-PK", { timeZone: "Asia/Karachi" }) : "none"}.` : "No schedule configured. The manual toggle controls website pickup and shop availability."}</p>
       </Card>
       <Card className="overflow-hidden border-none bg-[linear-gradient(135deg,_#102a43,_#172554_48%,_#1f2937)] p-6 text-white shadow-[0_24px_64px_rgba(16,42,67,0.28)]">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
