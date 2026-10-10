@@ -30,8 +30,8 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "custom", label: "Custom" }
 ];
 
-const COMMON_EXPENSE_CATEGORIES = ["Utilities", "Kitchen", "Fixed Expenses", "Staff", "Marketing", "Delivery", "Packaging", "Misc"];
-const REMOVED_EXPENSE_CATEGORIES = new Set(["inventory", "barf", "maintenance", "maintainence", "rent", "salaries"]);
+const COMMON_EXPENSE_CATEGORIES = ["Utilities", "Kitchen", "Fixed Expenses", "Staff", "Maintenance", "Marketing", "Delivery", "Packaging", "Misc"];
+const REMOVED_EXPENSE_CATEGORIES = new Set(["inventory", "barf", "maintainence", "rent", "salaries"]);
 const EXPENSE_CATEGORY_SETTING_KEY = "expense.categories";
 const MONEY_SOURCES = [
   { value: "CASH", label: "Cash" },
