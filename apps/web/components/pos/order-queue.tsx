@@ -63,7 +63,8 @@ function formatPaymentMethod(value: string) {
     ONLINE: "Online",
     JAZZCASH: "JazzCash",
     EASYPAISA: "Easypaisa",
-    FOODPANDA_PAYOUT: "Payout"
+    FOODPANDA_PAYOUT: "Payout",
+    PAY_AT_COUNTER: "Payment pending"
   };
 
   return map[value] ?? value.replaceAll("_", " ");
@@ -183,6 +184,7 @@ function CompactOrderCard({
           <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 font-semibold ${mutedText}`}>
             {formatServiceType(order.serviceType)} · {formatPaymentMethod(order.paymentMethod)}
           </p>
+          {order.channel === "ONLINE" && order.serviceType === "TAKEAWAY" ? <p className={`${embedded ? "text-[9px]" : "text-[10px]"} mt-0.5 font-semibold ${mutedText}`}>Pickup: {order.expectedPickupAt ? formatDateTime(order.expectedPickupAt) : "Fast pickup"}</p> : null}
         </div>
         <div className="text-right">
           <p className={`${embedded ? "text-[9px]" : "text-[10px]"} font-semibold uppercase tracking-[0.22em] ${mutedText}`}>Total</p>

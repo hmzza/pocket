@@ -29,7 +29,7 @@ function getOptionDisplayName(group: AddOnGroup, optionName: string) {
 }
 
 export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCartButtonProps) {
-  const { addToCart, deliveryEnabled, notifyCart } = useStore();
+  const { addToCart, deliveryEnabled: shopEnabled, notifyCart } = useStore();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [configuredProduct, setConfiguredProduct] = useState<Product | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string[]>>({});
@@ -85,8 +85,8 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
   }
 
   function beginAdd(productToAdd: Product) {
-    if (!deliveryEnabled) {
-      notifyCart("Deliveries are closed at the moment.");
+    if (!shopEnabled) {
+      notifyCart("Our shop is closed at the moment.");
       return;
     }
     const groups = getWebsiteConfigurationGroups(productToAdd);
@@ -99,8 +99,8 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
   }
 
   function handleQuickAdd() {
-    if (!deliveryEnabled) {
-      notifyCart("Deliveries are closed at the moment.");
+    if (!shopEnabled) {
+      notifyCart("Our shop is closed at the moment.");
       return;
     }
     if (isCombinedMealFlow || getWebsiteConfigurationGroups(product).length) {
@@ -134,8 +134,8 @@ export function AddToCartButton({ product, mealProduct, buttonLabel }: AddToCart
   }
 
   function confirmAddToCart() {
-    if (!deliveryEnabled) {
-      notifyCart("Deliveries are closed at the moment.");
+    if (!shopEnabled) {
+      notifyCart("Our shop is closed at the moment.");
       closeDialog();
       return;
     }

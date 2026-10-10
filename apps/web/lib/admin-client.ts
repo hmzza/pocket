@@ -443,6 +443,7 @@ export async function fetchAdminOrders(params?: {
     cashierUsername: order.cashierUsername ?? null,
     cashierName: order.cashierName ?? null,
     placedAt: order.placedAt,
+    expectedPickupAt: order.expectedPickupAt ?? null,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
     deliverySector: order.deliverySector ?? null,
     deliverySubsector: order.deliverySubsector ?? null,
@@ -512,6 +513,7 @@ function mapAdminAuditOrder(order: any): AdminOrder {
     cashierUsername: order.cashierUsername ?? null,
     cashierName: order.cashierName ?? null,
     placedAt: order.placedAt,
+    expectedPickupAt: order.expectedPickupAt ?? null,
     deliveryInstructions: order.deliveryInstructions ?? undefined,
     deliverySector: order.deliverySector ?? null,
     deliverySubsector: order.deliverySubsector ?? null,
@@ -956,6 +958,24 @@ export async function updateAdminSetting(key: string, value: unknown) {
     body: JSON.stringify({ value })
   });
   return data.setting;
+}
+
+export async function fetchAdminStorefrontConfig() {
+  return adminFetch<import("@/lib/types").DeliveryConfig>("/api/admin/website/storefront");
+}
+
+export async function updateAdminStorefrontToggle(enabled: boolean) {
+  return adminFetch<import("@/lib/types").DeliveryConfig>("/api/admin/website/storefront/toggle", {
+    method: "PATCH",
+    body: JSON.stringify({ enabled })
+  });
+}
+
+export async function updateAdminStorefrontTimings(openTime: string | null, closeTime: string | null) {
+  return adminFetch<import("@/lib/types").DeliveryConfig>("/api/admin/website/storefront/timings", {
+    method: "PATCH",
+    body: JSON.stringify({ openTime, closeTime })
+  });
 }
 
 export async function fetchAdminExpenseTitleFavorites(): Promise<string[]> {

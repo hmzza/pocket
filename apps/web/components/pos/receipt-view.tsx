@@ -15,6 +15,7 @@ function formatPaymentMethod(value: string) {
     ONLINE: "Online",
     JAZZCASH: "JazzCash",
     EASYPAISA: "Easypaisa",
+    PAY_AT_COUNTER: "Payment at branch",
     FOODPANDA_PAYOUT: "Foodpanda payout"
   };
 
@@ -83,7 +84,8 @@ function ReceiptSlip({
           ["Time", receiptMeta.time],
           ["User ID", order.userId || "Admin"],
           ["Customer Name", order.customerName || "Walk-in"],
-          ["Order Type", formatServiceType(order.orderType)]
+          ["Order Type", formatServiceType(order.orderType)],
+          ...(order.orderType === "TAKEAWAY" && order.expectedPickupAt ? [["Pickup Time", formatDateTime(order.expectedPickupAt).time] as const] : [])
         ].map(([label, value]) => (
           <div key={`${copyLabel}-${label}`} className="flex items-start justify-between gap-3">
             <span className="font-semibold text-black print:font-bold">{label}:</span>

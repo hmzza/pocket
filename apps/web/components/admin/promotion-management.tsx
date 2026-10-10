@@ -125,6 +125,7 @@ function CouponManagement() {
   const [code, setCode] = useState("");
   const [title, setTitle] = useState("");
   const [type, setType] = useState<AdminCoupon["type"]>("PERCENTAGE");
+  const [appliesTo, setAppliesTo] = useState<AdminCoupon["appliesTo"]>("BOTH");
   const [value, setValue] = useState("");
   const [minimum, setMinimum] = useState("");
   const [usageLimit, setUsageLimit] = useState("");
@@ -146,6 +147,7 @@ function CouponManagement() {
         code: code.trim().toUpperCase(),
         title: title.trim(),
         type,
+        appliesTo,
         value: Number(value),
         ...(minimum ? { minOrderValue: Number(minimum) } : {}),
         ...(usageLimit ? { usageLimit: Number(usageLimit) } : {}),
@@ -156,6 +158,7 @@ function CouponManagement() {
       setCode("");
       setTitle("");
       setValue("");
+      setAppliesTo("BOTH");
       setMinimum("");
       setUsageLimit("");
       setExpiresAt("");
@@ -189,6 +192,7 @@ function CouponManagement() {
       <Input value={code} onChange={(event) => setCode(event.target.value)} placeholder="Code" minLength={3} required />
       <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Title" minLength={3} required />
       <select value={type} onChange={(event) => setType(event.target.value as AdminCoupon["type"])} className="h-10 rounded-md border border-pocket-navy/15 bg-white px-3 text-sm text-pocket-navy"><option value="PERCENTAGE">Percentage</option><option value="FIXED">Fixed amount</option></select>
+      <select value={appliesTo} onChange={(event) => setAppliesTo(event.target.value as AdminCoupon["appliesTo"])} className="h-10 rounded-md border border-pocket-navy/15 bg-white px-3 text-sm text-pocket-navy"><option value="DELIVERY">Delivery only</option><option value="PICKUP">Pickup only</option><option value="BOTH">Delivery and Pickup</option></select>
       <Input value={value} onChange={(event) => setValue(event.target.value)} type="number" min="0.01" step="0.01" placeholder="Value" required />
       <Input value={minimum} onChange={(event) => setMinimum(event.target.value)} type="number" min="0" step="0.01" placeholder="Minimum order (optional)" />
       <Input value={usageLimit} onChange={(event) => setUsageLimit(event.target.value)} type="number" min="1" step="1" placeholder="Usage limit (optional)" />

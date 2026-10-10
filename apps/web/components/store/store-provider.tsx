@@ -117,7 +117,7 @@ function mergeCartEntries(entries: CartEntry[]) {
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const { selectedBranch } = usePublicBranch();
-  const { deliveryEnabled } = useDeliveryAvailability(selectedBranch?.slug);
+  const { shopEnabled } = useDeliveryAvailability(selectedBranch?.slug);
   const [cart, setCart] = useState<CartEntry[]>([]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recentlyViewed, setRecentlyViewed] = useState<string[]>([]);
@@ -220,11 +220,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       cart,
       favorites,
       recentlyViewed,
-      deliveryEnabled,
+      deliveryEnabled: shopEnabled,
       notifyCart: (message) => setCartNotice(message),
       addToCart: (input) => {
-        if (!deliveryEnabled) {
-          setCartNotice("Deliveries are closed at the moment.");
+        if (!shopEnabled) {
+          setCartNotice("Our shop is closed at the moment.");
           return false;
         }
         const selectedAddOnIds = normalizeAddOnIds(input.selectedAddOnIds);
@@ -317,7 +317,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           })
           .filter(Boolean) as CartProduct[]
     }),
-    [cart, deliveryEnabled, favorites, recentlyViewed]
+    [cart, shopEnabled, favorites, recentlyViewed]
   );
 
   useEffect(() => {

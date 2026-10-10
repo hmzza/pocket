@@ -868,6 +868,14 @@ export type DeliveryConfig = {
   nextTransitionAt: string | null;
   message: string | null;
   sectors: DeliverySector[];
+  shopEnabled: boolean;
+  pickupEnabled: boolean;
+  shopScheduleConfigured: boolean;
+  shopOpenTime: string | null;
+  shopCloseTime: string | null;
+  shopIsWithinSchedule: boolean;
+  shopNextTransitionAt: string | null;
+  shopMessage: string | null;
 };
 
 export type RiderPaymentReport = {
@@ -956,6 +964,7 @@ export type AdminOrder = {
   cashierUsername?: string | null;
   cashierName?: string | null;
   placedAt: string;
+  expectedPickupAt?: string | null;
   deliveryInstructions?: string;
   deliverySector?: string | null;
   deliverySubsector?: string | null;
@@ -1062,6 +1071,7 @@ export type AdminCoupon = {
   title: string;
   description?: string | null;
   type: "FIXED" | "PERCENTAGE";
+  appliesTo: "DELIVERY" | "PICKUP" | "BOTH";
   value: number;
   minOrderValue?: number | null;
   usageLimit?: number | null;
@@ -1108,6 +1118,8 @@ export type PosReceiptOrder = {
   paidAmount: number;
   changeDueAmount: number;
   placedAt: string;
+  expectedPickupAt?: string | null;
+  deliveryInstructions?: string | null;
   digitalReceiptUrl?: string;
   branch: {
     id: string;
@@ -1145,6 +1157,8 @@ export type PosEditableOrder = {
   customerPhone: string;
   serviceType: string;
   paymentMethod: string;
+  expectedPickupAt?: string | null;
+  pickupInstructions?: string | null;
   discountType: "NONE" | "PERCENTAGE" | "FIXED";
   discountValue: number;
   promotionName?: string | null;

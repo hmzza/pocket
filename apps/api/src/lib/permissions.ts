@@ -6,7 +6,7 @@ export const PERMISSION_DEFINITIONS = [
   { key: "OVERVIEW", label: "Overview", routePrefix: "/admin", permissionGroup: "Admin", sortOrder: 10 },
   { key: "BUSINESS_ANALYTICS", label: "Business Analytics", routePrefix: "/admin/analytics", permissionGroup: "Admin", sortOrder: 20 },
   { key: "PRODUCT_ANALYTICS", label: "Product Analytics", routePrefix: "/admin/analytics/products", permissionGroup: "Admin", sortOrder: 30 },
-  { key: "FOODPANDA", label: "Foodpanda", routePrefix: "/admin/foodpanda", permissionGroup: "Admin", sortOrder: 40 },
+  { key: "FINANCES", label: "Finances", routePrefix: "/admin/finances", permissionGroup: "Finance", sortOrder: 40 },
   { key: "BUSINESS_HEALTH", label: "Business Health", routePrefix: "/admin/health", permissionGroup: "Admin", sortOrder: 50 },
   { key: "PRODUCTS", label: "Products", routePrefix: "/admin/products", permissionGroup: "Admin", sortOrder: 60 },
   { key: "PROMOTIONS", label: "Promotions", routePrefix: "/admin/promotions", permissionGroup: "Admin", sortOrder: 65 },
@@ -19,8 +19,8 @@ export const PERMISSION_DEFINITIONS = [
   { key: "CUSTOMERS", label: "Customers", routePrefix: "/admin/customers", permissionGroup: "Operations", sortOrder: 110 },
   { key: "EXPENSES", label: "Expenses", routePrefix: "/admin/expenses", permissionGroup: "Finance", sortOrder: 120 },
   { key: "CAPITAL", label: "Capital", routePrefix: "/admin/capital", permissionGroup: "Finance", sortOrder: 130 },
-  { key: "FINANCES", label: "Finances", routePrefix: "/admin/finances", permissionGroup: "Finance", sortOrder: 140 },
-  { key: "DAILY_CLOSING", label: "Daily Closing", routePrefix: "/admin/finances/daily-closing", permissionGroup: "Finance", sortOrder: 150 },
+  { key: "DAILY_CLOSING", label: "Daily Closing", routePrefix: "/admin/finances/daily-closing", permissionGroup: "Finance", sortOrder: 140 },
+  { key: "FOODPANDA", label: "Foodpanda", routePrefix: "/admin/foodpanda", permissionGroup: "Admin", sortOrder: 150 },
   { key: "FOODPANDA_SETTLEMENTS", label: "Foodpanda Settlements", routePrefix: "/admin/finances/foodpanda-settlements", permissionGroup: "Finance", sortOrder: 160 },
   { key: "POS", label: "POS", routePrefix: "/pos", permissionGroup: "Operations", sortOrder: 170 }
 ] as const;

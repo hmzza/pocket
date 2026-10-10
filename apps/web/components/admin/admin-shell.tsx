@@ -20,7 +20,7 @@ const links: Array<{
   { href: "/admin", label: "Overview", icon: LayoutDashboard, permissionKey: "OVERVIEW" },
   { href: "/admin/analytics", label: "Business Analytics", icon: BarChart3, permissionKey: "BUSINESS_ANALYTICS" },
   { href: "/admin/analytics/products", label: "Product Analytics", icon: ChartNoAxesCombined, permissionKey: "PRODUCT_ANALYTICS" },
-  { href: "/admin/foodpanda", label: "Foodpanda", icon: Bike, permissionKey: "FOODPANDA" },
+  { href: "/admin/finances", label: "Finances", icon: Banknote, permissionKey: "FINANCES" },
   { href: "/admin/health", label: "Business Health", icon: Activity, permissionKey: "BUSINESS_HEALTH" },
   { href: "/admin/products", label: "Products", icon: Boxes, permissionKey: "PRODUCTS" },
   { href: "/admin/promotions", label: "Promotions", icon: Gift, permissionKey: "PROMOTIONS" },
@@ -34,8 +34,8 @@ const links: Array<{
   { href: "/admin/customers", label: "Customers", icon: Users, permissionKey: "CUSTOMERS" },
   { href: "/admin/expenses", label: "Expenses", icon: Receipt, permissionKey: "EXPENSES" },
   { href: "/admin/capital", label: "Capital", icon: HandCoins, permissionKey: "CAPITAL" },
-  { href: "/admin/finances", label: "Finances", icon: Banknote, permissionKey: "FINANCES" },
   { href: "/admin/finances/daily-closing", label: "Daily Closing", icon: History, permissionKey: "DAILY_CLOSING" },
+  { href: "/admin/foodpanda", label: "Foodpanda", icon: Bike, permissionKey: "FOODPANDA" },
   { href: "/admin/finances/foodpanda-settlements", label: "Foodpanda Settlements", icon: Bike, permissionKey: "FOODPANDA_SETTLEMENTS" },
   { href: "/pos", label: "POS", icon: ShoppingCart, permissionKey: "POS" }
 ];

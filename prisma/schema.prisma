@@ -35,6 +35,7 @@ enum OrderStatus {
 
 enum PaymentMethod {
   CASH_ON_DELIVERY
+  PAY_AT_COUNTER
   CASH
   CARD
   JAZZCASH
@@ -98,6 +99,12 @@ enum ContentStatus {
 enum SavingsMovementType {
   ADD
   RELEASE
+}
+
+enum CouponChannel {
+  DELIVERY
+  PICKUP
+  BOTH
 }
 
 model Role {
@@ -247,6 +254,7 @@ model Branch {
   expenseTitleFavorites ExpenseTitleFavorite[]
   deliveryConfiguration DeliveryConfiguration?
   deliverySectors      DeliverySector[]
+  storefrontConfiguration StorefrontConfiguration?
 }
 
 model UserBranchAccess {
@@ -405,6 +413,20 @@ model DeliveryConfiguration {
   @@index([branchId, manualEnabled])
 }
 
+model StorefrontConfiguration {
+  id                      String   @id @default(cuid())
+  branchId                String   @unique
+  openTime                String?
+  closeTime               String?
+  manualEnabled           Boolean  @default(true)
+  manualOverrideWindowKey String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  branch                  Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, manualEnabled])
+}
+
 model DeliverySector {
   id           String   @id @default(cuid())
   branchId     String
@@ -466,6 +488,7 @@ model Coupon {
   title         String
   description   String?
   type          DiscountType
+  appliesTo     CouponChannel @default(BOTH)
   value         Decimal      @db.Decimal(10, 2)
   minOrderValue Decimal?     @db.Decimal(10, 2)
   usageLimit    Int?
@@ -511,6 +534,7 @@ model Order {
   changeDueAmount         Decimal?                    @db.Decimal(10, 2)
   totalAmount             Decimal                     @db.Decimal(10, 2)
   expectedDeliveryAt      DateTime?
+  expectedPickupAt         DateTime?
   deliveryInstructions    String?
   deliverySector          String?
   deliverySubsector       String?

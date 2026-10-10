@@ -22,7 +22,10 @@ import {
   getDeliveryConfigSnapshot,
   ensureDeliveryConfiguration,
   setDeliveryManualState,
-  setDeliveryTimings
+  setDeliveryTimings,
+  ensureStorefrontConfiguration,
+  setStorefrontManualState,
+  setStorefrontTimings
 } from "../lib/delivery-config.js";
 import { publishDeliveryOrderEvent, streamDeliveryOrderEvents } from "../lib/delivery-events.js";
 import {
@@ -1178,6 +1181,7 @@ function serializeOrderForOperations(order: any) {
     cashierUsername: order.cashier?.username ?? null,
     cashierName: order.cashier?.name ?? null,
     placedAt: order.placedAt,
+    expectedPickupAt: order.expectedPickupAt ?? null,
     deliveryInstructions: order.deliveryInstructions,
     deliverySector: order.deliverySector ?? null,
     deliverySubsector: order.deliverySubsector ?? null,
@@ -6700,6 +6704,43 @@ router.patch("/delivery/config/timings", async (req, res, next) => {
   }
 });
 
+router.get("/website/storefront", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    await ensureStorefrontConfiguration(branchContext.branchId);
+    const config = await getDeliveryConfigSnapshot(branchContext.branchId, { includeInactive: true });
+    return res.json(config);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/website/storefront/toggle", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ enabled: z.boolean() }).parse(req.body);
+    await setStorefrontManualState(branchContext.branchId, payload.enabled);
+    const config = await getDeliveryConfigSnapshot(branchContext.branchId, { includeInactive: true });
+    void writeAuditLog({ actorId: req.user!.id, action: "website.storefront_toggle", entityType: "branch", entityId: branchContext.branchId, payload }).catch(() => undefined);
+    return res.json(config);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/website/storefront/timings", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ openTime: z.string().nullable(), closeTime: z.string().nullable() }).parse(req.body);
+    await setStorefrontTimings(branchContext.branchId, payload.openTime, payload.closeTime);
+    const config = await getDeliveryConfigSnapshot(branchContext.branchId, { includeInactive: true });
+    void writeAuditLog({ actorId: req.user!.id, action: "website.storefront_timings", entityType: "branch", entityId: branchContext.branchId, payload }).catch(() => undefined);
+    return res.json(config);
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.get("/delivery/rider-payments", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
@@ -8057,6 +8098,7 @@ router.post("/branches", async (req, res, next) => {
       return created;
     });
     await ensureDeliveryConfiguration(branch.id);
+    await ensureStorefrontConfiguration(branch.id);
 
     await writeAuditLog({
       actorId: req.user!.id,
@@ -8305,6 +8347,7 @@ const couponSchema = z.object({
   title: z.string().min(3),
   description: z.string().optional(),
   type: z.enum(["FIXED", "PERCENTAGE"]),
+  appliesTo: z.enum(["DELIVERY", "PICKUP", "BOTH"]).default("BOTH"),
   value: z.number().positive(),
   minOrderValue: z.number().nonnegative().optional(),
   usageLimit: z.number().int().positive().optional(),
