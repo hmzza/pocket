@@ -7492,9 +7492,27 @@ router.get("/expense-title-favorites", async (req, res, next) => {
     const favorites = await prisma.expenseTitleFavorite.findMany({
       where: { branchId: branchContext.branchId },
       orderBy: { title: "asc" },
-      select: { id: true, title: true }
+      select: { id: true, title: true, category: true }
     });
     return res.json({ favorites });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.delete("/expense-title-favorites/:id", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const favorite = await prisma.expenseTitleFavorite.findUnique({ where: { id: req.params.id } });
+    if (!favorite) {
+      return res.status(404).json({ message: "Favorite expense title not found." });
+    }
+    if (favorite.branchId !== branchContext.branchId) {
+      return res.status(403).json({ message: "This favorite belongs to another branch." });
+    }
+
+    await prisma.expenseTitleFavorite.delete({ where: { id: favorite.id } });
+    return res.json({ deleted: true });
   } catch (error) {
     return next(error);
   }
@@ -7700,8 +7718,8 @@ router.post("/expenses", async (req, res, next) => {
       if (payload.addToFavorites) {
         await transaction.expenseTitleFavorite.upsert({
           where: { branchId_title: { branchId: branchContext.branchId, title: payload.title.trim() } },
-          create: { branchId: branchContext.branchId, title: payload.title.trim() },
-          update: {}
+          create: { branchId: branchContext.branchId, title: payload.title.trim(), category: payload.category.trim() },
+          update: { category: payload.category.trim() }
         });
       }
 
@@ -7763,8 +7781,8 @@ router.patch("/expenses/:id", async (req, res, next) => {
       if (payload.addToFavorites && payload.title?.trim()) {
         await transaction.expenseTitleFavorite.upsert({
           where: { branchId_title: { branchId: branchContext.branchId, title: payload.title.trim() } },
-          create: { branchId: branchContext.branchId, title: payload.title.trim() },
-          update: {}
+          create: { branchId: branchContext.branchId, title: payload.title.trim(), category: payload.category?.trim() ?? "" },
+          update: payload.category?.trim() ? { category: payload.category.trim() } : {}
         });
       }
 

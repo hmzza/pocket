@@ -17,7 +17,9 @@ const envSchema = z.object({
   WEB_ORIGINS: z.string().optional(),
   API_URL: z.string().url().default("http://localhost:4000"),
   JWT_SECRET: z.string().min(16),
-  JWT_EXPIRES_IN: z.string().default("7d"),
+  // Session lifetime is intentionally centralized so the token and browser
+  // cookie cannot drift apart across devices.
+  AUTH_SESSION_DAYS: z.coerce.number().int().min(1).default(30),
   INITIAL_ADMIN_EMAIL: z.string().email().optional(),
   INITIAL_ADMIN_PASSWORD: z.string().min(8).optional()
 });

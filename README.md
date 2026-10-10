@@ -92,6 +92,8 @@ POS permissions.
   and explicit inventory actions remain available when order deduction is paused.
 - Inventory recipes support raw ingredients, retail items, nested prep items,
   weighted-average purchase costing, and automatic complete-batch prep production.
+- Expense title favorites are branch-specific, retain their category, and can be
+  removed without changing historical expense records.
 - Packaging is retained for compatibility but excluded from current stock
   deduction and recipe costing.
 - Deployments run migrations and builds only. Production catalog data is not
@@ -155,7 +157,7 @@ See `.env.example` for the supported variables:
 - `WEB_ORIGINS`
 - `API_URL`
 - `JWT_SECRET`
-- `JWT_EXPIRES_IN`
+- `AUTH_SESSION_DAYS` (default: 30; controls both JWT and browser-cookie lifetime)
 - `TRUST_PROXY`
 - `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD`
 - `INITIAL_POS_EMAIL` and `INITIAL_POS_PASSWORD`

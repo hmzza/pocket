@@ -7,5 +7,5 @@ export function DeliveryStatusBanner() {
   const { selectedBranch } = usePublicBranch();
   const { deliveryEnabled, message, loading } = useDeliveryAvailability(selectedBranch?.slug);
   if (loading || deliveryEnabled) return null;
-  return <div className="border-b border-pocket-orange/20 bg-pocket-orange/10 px-4 py-3 text-center text-sm font-semibold text-pocket-navy" role="status">{message ?? "Our riders are currently busy at the moment. Please call us to place your order."}</div>;
+  return <div className="border-b border-pocket-orange/20 bg-pocket-orange/10 px-4 py-3 text-center text-sm font-semibold text-pocket-navy" role="status">{message ?? "You can visit our branch or place a pickup order from the website. Our riders are currently busy at the moment. Please call us to place your order."}</div>;
 }
