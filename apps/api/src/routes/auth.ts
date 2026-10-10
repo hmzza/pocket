@@ -4,6 +4,7 @@ import { RoleCode } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
 import { hashPassword, signToken, verifyPassword } from "../lib/auth.js";
+import { env } from "../config.js";
 import { buildUniqueUsername } from "../lib/username.js";
 import { AUTH_COOKIE_NAME, authenticate } from "../middleware/auth.js";
 import { getAccessibleBranchesForUser } from "../lib/branch-context.js";
@@ -124,6 +125,7 @@ function authCookieOptions() {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax" as const,
+    maxAge: env.AUTH_SESSION_DAYS * 24 * 60 * 60 * 1000,
     path: "/"
   };
 }

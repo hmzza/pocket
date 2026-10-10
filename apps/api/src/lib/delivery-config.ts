@@ -191,7 +191,7 @@ export async function getDeliveryConfigSnapshot(branchId: string, options: { inc
   );
   const pickupEnabled = shopEnabled;
   const deliveryEnabled = shopEnabled && deliveryScheduleEnabled;
-  const deliveryClosedMessage = `${DELIVERY_CLOSED_MESSAGE.replace("03295196981", normalizePhone(branch.phone))} You can visit our branch or place a pickup order from the website.`;
+  const deliveryClosedMessage = `You can visit our branch or place a pickup order from the website. ${DELIVERY_CLOSED_MESSAGE.replace("03295196981", normalizePhone(branch.phone))}`;
   const shopMessage = shopEnabled
     ? (deliveryEnabled ? null : deliveryClosedMessage)
     : storefront.manualOverrideWindowKey === shopSchedule.windowKey && shopSchedule.within

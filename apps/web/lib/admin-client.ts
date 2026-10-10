@@ -978,9 +978,15 @@ export async function updateAdminStorefrontTimings(openTime: string | null, clos
   });
 }
 
-export async function fetchAdminExpenseTitleFavorites(): Promise<string[]> {
-  const data = await adminFetch<{ favorites: Array<{ title: string }> }>("/api/admin/expense-title-favorites");
-  return data.favorites.map((favorite) => favorite.title);
+export async function fetchAdminExpenseTitleFavorites(): Promise<import("@/lib/types").AdminExpenseTitleFavorite[]> {
+  const data = await adminFetch<{ favorites: import("@/lib/types").AdminExpenseTitleFavorite[] }>("/api/admin/expense-title-favorites");
+  return data.favorites;
+}
+
+export async function deleteAdminExpenseTitleFavorite(id: string) {
+  return adminFetch<{ deleted: boolean }>(`/api/admin/expense-title-favorites/${id}`, {
+    method: "DELETE"
+  });
 }
 
 export async function fetchAdminInventory(branchId?: string, params?: { receivedStart?: string; receivedEnd?: string }): Promise<AdminInventoryData> {

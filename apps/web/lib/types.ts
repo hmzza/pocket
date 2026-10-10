@@ -420,6 +420,12 @@ export type AdminExpense = {
   createdAt: string;
 };
 
+export type AdminExpenseTitleFavorite = {
+  id: string;
+  title: string;
+  category: string;
+};
+
 export type AdminExpenseSummary = {
   totalAmount: number;
   totalCount: number;

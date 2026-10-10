@@ -18,7 +18,7 @@ export async function verifyPassword(password: string, hash: string) {
 }
 
 export function signToken(payload: AuthPayload) {
-  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"] });
+  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: `${env.AUTH_SESSION_DAYS}d` as SignOptions["expiresIn"] });
 }
 
 export function verifyToken(token: string) {

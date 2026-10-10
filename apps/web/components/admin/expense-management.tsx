@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, RefreshCcw, Receipt, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, RefreshCcw, Receipt, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import {
   createAdminExpense,
   createAdminStockPurchase,
   deleteAdminExpense,
+  deleteAdminExpenseTitleFavorite,
   downloadAdminExpenseExport,
   fetchAdminExpenses,
   fetchAdminInventory,
@@ -18,7 +19,7 @@ import {
   updateAdminStockPurchase,
   updateAdminSetting
 } from "@/lib/admin-client";
-import type { AdminExpense, AdminExpenseData, AdminInventoryData, AdminInventoryItem, AdminRangePreset } from "@/lib/types";
+import type { AdminExpense, AdminExpenseData, AdminExpenseTitleFavorite, AdminInventoryData, AdminInventoryItem, AdminRangePreset } from "@/lib/types";
 import { formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey, toBusinessDateInputValue, toPakistanDateIso } from "@/lib/utils";
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
@@ -125,16 +126,18 @@ function EntryModeTabs({ mode, onChange }: { mode: ExpenseEntryMode; onChange: (
 function SearchableExpenseTitleSelect({
   options,
   value,
-  onChange
+  onChange,
+  onDelete
 }: {
-  options: string[];
+  options: AdminExpenseTitleFavorite[];
   value: string;
-  onChange: (value: string) => void;
+  onChange: (value: string, category?: string) => void;
+  onDelete: (favorite: AdminExpenseTitleFavorite) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
-  const filtered = options.filter((title) => title.toLowerCase().includes(search.toLowerCase()));
+  const filtered = options.filter((favorite) => favorite.title.toLowerCase().includes(search.toLowerCase()));
   const label = value === "__custom__" ? "Add custom title" : value || "Select an expense title";
 
   useEffect(() => {
@@ -159,11 +162,16 @@ function SearchableExpenseTitleSelect({
             <input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search favorite titles" className="h-8 min-w-0 flex-1 bg-transparent text-sm text-pocket-charcoal outline-none" />
           </div>
           <div className="max-h-52 overflow-y-auto p-1">
-            {filtered.map((title) => (
-              <button key={title} type="button" onClick={() => { onChange(title); setOpen(false); setSearch(""); }} className="flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm text-pocket-navy hover:bg-pocket-cream">
-                <span>{title}</span>
-                {value === title ? <Check className="h-4 w-4 text-pocket-orange" /> : null}
-              </button>
+            {filtered.map((favorite) => (
+              <div key={favorite.id} className="flex items-center gap-1 rounded hover:bg-pocket-cream">
+                <button type="button" onClick={() => { onChange(favorite.title, favorite.category); setOpen(false); setSearch(""); }} className="flex min-w-0 flex-1 items-center justify-between rounded px-3 py-2 text-left text-sm text-pocket-navy">
+                  <span className="min-w-0 truncate">{favorite.title}</span>
+                  {value === favorite.title ? <Check className="ml-2 h-4 w-4 shrink-0 text-pocket-orange" /> : null}
+                </button>
+                <button type="button" aria-label={`Remove ${favorite.title} from favorites`} title="Remove from favorites" onClick={(event) => { event.stopPropagation(); onDelete(favorite); }} className="mr-1 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-pocket-navy/45 hover:bg-red-50 hover:text-red-700">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
             ))}
             {!filtered.length ? <p className="px-3 py-2 text-sm text-pocket-navy/50">No favorite titles.</p> : null}
             <button type="button" onClick={() => { onChange("__custom__"); setOpen(false); setSearch(""); }} className="mt-1 flex w-full border-t border-pocket-navy/10 px-3 py-2 text-left text-sm font-bold text-pocket-orange hover:bg-pocket-cream">
@@ -186,6 +194,7 @@ function ExpenseEditor({
   categoryOptions,
   onAddCategory,
   onTitleChoiceChange,
+  onDeleteFavorite,
   onAddTitleToFavoritesChange,
   saving,
   onChange,
@@ -197,12 +206,13 @@ function ExpenseEditor({
   open: boolean;
   value: ExpenseFormState;
   editingExpense: AdminExpense | null;
-  titleOptions: string[];
+  titleOptions: AdminExpenseTitleFavorite[];
   titleChoice: string;
   addTitleToFavorites: boolean;
   categoryOptions: string[];
   onAddCategory: (category: string) => void | Promise<void>;
-  onTitleChoiceChange: (nextTitle: string) => void;
+  onTitleChoiceChange: (nextTitle: string, category?: string) => void;
+  onDeleteFavorite: (favorite: AdminExpenseTitleFavorite) => void;
   onAddTitleToFavoritesChange: (value: boolean) => void;
   saving: boolean;
   onChange: (next: ExpenseFormState) => void;
@@ -238,9 +248,14 @@ function ExpenseEditor({
             <SearchableExpenseTitleSelect
               options={titleOptions}
               value={titleChoice}
-              onChange={(nextTitle) => {
-                onTitleChoiceChange(nextTitle);
-                onChange({ ...value, title: nextTitle === "__custom__" ? "" : nextTitle });
+              onDelete={onDeleteFavorite}
+              onChange={(nextTitle, favoriteCategory) => {
+                onTitleChoiceChange(nextTitle, favoriteCategory);
+                onChange({
+                  ...value,
+                  title: nextTitle === "__custom__" ? "" : nextTitle,
+                  category: nextTitle === "__custom__" ? "" : favoriteCategory ?? ""
+                });
               }}
             />
             {titleChoice === "__custom__" ? <Input value={value.title} onChange={(event) => onChange({ ...value, title: event.target.value })} placeholder="Enter custom expense title" /> : null}
@@ -433,7 +448,7 @@ export function ExpenseManagement() {
   const [data, setData] = useState<AdminExpenseData | null>(null);
   const [inventory, setInventory] = useState<AdminInventoryData | null>(null);
   const [expenseCategories, setExpenseCategories] = useState<string[]>([]);
-  const [expenseTitles, setExpenseTitles] = useState<string[]>([]);
+  const [expenseTitles, setExpenseTitles] = useState<AdminExpenseTitleFavorite[]>([]);
   const [preset, setPreset] = useState<AdminRangePreset>("today");
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey());
   const [customStart, setCustomStart] = useState(getTodayDateKey());
@@ -596,7 +611,10 @@ export function ExpenseManagement() {
       .sort((left, right) => left.localeCompare(right));
   }, [data, expenseCategories, form.category]);
 
-  const titleOptions = useMemo(() => [...new Set(expenseTitles)].sort((left, right) => left.localeCompare(right)), [expenseTitles]);
+  const titleOptions = useMemo(
+    () => [...expenseTitles].sort((left, right) => left.title.localeCompare(right.title)),
+    [expenseTitles]
+  );
 
   const stockItems = useMemo(
     () => (inventory?.items ?? []).filter((item) => item.isActive && item.type !== "PREPARED"),
@@ -638,7 +656,7 @@ export function ExpenseManagement() {
     setEditingExpense(expense);
     setFormDateEdited(true);
     setForm(mapExpenseToForm(expense));
-    setTitleChoice(titleOptions.includes(expense.title) ? expense.title : "__custom__");
+    setTitleChoice(titleOptions.some((favorite) => favorite.title === expense.title) ? expense.title : "__custom__");
     setAddTitleToFavorites(false);
     setEntryMode("OTHER");
     setEditorOpen(true);
@@ -748,6 +766,22 @@ export function ExpenseManagement() {
     }
   }
 
+  async function deleteFavorite(favorite: AdminExpenseTitleFavorite) {
+    const confirmed = window.confirm(`Remove ${favorite.title} from favorites? Previous expenses will remain unchanged.`);
+    if (!confirmed) return;
+
+    try {
+      await deleteAdminExpenseTitleFavorite(favorite.id);
+      setExpenseTitles((current) => current.filter((entry) => entry.id !== favorite.id));
+      if (titleChoice === favorite.title) {
+        setTitleChoice("");
+        setForm((current) => ({ ...current, title: "", category: "" }));
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to remove favorite expense title.");
+    }
+  }
+
   async function exportMonthSheet() {
     setExporting(true);
     setError("");
@@ -810,7 +844,8 @@ export function ExpenseManagement() {
           addTitleToFavorites={addTitleToFavorites}
           categoryOptions={categoryOptions}
           onAddCategory={(nextCategory) => void addExpenseCategory(nextCategory)}
-          onTitleChoiceChange={setTitleChoice}
+          onTitleChoiceChange={(nextTitle) => setTitleChoice(nextTitle)}
+          onDeleteFavorite={(favorite) => void deleteFavorite(favorite)}
           onAddTitleToFavoritesChange={setAddTitleToFavorites}
           saving={saving}
           mode={entryMode}
