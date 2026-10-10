@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Download, Pencil, Plus, RefreshCcw, Receipt, Search } from "lucide-react";
-import { FixedExpenseManagement } from "@/components/admin/fixed-expense-management";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,7 +30,8 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "custom", label: "Custom" }
 ];
 
-const COMMON_EXPENSE_CATEGORIES = ["Utilities", "Rent", "Salaries", "Maintenance", "Marketing", "Delivery", "Packaging", "Misc"];
+const COMMON_EXPENSE_CATEGORIES = ["Utilities", "Kitchen", "Fixed Expenses", "Staff", "Marketing", "Delivery", "Packaging", "Misc"];
+const REMOVED_EXPENSE_CATEGORIES = new Set(["inventory", "barf", "maintenance", "maintainence", "rent", "salaries"]);
 const EXPENSE_CATEGORY_SETTING_KEY = "expense.categories";
 const MONEY_SOURCES = [
   { value: "CASH", label: "Cash" },
@@ -455,7 +455,6 @@ export function ExpenseManagement() {
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [deletingId, setDeletingId] = useState("");
-  const [fixedExpensesOpen, setFixedExpensesOpen] = useState(false);
   const [addTitleToFavorites, setAddTitleToFavorites] = useState(false);
 
   async function loadExpenses(
@@ -584,13 +583,16 @@ export function ExpenseManagement() {
         `${expense.title} ${expense.category}`.toLowerCase().includes(search.toLowerCase());
       return matchesSearch;
       })
-      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+      .sort((left, right) => {
+        const paymentDateDifference = new Date(right.expenseDate).getTime() - new Date(left.expenseDate).getTime();
+        return paymentDateDifference || new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+      });
   }, [data, search]);
 
   const categoryOptions = useMemo(() => {
     const fromData = data?.categories.map((entry) => entry.label) ?? [];
     return [...new Set([...COMMON_EXPENSE_CATEGORIES, ...expenseCategories, ...fromData, ...(form.category ? [form.category] : [])])]
-      .filter((category) => !["inventory", "barf"].includes(category.toLowerCase()))
+      .filter((category) => !REMOVED_EXPENSE_CATEGORIES.has(category.toLowerCase()) || category.toLowerCase() === form.category.trim().toLowerCase())
       .sort((left, right) => left.localeCompare(right));
   }, [data, expenseCategories, form.category]);
 
@@ -870,22 +872,6 @@ export function ExpenseManagement() {
       </div>
 
       {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
-
-      <Card className="overflow-hidden">
-        <button
-          type="button"
-          className="flex w-full items-center justify-between gap-4 p-5 text-left hover:bg-pocket-cream/30"
-          onClick={() => setFixedExpensesOpen((current) => !current)}
-          aria-expanded={fixedExpensesOpen}
-        >
-          <span>
-            <span className="block text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Fixed expenses</span>
-            <span className="mt-1 block text-sm text-pocket-navy/60">Manage recurring costs here. Generate them to add them to this expense ledger and profit calculations.</span>
-          </span>
-          <ChevronDown className={`h-5 w-5 shrink-0 text-pocket-navy transition-transform ${fixedExpensesOpen ? "rotate-180" : ""}`} />
-        </button>
-        {fixedExpensesOpen ? <div className="border-t border-pocket-navy/10 p-5"><FixedExpenseManagement embedded onExpensesChanged={() => loadExpenses(preset, branchId, categoryFilter, selectedMonth, customStart, customEnd)} /></div> : null}
-      </Card>
 
       <Card className="p-5">
         <div className="flex flex-wrap gap-2">

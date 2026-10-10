@@ -7435,7 +7435,7 @@ router.get("/expenses/export", async (req, res, next) => {
           }
         }
       },
-      orderBy: [{ expenseDate: "asc" }, { createdAt: "asc" }]
+      orderBy: [{ expenseDate: "desc" }, { createdAt: "desc" }]
     });
 
     const totalAmount = expenses.reduce((sum, expense) => sum + parseDecimal(expense.amount), 0);
