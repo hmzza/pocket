@@ -155,12 +155,13 @@ function CompactOrderCard({
   const isPaid = order.paymentStatus === "PAID";
   const isUnpaid = order.paymentStatus === "PENDING";
   const isDelivery = order.serviceType === "DELIVERY";
+  const isPickup = order.channel === "ONLINE" && order.serviceType === "TAKEAWAY";
   const canSendDeliveryUpdate = order.status === "CONFIRMED" || order.status === "READY" || order.status === "OUT_FOR_DELIVERY";
-  const labelText = isDelivery ? "text-blue-100" : "text-orange-600";
-  const primaryText = isDelivery ? "text-white" : "text-slate-900";
-  const mutedText = isDelivery ? "text-blue-100" : "text-slate-500";
-  const totalText = isDelivery ? "text-white" : "text-orange-600";
-  const itemsSurface = isDelivery ? "bg-white/95 text-slate-700 shadow-sm" : "bg-slate-50 text-slate-700";
+  const labelText = isDelivery ? "text-blue-100" : isPickup ? "text-amber-100" : "text-orange-600";
+  const primaryText = isDelivery || isPickup ? "text-white" : "text-slate-900";
+  const mutedText = isDelivery ? "text-blue-100" : isPickup ? "text-amber-100" : "text-slate-500";
+  const totalText = isDelivery || isPickup ? "text-white" : "text-orange-600";
+  const itemsSurface = isDelivery || isPickup ? "bg-white/95 text-slate-700 shadow-sm" : "bg-slate-50 text-slate-700";
 
   return (
     <Card
@@ -168,10 +169,10 @@ function CompactOrderCard({
         embedded
           ? "flex h-full flex-col rounded-xl border p-2 shadow-none transition-all duration-150 ease-out transform-gpu"
           : "flex h-full flex-col rounded-xl border p-2.5 shadow-none transition-all duration-150 ease-out transform-gpu",
-        isDelivery ? "border-blue-300 bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 shadow-lg shadow-blue-950/30" : isUnpaid ? "border-red-200 bg-red-50/80" : isPaid ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white",
+        isDelivery ? "border-blue-300 bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 shadow-lg shadow-blue-950/30" : isPickup ? "border-[#d6a27b] bg-gradient-to-br from-[#70452e] via-[#8d5a3a] to-[#a86f4b] shadow-lg shadow-[#5c3826]/30" : isUnpaid ? "border-red-200 bg-red-50/80" : isPaid ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white",
         muted ? "pointer-events-none opacity-30" : "",
         exiting ? "pointer-events-none scale-[0.98] translate-y-1 opacity-0" : "",
-        busy ? isDelivery ? "ring-2 ring-sky-200" : "ring-1 ring-orange-200" : ""
+        busy ? isDelivery ? "ring-2 ring-sky-200" : isPickup ? "ring-2 ring-amber-200" : "ring-1 ring-orange-200" : ""
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-2">
@@ -230,8 +231,8 @@ function CompactOrderCard({
       </div>
 
       {order.deliveryInstructions ? (
-        <div className={`${embedded ? "px-1.5 py-1 text-[9px]" : "px-2 py-1.5 text-[10px]"} mt-1 rounded-lg leading-tight ${isDelivery ? "bg-blue-950/25 text-blue-50" : "bg-orange-50 text-slate-700"}`}>
-          <span className={isDelivery ? "font-semibold text-white" : "font-semibold text-orange-700"}>Note:</span> {order.deliveryInstructions}
+        <div className={`${embedded ? "px-1.5 py-1 text-[9px]" : "px-2 py-1.5 text-[10px]"} mt-1 rounded-lg leading-tight ${isDelivery ? "bg-blue-950/25 text-blue-50" : isPickup ? "bg-black/15 text-amber-50" : "bg-orange-50 text-slate-700"}`}>
+          <span className={isDelivery || isPickup ? "font-semibold text-white" : "font-semibold text-orange-700"}>Note:</span> {order.deliveryInstructions}
         </div>
       ) : null}
       {isDelivery && order.deliverySector ? (
@@ -480,7 +481,7 @@ function PosOrderQueueView({
   const [riders, setRiders] = useState<DeliveryRider[]>([]);
   const [pendingStatuses, setPendingStatuses] = useState<Record<string, AdminOrder["status"]>>({});
   const [pendingPaymentStatuses, setPendingPaymentStatuses] = useState<Record<string, AdminOrder["paymentStatus"]>>({});
-  const [pendingDeliveryOrders, setPendingDeliveryOrders] = useState<AdminOrder[]>([]);
+  const [pendingIncomingOrders, setPendingIncomingOrders] = useState<AdminOrder[]>([]);
   const [refreshTimer, setRefreshTimer] = useState<number | null>(null);
   const loadSequenceRef = useRef(0);
   const initialLoadRef = useRef(false);
@@ -492,7 +493,7 @@ function PosOrderQueueView({
   async function refreshPendingDeliveryOrders() {
     try {
       const data = await fetchPosOrders({ scope: "active" });
-      setPendingDeliveryOrders(data.orders.filter((order) => order.serviceType === "DELIVERY" && order.status === "PENDING"));
+      setPendingIncomingOrders(data.orders.filter((order) => order.status === "PENDING" && (order.serviceType === "DELIVERY" || (order.channel === "ONLINE" && order.serviceType === "TAKEAWAY"))));
     } catch {
       // The normal queue refresh remains the fallback when this alert-only request fails.
     }
@@ -543,7 +544,7 @@ function PosOrderQueueView({
 
   const { soundStatus, toggleSound } = usePosDeliveryAlert({
     enabled: ready,
-    hasPendingDelivery: pendingDeliveryOrders.length > 0,
+    hasPendingDelivery: pendingIncomingOrders.length > 0,
     onDeliveryEvent: () => {
       void loadOrders(scope);
       void refreshPendingDeliveryOrders();
@@ -899,8 +900,8 @@ function PosOrderQueueView({
             type="button"
             variant="outline"
             className="h-8 w-8 px-0"
-            title={soundStatus === "enabled" ? "Mute delivery order sound" : soundStatus === "muted" ? "Enable delivery order sound" : "Enable delivery order sound"}
-            aria-label={soundStatus === "enabled" ? "Mute delivery order sound" : "Enable delivery order sound"}
+            title={soundStatus === "enabled" ? "Mute incoming order sound" : soundStatus === "muted" ? "Enable incoming order sound" : "Enable incoming order sound"}
+            aria-label={soundStatus === "enabled" ? "Mute incoming order sound" : "Enable incoming order sound"}
             onClick={toggleSound}
           >
             {soundStatus === "enabled" ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
