@@ -1278,12 +1278,12 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
               </div>
               <span className="font-medium text-pocket-navy">{product.category.name}</span>
           <span className="font-bold text-pocket-orange">{formatCurrency(product.basePrice)}</span>
-              <div className="grid w-fit grid-cols-3 gap-2">
+              <div className="grid w-fit grid-cols-[2.25rem_2.25rem_2.25rem] gap-2">
                 <Button variant="outline" size="sm" title="Move product up" aria-label={`Move ${product.name} up`} data-product-order-control={`${product.id}-UP`} className="h-9 w-9 px-0" onClick={() => void moveProduct(product.id, "UP")} disabled={Boolean(movingProductId) || index === 0}><ChevronUp className="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" title="Move product down" aria-label={`Move ${product.name} down`} data-product-order-control={`${product.id}-DOWN`} className="h-9 w-9 px-0" onClick={() => void moveProduct(product.id, "DOWN")} disabled={Boolean(movingProductId) || index === products.length - 1}><ChevronDown className="h-4 w-4" /></Button>
                 <Button variant="outline" size="sm" className="h-9 w-9 px-0" title="Edit product" aria-label={`Edit ${product.name}`} onClick={() => openEdit(product)}><Pencil className="h-4 w-4" /></Button>
-                <Link href={`/admin/inventory?tab=recipes&productId=${encodeURIComponent(product.id)}`} title="Edit recipe" aria-label={`Edit recipe for ${product.name}`} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-pocket-navy/15 bg-white text-xs font-semibold text-pocket-navy transition hover:bg-pocket-cream">Recipe</Link>
-                <Button variant="ghost" size="sm" className="h-9 w-9 px-0 text-red-600 hover:bg-red-50 hover:text-red-700" title="Delete product" aria-label={`Delete ${product.name}`} onClick={() => void deleteProduct(product)} disabled={actionProductId === product.id}><Trash2 className="h-4 w-4" /></Button>
+                <Link href={`/admin/inventory?tab=recipes&productId=${encodeURIComponent(product.id)}`} title="Edit recipe" aria-label={`Edit recipe for ${product.name}`} className="col-span-2 inline-flex h-9 items-center justify-center rounded-md border border-pocket-navy/15 bg-white text-xs font-semibold text-pocket-navy transition hover:bg-pocket-cream">Recipe</Link>
+                <Button variant="ghost" size="sm" className="h-9 w-full px-0 text-red-600 hover:bg-red-50 hover:text-red-700" title="Delete product" aria-label={`Delete ${product.name}`} onClick={() => void deleteProduct(product)} disabled={actionProductId === product.id}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </div>
           ))
