@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { Instagram, Mail, MapPin, MessageCircle } from "lucide-react";
 
 export function Footer() {
   return (
@@ -22,10 +23,40 @@ export function Footer() {
         </div>
         <div className="space-y-3 text-sm">
           <p className="font-semibold uppercase tracking-[0.2em] text-pocket-orange">Contact</p>
-          <p>Shop #17, Al Ghaffar Mall, G-11 Markaz, Islamabad</p>
-          <p>+92 329 5196981</p>
-          <p>hello@pocketshawarma.com</p>
-          <p>@pocket.pakistan</p>
+          <a
+            href="https://share.google/c4SGELkbfGdqi577k"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-start gap-2 text-pocket-cream/85 transition hover:text-white"
+          >
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-pocket-orange" />
+            <span>Shop #17, Al Ghaffar Mall, G-11 Markaz, Islamabad</span>
+          </a>
+          <a
+            href="https://wa.me/923295196981"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 text-pocket-cream/85 transition hover:text-white"
+          >
+            <MessageCircle className="h-4 w-4 shrink-0 text-pocket-orange" />
+            <span>+92 329 5196981</span>
+          </a>
+          <a
+            href="mailto:hello@pocketshawarma.com"
+            className="flex items-center gap-2 text-pocket-cream/85 transition hover:text-white"
+          >
+            <Mail className="h-4 w-4 shrink-0 text-pocket-orange" />
+            <span>hello@pocketshawarma.com</span>
+          </a>
+          <a
+            href="https://www.instagram.com/pocket.pakistan/"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 text-pocket-cream/85 transition hover:text-white"
+          >
+            <Instagram className="h-4 w-4 shrink-0 text-pocket-orange" />
+            <span>@pocket.pakistan</span>
+          </a>
         </div>
       </div>
     </footer>
