@@ -105,6 +105,10 @@ POS permissions.
   deduction and recipe costing.
 - Deployments run migrations and builds only. Production catalog data is not
   reseeded or overwritten during deployment.
+- Business Health remains available by route but is currently hidden from the
+  admin sidebar.
+- New online delivery and pickup orders show only Accept in the POS queue until
+  staff accepts them.
 
 ## Local Development
 

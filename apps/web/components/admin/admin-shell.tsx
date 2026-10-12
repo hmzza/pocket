@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, ClipboardList, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, MonitorDown, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
+import { Banknote, BarChart3, Bike, Boxes, ChartNoAxesCombined, ClipboardList, Gift, HandCoins, History, LayoutDashboard, LogOut, Menu, MonitorDown, Package2, Receipt, ShoppingCart, SlidersHorizontal, Users, X } from "lucide-react";
 import { BranchSwitcher } from "@/components/admin/branch-switcher";
 import { DesktopDeliveryAlerts } from "@/components/admin/desktop-delivery-alerts";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,6 @@ const links: Array<{
   { href: "/admin/analytics", label: "Business Analytics", icon: BarChart3, permissionKey: "BUSINESS_ANALYTICS" },
   { href: "/admin/analytics/products", label: "Product Analytics", icon: ChartNoAxesCombined, permissionKey: "PRODUCT_ANALYTICS" },
   { href: "/admin/finances", label: "Finances", icon: Banknote, permissionKey: "FINANCES" },
-  { href: "/admin/health", label: "Business Health", icon: Activity, permissionKey: "BUSINESS_HEALTH" },
   { href: "/admin/products", label: "Products", icon: Boxes, permissionKey: "PRODUCTS" },
   { href: "/admin/promotions", label: "Promotions", icon: Gift, permissionKey: "PROMOTIONS" },
   { href: "/admin/website", label: "Website Control", icon: SlidersHorizontal, permissionKey: "WEBSITE" },

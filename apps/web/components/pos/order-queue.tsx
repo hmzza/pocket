@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { BadgeDollarSign, CheckCircle2, Clock3, ExternalLink, ListChecks, PackageCheck, PencilLine, RefreshCcw, Search, Trash2, Volume2, VolumeX } from "lucide-react";
+import { BadgeDollarSign, CheckCircle2, Clock3, ExternalLink, ListChecks, PencilLine, RefreshCcw, Search, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -156,7 +156,7 @@ function CompactOrderCard({
   const isUnpaid = order.paymentStatus === "PENDING";
   const isDelivery = order.serviceType === "DELIVERY";
   const isPickup = order.channel === "ONLINE" && order.serviceType === "TAKEAWAY";
-  const isIncomingPickup = isPickup && order.status === "PENDING";
+  const incomingNeedsAcceptance = (isDelivery || isPickup) && order.status === "PENDING";
   const canSendDeliveryUpdate = order.status === "CONFIRMED" || order.status === "READY" || order.status === "OUT_FOR_DELIVERY";
   const labelText = isDelivery ? "text-blue-100" : isPickup ? "text-amber-100" : "text-orange-600";
   const primaryText = isDelivery || isPickup ? "text-white" : "text-slate-900";
@@ -264,7 +264,18 @@ function CompactOrderCard({
 
       <div className={embedded ? "mt-auto pt-1.5" : "mt-auto pt-2"}>
         {!isTerminal ? (
-          isDelivery || isIncomingPickup ? (
+          incomingNeedsAcceptance ? (
+            <div className="flex items-center justify-end gap-1">
+              <OrderActionButton
+                title={isDelivery ? "Accept delivery order" : "Accept pickup order"}
+                label={isDelivery ? "Accept delivery order" : "Accept pickup order"}
+                className={isDelivery ? "border-sky-600 bg-sky-600 text-white hover:bg-sky-700" : "border-amber-700 bg-amber-700 text-white hover:bg-amber-800"}
+                icon={<CheckCircle2 className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
+                disabled={busy}
+                onClick={() => onChangeStatus(order, "CONFIRMED")}
+              />
+            </div>
+          ) : isDelivery ? (
             <div className="flex flex-wrap items-center justify-end gap-1">
               <OrderActionButton
                 title={isDelivery ? "Edit delivery order" : "Edit pickup order"}
@@ -274,16 +285,6 @@ function CompactOrderCard({
                 disabled={busy}
                 onClick={() => onEdit(order)}
               />
-              {order.status === "PENDING" ? (
-                <OrderActionButton
-                  title={isDelivery ? "Accept delivery order" : "Accept pickup order"}
-                  label={isDelivery ? "Accept delivery order" : "Accept pickup order"}
-                  className="border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700"
-                  icon={<PackageCheck className={embedded ? "h-3.5 w-3.5" : "h-4 w-4"} />}
-                  disabled={busy}
-                  onClick={() => onChangeStatus(order, "CONFIRMED")}
-                />
-              ) : null}
               {order.status === "OUT_FOR_DELIVERY" || (isDelivery && order.status === "WATCH_LATER") ? (
                 <OrderActionButton
                   title="Mark delivery complete"
