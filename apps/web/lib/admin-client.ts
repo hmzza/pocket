@@ -127,6 +127,7 @@ export async function fetchAdminProducts() {
     description: product.description,
     ingredients: product.ingredients ?? [],
     basePrice: Number(product.branchPricing?.[0]?.price ?? product.basePrice),
+    protein: Number(product.nutritionInfo?.macros?.protein ?? 0),
     foodPackagingCost: product.foodPackagingCost == null ? null : Number(product.foodPackagingCost),
     costSettingsUpdatedAt: product.costSettingsUpdatedAt ?? null,
     calories: product.calories ?? undefined,
