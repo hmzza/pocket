@@ -926,6 +926,7 @@ export type AdminProduct = {
   description: string;
   ingredients: string[];
   basePrice: number;
+  protein?: number;
   foodPackagingCost?: number | null;
   costSettingsUpdatedAt?: string | null;
   calories?: number;

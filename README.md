@@ -85,6 +85,13 @@ POS permissions.
   switch branches; other users are restricted to assigned branches.
 - Product catalog prices and availability are branch-specific through
   `BranchProduct`.
+- Products are managed with a single-image editor. Slugs and legacy merchandising
+  fields remain backend-compatible but are not required in the active form.
+- Product order controls use `BranchProduct.sortOrder`; manual moves can cross
+  category boundaries, while newly created products are inserted after the last
+  existing product in their selected category.
+- Product recipes are edited under Inventory -> Retail Items. Product action
+  links can open the matching recipe editor directly.
 - Daily Closing reconciles Cash, Easypaisa, and JazzCash, including sales,
   expenses, loans, investments, transfers, additions, savings movements, and
   expected-versus-actual differences.
@@ -98,6 +105,10 @@ POS permissions.
   deduction and recipe costing.
 - Deployments run migrations and builds only. Production catalog data is not
   reseeded or overwritten during deployment.
+- Business Health remains available by route but is currently hidden from the
+  admin sidebar.
+- New online delivery and pickup orders show only Accept in the POS queue until
+  staff accepts them.
 
 ## Local Development
 

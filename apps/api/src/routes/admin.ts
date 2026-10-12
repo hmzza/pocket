@@ -2126,6 +2126,7 @@ const productSchema = z.object({
     .optional(),
   basePrice: z.number().nonnegative(),
   calories: z.number().int().nonnegative().optional(),
+  protein: z.number().nonnegative().optional(),
   featured: z.boolean().default(false),
   bestSeller: z.boolean().default(false),
   isActive: z.boolean().default(true),
@@ -2194,6 +2195,19 @@ function normalizeProductImages(
   }));
 }
 
+function mergeProductNutritionInfo(current: unknown, calories?: number, protein?: number) {
+  const existing = current && typeof current === "object" ? current as Record<string, any> : {};
+  const existingMacros = existing.macros && typeof existing.macros === "object" ? existing.macros as Record<string, any> : {};
+  return {
+    ...existing,
+    ...(calories !== undefined ? { calories } : {}),
+    macros: {
+      ...existingMacros,
+      ...(protein !== undefined ? { protein } : {})
+    }
+  };
+}
+
 router.post("/products", async (req, res, next) => {
   try {
     const payload = productSchema.parse(req.body);
@@ -2237,6 +2251,9 @@ router.post("/products", async (req, res, next) => {
           ingredients: payload.ingredients,
           basePrice: effectiveBasePrice,
           calories: payload.calories,
+          nutritionInfo: payload.calories !== undefined || payload.protein !== undefined
+            ? mergeProductNutritionInfo(undefined, payload.calories, payload.protein)
+            : undefined,
           featured: payload.featured,
           bestSeller: payload.bestSeller,
           isActive: payload.isActive,
@@ -2272,25 +2289,36 @@ router.post("/products", async (req, res, next) => {
         select: { id: true }
       });
 
-      if (branches.length) {
-        const nextSortOrders = new Map<string, number>();
-        await Promise.all(branches.map(async (branch) => {
-          const lastEntry = await transaction.branchProduct.findFirst({
-            where: { branchId: branch.id },
-            orderBy: [{ sortOrder: "desc" }, { productId: "desc" }],
-            select: { sortOrder: true }
-          });
-          nextSortOrders.set(branch.id, (lastEntry?.sortOrder ?? -1) + 1);
-        }));
-        await transaction.branchProduct.createMany({
-          data: branches.map((branch) => ({
+      for (const branch of branches) {
+        await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`product-order:${branch.id}`}))`;
+        const rows = await transaction.branchProduct.findMany({
+          where: { branchId: branch.id },
+          select: { productId: true, sortOrder: true, product: { select: { categoryId: true } } },
+          orderBy: [{ sortOrder: "asc" }, { productId: "asc" }]
+        });
+        const lastCategoryIndex = rows.reduce((lastIndex, row, index) => row.product.categoryId === payload.categoryId ? index : lastIndex, -1);
+        const insertionIndex = lastCategoryIndex >= 0 ? lastCategoryIndex + 1 : rows.length;
+        const nextRows = rows.slice();
+        nextRows.splice(insertionIndex, 0, { productId: createdProduct.id, sortOrder: insertionIndex, product: { categoryId: payload.categoryId } });
+
+        for (const [sortOrder, row] of nextRows.entries()) {
+          if (row.productId === createdProduct.id) continue;
+          if (row.sortOrder !== sortOrder) {
+            await transaction.branchProduct.update({
+              where: { branchId_productId: { branchId: branch.id, productId: row.productId } },
+              data: { sortOrder }
+            });
+          }
+        }
+        await transaction.branchProduct.create({
+          data: {
             branchId: branch.id,
             productId: createdProduct.id,
             price: effectiveBasePrice,
             isAvailable: payload.isActive,
             stockStatus: payload.stockStatus,
-            sortOrder: nextSortOrders.get(branch.id) ?? 0
-          }))
+            sortOrder: insertionIndex
+          }
         });
       }
 
@@ -2431,7 +2459,7 @@ router.patch("/products/:id/order", async (req, res, next) => {
 router.patch("/products/:id", async (req, res, next) => {
   try {
     const payload = productSchema.partial().parse(req.body);
-    const { imageUrl, images, slug, description, name, bundleComponents, ...productPayload } = payload;
+    const { imageUrl, images, slug, description, name, bundleComponents, protein, ...productPayload } = payload;
     const normalizedBundleComponents = bundleComponents ? normalizeBundleComponents(bundleComponents) : null;
     if (normalizedBundleComponents?.some((component) => component.componentProductId === req.params.id)) {
       throw new Error("Bundle cannot include itself.");
@@ -2441,6 +2469,7 @@ router.patch("/products/:id", async (req, res, next) => {
       where: { id: req.params.id },
       select: {
         slug: true,
+        nutritionInfo: true,
         category: { select: { slug: true } },
         bundleComponents: {
           select: { componentProductId: true, quantity: true, componentProduct: { select: { id: true, slug: true } } }
@@ -2494,6 +2523,9 @@ router.patch("/products/:id", async (req, res, next) => {
         data: {
           ...productPayload,
           ...(isCanonicalMeal ? { basePrice: MEAL_BASE_PRICE } : {}),
+          ...(protein !== undefined || payload.calories !== undefined
+            ? { nutritionInfo: mergeProductNutritionInfo(currentProduct.nutritionInfo, payload.calories, protein) }
+            : {}),
           ...(name ? { name: name.trim() } : {}),
           ...(slug ? { slug: normalizeSlug(slug) } : {}),
           ...(description ? { description: description.trim() } : {})

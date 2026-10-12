@@ -23,6 +23,7 @@ type ProductFormState = {
   ingredients: string;
   basePrice: string;
   calories: string;
+  protein: string;
   featured: boolean;
   bestSeller: boolean;
   isActive: boolean;
@@ -103,6 +104,7 @@ const EMPTY_FORM: ProductFormState = {
   ingredients: "",
   basePrice: "",
   calories: "",
+  protein: "",
   featured: false,
   bestSeller: false,
   isActive: true,
@@ -129,11 +131,12 @@ function mapProductToForm(product: AdminProduct): ProductFormState {
     ingredients: product.ingredients.join(", "),
     basePrice: String(product.basePrice),
     calories: product.calories ? String(product.calories) : "",
+    protein: product.protein ? String(product.protein) : "",
     featured: product.featured,
     bestSeller: product.bestSeller,
     isActive: product.isActive,
     stockStatus: product.stockStatus,
-    images: product.images.length ? product.images.map((image) => ({ url: image.url, alt: image.alt })) : [{ url: product.imageUrl, alt: product.name }],
+    images: product.images.length ? [{ url: product.images[0]!.url, alt: product.images[0]!.alt }] : [{ url: product.imageUrl, alt: product.name }],
     bundleComponents: product.bundleComponents.map((component) => ({
       componentProductId: component.productId,
       quantity: String(component.quantity)
@@ -184,6 +187,7 @@ function ProductEditor({
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const [uploading, setUploading] = useState(false);
   const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -192,44 +196,30 @@ function ProductEditor({
   const selectedCategory = categories.find((category) => category.id === value.categoryId);
   const isDeal = selectedCategory?.slug === "deals";
   const dealProductOptions = bundleProductOptions.filter((product) => product.category.slug !== "deals");
-  const assetLibrary = [
-    "/images/classic-shawarma.png",
-    "/images/spicy-shawarma.png",
-    "/images/pocket-mai-rocket-shawarma.png",
-    "/images/thela-fries.png",
-    "/images/loaded-fries.png",
-    "/images/kiwi-passion-chiller.png",
-    "/images/strawberyy-cherry-chiller.png",
-    "/images/watermelon-guava-chiller.png",
-    "/images/chocolate-shake.png",
-    "/images/vanilla-shake.png",
-    "/images/oreo-shake-shake.png"
-  ];
-
-  async function handleUpload(index: number, file: File) {
+  const assetLibrary: string[] = [];
+  async function handleUpload(fileOrIndex: File | number, maybeFile?: File) {
+    const file = typeof fileOrIndex === "number" ? maybeFile : fileOrIndex;
+    if (!file) return;
     if (!isSupportedPocketImageFile(file)) {
       onUploadError("Only PNG and JPEG images are allowed.");
       return;
     }
 
-    setUploadingIndex(index);
+    setUploading(true);
+    setUploadingIndex(typeof fileOrIndex === "number" ? fileOrIndex : null);
     try {
       const uploaded = await uploadAdminImage(file);
       onChange({
         ...value,
-        images: value.images.map((entry, entryIndex) =>
-          entryIndex === index
-            ? {
-                ...entry,
-                url: uploaded.url,
-                alt: entry.alt.trim() || uploaded.alt || getPocketImageAltFromFilename(file.name)
-              }
-            : entry
-        )
+        images: [{
+          url: uploaded.url,
+          alt: value.images[0]?.alt.trim() || uploaded.alt || getPocketImageAltFromFilename(file.name)
+        }]
       });
     } catch (uploadError) {
       onUploadError(uploadError instanceof Error ? uploadError.message : "Failed to upload image.");
     } finally {
+      setUploading(false);
       setUploadingIndex(null);
     }
   }
@@ -270,36 +260,11 @@ function ProductEditor({
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          {recipeSummary ? (
-            <div className="md:col-span-2 rounded-lg border border-pocket-navy/10 bg-pocket-cream/50 p-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Recipe cost</p>
-                  <p className="mt-1 text-lg font-black text-pocket-navy">{formatCurrency(recipeSummary.recipeCost)}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Margin</p>
-                  <p className="mt-1 text-lg font-black text-pocket-navy">{recipeSummary.marginPercent}%</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-pocket-orange">Calories</p>
-                  <p className="mt-1 text-lg font-black text-pocket-navy">{recipeSummary.calories}</p>
-                </div>
-              </div>
-              <Link href="/admin/inventory" className="mt-3 inline-flex text-sm font-semibold text-pocket-orange hover:text-pocket-orangeDeep">
-                Edit full recipe in Inventory
-              </Link>
-            </div>
-          ) : null}
-          <div className="space-y-2 md:col-span-2">
+          <div className="order-2 space-y-2 md:col-span-2">
             <label className="text-sm font-semibold text-pocket-navy">Name</label>
-            <Input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value, slug: value.slug || slugify(event.target.value) })} />
+            <Input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} />
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-semibold text-pocket-navy">Slug <span className="text-pocket-navy/40">(optional)</span></label>
-            <Input value={value.slug} onChange={(event) => onChange({ ...value, slug: slugify(event.target.value) })} />
-          </div>
-          <div className="space-y-2">
+          <div className="order-3 space-y-2">
             <label className="text-sm font-semibold text-pocket-navy">Category</label>
             <select
               value={value.categoryId}
@@ -782,6 +747,194 @@ function ProductEditor({
   );
 }
 
+function SimpleProductEditor({
+  open,
+  categories,
+  products,
+  value,
+  editingName,
+  editingProductId,
+  saving,
+  onUploadError,
+  onCreateCategory,
+  onChange,
+  onClose,
+  onSubmit
+}: {
+  open: boolean;
+  categories: Category[];
+  products: AdminProduct[];
+  value: ProductFormState;
+  editingName?: string;
+  editingProductId?: string;
+  saving: boolean;
+  onUploadError: (message: string) => void;
+  onCreateCategory: (name: string) => Promise<Category>;
+  onChange: (next: ProductFormState) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
+  const bundleProductOptions = products.filter((product) => product.isActive && product.id !== editingProductId);
+  const selectedCategory = categories.find((category) => category.id === value.categoryId);
+  const isDeal = selectedCategory?.slug === "deals";
+  const dealProductOptions = bundleProductOptions.filter((product) => product.category.slug !== "deals");
+
+  async function uploadImage(file: File) {
+    if (!isSupportedPocketImageFile(file)) {
+      onUploadError("Only PNG and JPEG images are allowed.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploaded = await uploadAdminImage(file);
+      onChange({ ...value, images: [{ url: uploaded.url, alt: uploaded.alt || getPocketImageAltFromFilename(file.name) }] });
+    } catch (uploadError) {
+      onUploadError(uploadError instanceof Error ? uploadError.message : "Failed to upload image.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function addCategory() {
+    const name = newCategoryName.trim();
+    if (name.length < 2) {
+      onUploadError("Enter a category name with at least two characters.");
+      return;
+    }
+    setCreatingCategory(true);
+    try {
+      const category = await onCreateCategory(name);
+      onChange({ ...value, categoryId: category.id });
+      setNewCategoryName("");
+      setAddingCategory(false);
+    } catch (error) {
+      onUploadError(error instanceof Error ? error.message : "Could not create the category.");
+    } finally {
+      setCreatingCategory(false);
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-pocket-charcoal/40 px-4 py-8">
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-lg border border-pocket-navy/10 bg-white p-6 shadow-panel">
+        <div className="flex items-start justify-between gap-6">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-pocket-orange">Product Editor</p>
+            <h2 className="mt-2 text-3xl font-black text-pocket-navy">{editingName ? `Edit ${editingName}` : "Add product"}</h2>
+          </div>
+          <Button type="button" variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+
+        <div className="mt-6 space-y-5">
+          <section className="space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-pocket-navy">Product image</p>
+              <p className="text-xs text-pocket-navy/50">Choose one image. Existing secondary images are removed when this product is saved.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 rounded-lg border border-pocket-navy/10 bg-pocket-cream/40 p-3">
+              {value.images[0]?.url ? (
+                <div className="relative h-28 w-28 overflow-hidden rounded-lg border border-pocket-navy/10 bg-white">
+                  <Image src={resolvePocketImagePath(value.images[0].url)} alt={value.images[0].alt || value.name || "Product image"} fill className="object-cover" sizes="112px" />
+                </div>
+              ) : <div className="flex h-28 w-28 items-center justify-center rounded-lg border border-dashed border-pocket-navy/20 text-center text-xs text-pocket-navy/50">No image selected</div>}
+              <div className="flex flex-wrap gap-2">
+                <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-pocket-navy/15 bg-white px-4 text-sm font-semibold text-pocket-navy transition hover:bg-pocket-cream">
+                  <Upload className="h-4 w-4" />
+                  {uploading ? "Uploading..." : value.images[0]?.url ? "Choose new image" : "Choose image"}
+                  <input type="file" accept="image/png,image/jpeg" className="sr-only" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) await uploadImage(file); }} />
+                </label>
+                {value.images[0]?.url ? <Button type="button" variant="outline" onClick={() => onChange({ ...value, images: [{ url: "", alt: "" }] })}>Remove image</Button> : null}
+              </div>
+            </div>
+          </section>
+
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Name</label>
+            <Input value={value.name} onChange={(event) => onChange({ ...value, name: event.target.value })} />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-pocket-navy">Category</label>
+              <select value={value.categoryId} onChange={(event) => { if (event.target.value === "__add_category__") { setAddingCategory(true); return; } onChange({ ...value, categoryId: event.target.value }); }} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal">
+                <option value="">Select a category</option>
+                {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                <option value="__add_category__">+ Add a new category...</option>
+              </select>
+              {addingCategory ? (
+                <div className="rounded-lg border border-pocket-orange/25 bg-pocket-cream/70 p-3">
+                  <div className="flex gap-2">
+                    <Input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} placeholder="For example: Wraps" onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void addCategory(); } }} />
+                    <Button type="button" onClick={() => void addCategory()} disabled={creatingCategory}>{creatingCategory ? "Adding..." : "Add"}</Button>
+                  </div>
+                  <Button type="button" variant="ghost" size="sm" className="mt-1 h-auto px-0 py-1 text-xs" onClick={() => { setAddingCategory(false); setNewCategoryName(""); }}>Cancel</Button>
+                </div>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-pocket-navy">Price</label>
+              <Input type="number" min="0" value={value.basePrice} onChange={(event) => onChange({ ...value, basePrice: event.target.value })} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-pocket-navy">Description <span className="text-pocket-navy/40">(optional)</span></label>
+            <Textarea value={value.description} onChange={(event) => onChange({ ...value, description: event.target.value })} />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-pocket-navy">Calories <span className="text-pocket-navy/40">(optional)</span></label>
+              <Input type="number" min="0" value={value.calories} onChange={(event) => onChange({ ...value, calories: event.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-pocket-navy">Protein <span className="text-pocket-navy/40">(optional)</span></label>
+              <Input type="number" min="0" value={value.protein} onChange={(event) => onChange({ ...value, protein: event.target.value })} />
+            </div>
+          </div>
+
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-sm font-semibold text-pocket-navy">Bundle components <span className="text-pocket-navy/40">(optional)</span></p><p className="text-xs text-pocket-navy/50">Use this for meals, deals, and combo products.</p></div>
+              <Button type="button" variant="outline" onClick={() => onChange({ ...value, bundleComponents: [...value.bundleComponents, { componentProductId: "", quantity: "1" }] })}><Plus className="h-4 w-4" />Add item</Button>
+            </div>
+            {value.bundleComponents.length ? value.bundleComponents.map((component, index) => (
+              <div key={`${index}-${component.componentProductId}`} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_auto]">
+                <select value={component.componentProductId} onChange={(event) => onChange({ ...value, bundleComponents: value.bundleComponents.map((entry, entryIndex) => entryIndex === index ? { ...entry, componentProductId: event.target.value } : entry) })} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 py-2 text-sm text-pocket-charcoal"><option value="">Select product</option>{bundleProductOptions.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select>
+                <Input type="number" min="1" step="1" value={component.quantity} onChange={(event) => onChange({ ...value, bundleComponents: value.bundleComponents.map((entry, entryIndex) => entryIndex === index ? { ...entry, quantity: event.target.value } : entry) })} />
+                <Button type="button" variant="ghost" className="text-red-600" onClick={() => onChange({ ...value, bundleComponents: value.bundleComponents.filter((_, entryIndex) => entryIndex !== index) })}>Remove</Button>
+              </div>
+            )) : <div className="rounded-md border border-dashed border-pocket-navy/15 px-4 py-3 text-sm text-pocket-navy/50">No bundle components.</div>}
+          </section>
+
+          {isDeal ? (
+            <section className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-sm font-bold text-pocket-navy">Deal configuration</p><p className="mt-1 text-xs text-pocket-navy/60">Configure selectable products for this deal.</p></div><Button type="button" variant="outline" onClick={() => { const number = value.dealGroups.length + 1; onChange({ ...value, dealGroups: [...value.dealGroups, { name: `Choice ${number}`, minSelect: "1", maxSelect: "1", options: [{ linkedProductId: "", name: `Choice ${number}: New option`, priceDelta: "0" }] }] }); }}><Plus className="h-4 w-4" />Add choice</Button></div>
+              {value.dealGroups.map((group, groupIndex) => (
+                <div key={group.id ?? `new-group-${groupIndex}`} className="rounded-lg border border-blue-200 bg-white p-4">
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_100px_100px_auto]"><Input value={group.name} placeholder="Choice name" onChange={(event) => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, name: event.target.value } : entry) })} /><Input type="number" min="0" value={group.minSelect} aria-label="Minimum selections" onChange={(event) => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, minSelect: event.target.value } : entry) })} /><Input type="number" min="1" value={group.maxSelect} aria-label="Maximum selections" onChange={(event) => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, maxSelect: event.target.value } : entry) })} /><Button type="button" variant="ghost" className="text-red-600" onClick={() => onChange({ ...value, dealGroups: value.dealGroups.filter((_, index) => index !== groupIndex) })}>Remove</Button></div>
+                  <div className="mt-3 space-y-2">{group.options.map((option, optionIndex) => <div key={option.id ?? `new-option-${optionIndex}`} className="grid gap-2 rounded-md bg-pocket-cream/50 p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_100px_auto]"><select value={option.linkedProductId} onChange={(event) => { const linked = dealProductOptions.find((product) => product.id === event.target.value); onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, options: entry.options.map((item, itemIndex) => itemIndex === optionIndex ? { ...item, linkedProductId: event.target.value, name: linked?.name ? `${group.name}: ${linked.name}` : item.name } : item) } : entry) }); }} className="h-10 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm"><option value="">Select product</option>{dealProductOptions.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select><Input value={option.name} placeholder="Display name" onChange={(event) => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, options: entry.options.map((item, itemIndex) => itemIndex === optionIndex ? { ...item, name: event.target.value } : item) } : entry) })} /><Input type="number" min="0" value={option.priceDelta} placeholder="Extra Rs" onChange={(event) => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, options: entry.options.map((item, itemIndex) => itemIndex === optionIndex ? { ...item, priceDelta: event.target.value } : item) } : entry) })} /><Button type="button" variant="ghost" className="text-red-600" disabled={group.options.length === 1} onClick={() => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, options: entry.options.filter((_, index) => index !== optionIndex) } : entry) })}>Remove</Button></div>)}</div>
+                  <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => onChange({ ...value, dealGroups: value.dealGroups.map((entry, index) => index === groupIndex ? { ...entry, options: [...entry.options, { linkedProductId: "", name: `${group.name}: New option`, priceDelta: "0" }] } : entry) })}><Plus className="h-4 w-4" />Add option</Button>
+                </div>
+              ))}
+            </section>
+          ) : null}
+
+          <label className="flex items-center gap-3 rounded-md border border-pocket-navy/10 px-4 py-3 text-sm font-medium text-pocket-navy"><input type="checkbox" checked={value.isActive} onChange={(event) => onChange({ ...value, isActive: event.target.checked })} />Active</label>
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="button" onClick={onSubmit} disabled={saving}>{saving ? "Saving..." : editingName ? "Save Changes" : "Create Product"}</Button></div>
+      </div>
+    </div>
+  );
+}
+
 export function ProductManagement({ mode = "catalog" }: { mode?: ProductManagementMode }) {
   const copy = MODE_COPY[mode];
   const [products, setProducts] = useState<AdminProduct[]>([]);
@@ -890,18 +1043,11 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
     const priceChanged = !editingProduct || basePrice !== editingProduct.basePrice;
     const payload: Record<string, unknown> = {
       categoryId: form.categoryId,
-      slug: form.slug.trim() || undefined,
       name: form.name.trim(),
       description: form.description.trim() || undefined,
-      ingredients: form.ingredients
-        .split(",")
-        .map((value) => value.trim())
-        .filter(Boolean),
       calories: form.calories ? Number(form.calories) : undefined,
-      featured: form.featured,
-      bestSeller: form.bestSeller,
+      protein: form.protein ? Number(form.protein) : undefined,
       isActive: form.isActive,
-      stockStatus: form.stockStatus,
       imageUrl: images[0]?.url,
       images,
       bundleComponents: form.bundleComponents
@@ -1099,20 +1245,17 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
       )}
 
       <Card className="overflow-x-auto">
-        <div className="grid min-w-[1180px] grid-cols-[2.1fr_1fr_0.8fr_0.8fr_0.9fr_0.55fr_1.35fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
+        <div className="grid min-w-[820px] grid-cols-[2.5fr_1.1fr_0.8fr_1.4fr] gap-4 border-b border-pocket-navy/10 bg-pocket-cream px-5 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-pocket-navy/60">
           <span>{copy.tableHeading}</span>
           <span>Category</span>
           <span>Price</span>
-          <span>Status</span>
-          <span>{copy.flagsLabel}</span>
-          <span>Order</span>
           <span>Actions</span>
         </div>
         {loading ? (
           <div className="px-5 py-8 text-sm text-pocket-navy/60">Loading {copy.editorLabel.toLowerCase()}s...</div>
         ) : (
           products.map((product, index) => (
-            <div key={product.id} className="grid min-w-[1180px] grid-cols-[2.1fr_1fr_0.8fr_0.8fr_0.9fr_0.55fr_1.35fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0">
+            <div key={product.id} className={`grid min-w-[820px] grid-cols-[2.5fr_1.1fr_0.8fr_1.4fr] gap-4 border-b border-pocket-navy/10 px-5 py-4 text-sm last:border-0 ${product.isActive ? "" : "bg-red-50/70"}`}>
               <div className="flex items-start gap-3">
                 <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-pocket-navy/10 bg-pocket-cream">
                   <Image
@@ -1134,83 +1277,27 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
                 </div>
               </div>
               <span className="font-medium text-pocket-navy">{product.category.name}</span>
-          <span>
-            <span className="block font-bold text-pocket-orange">{formatCurrency(product.basePrice)}</span>
-            {product.costSummary ? (
-              <span className="mt-1 block text-xs text-pocket-navy/60">
-                Cost {formatCurrency(product.costSummary.totalCost)} · {product.costSummary.marginPercent}% margin
-              </span>
-            ) : null}
-          </span>
-              <span className={product.isActive ? "font-semibold text-emerald-700" : "font-semibold text-red-600"}>{product.isActive ? "Active" : "Inactive"}</span>
-              <span className="font-medium text-pocket-navy/70">
-                {[product.featured ? "Featured" : null, product.bestSeller ? "Best Seller" : null, product.bundleComponents.length ? "Bundle" : null].filter(Boolean).join(", ") || "Base"}
-              </span>
-              <div className="flex items-start gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  title="Move product up"
-                  aria-label={`Move ${product.name} up`}
-                  aria-disabled={index === 0}
-                  data-product-order-control={`${product.id}-UP`}
-                  className={`w-9 px-0 ${index === 0 ? "pointer-events-none opacity-40" : ""}`}
-                  onClick={() => void moveProduct(product.id, "UP")}
-                  disabled={Boolean(movingProductId)}
-                >
-                  <ChevronUp className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  title="Move product down"
-                  aria-label={`Move ${product.name} down`}
-                  aria-disabled={index === products.length - 1}
-                  data-product-order-control={`${product.id}-DOWN`}
-                  className={`w-9 px-0 ${index === products.length - 1 ? "pointer-events-none opacity-40" : ""}`}
-                  onClick={() => void moveProduct(product.id, "DOWN")}
-                  disabled={Boolean(movingProductId)}
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => openEdit(product)}>
-                  <Pencil className="h-4 w-4" />
-                  Edit
-                </Button>
-                <Link
-                  href="/admin/inventory"
-                  className="inline-flex h-9 items-center justify-center rounded-md border border-pocket-navy/15 bg-white px-3 text-sm font-semibold text-pocket-navy transition hover:bg-pocket-cream"
-                >
-                  Recipe
-                </Link>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                  onClick={() => void deleteProduct(product)}
-                  disabled={actionProductId === product.id}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Delete
-                </Button>
+          <span className="font-bold text-pocket-orange">{formatCurrency(product.basePrice)}</span>
+              <div className="grid w-fit grid-cols-3 gap-2">
+                <Button variant="outline" size="sm" title="Move product up" aria-label={`Move ${product.name} up`} data-product-order-control={`${product.id}-UP`} className="h-9 w-9 px-0" onClick={() => void moveProduct(product.id, "UP")} disabled={Boolean(movingProductId) || index === 0}><ChevronUp className="h-4 w-4" /></Button>
+                <Button variant="outline" size="sm" title="Move product down" aria-label={`Move ${product.name} down`} data-product-order-control={`${product.id}-DOWN`} className="h-9 w-9 px-0" onClick={() => void moveProduct(product.id, "DOWN")} disabled={Boolean(movingProductId) || index === products.length - 1}><ChevronDown className="h-4 w-4" /></Button>
+                <Button variant="outline" size="sm" className="h-9 w-9 px-0" title="Edit product" aria-label={`Edit ${product.name}`} onClick={() => openEdit(product)}><Pencil className="h-4 w-4" /></Button>
+                <Link href={`/admin/inventory?tab=recipes&productId=${encodeURIComponent(product.id)}`} title="Edit recipe" aria-label={`Edit recipe for ${product.name}`} className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-pocket-navy/15 bg-white text-xs font-semibold text-pocket-navy transition hover:bg-pocket-cream">Recipe</Link>
+                <Button variant="ghost" size="sm" className="h-9 w-9 px-0 text-red-600 hover:bg-red-50 hover:text-red-700" title="Delete product" aria-label={`Delete ${product.name}`} onClick={() => void deleteProduct(product)} disabled={actionProductId === product.id}><Trash2 className="h-4 w-4" /></Button>
               </div>
             </div>
           ))
         )}
       </Card>
 
-      <ProductEditor
+      <SimpleProductEditor
         open={editorOpen}
         categories={categories}
         products={products}
         value={form}
         editingName={editingProduct?.name}
         editingProductId={editingProduct?.id}
-        recipeSummary={editingProduct?.costSummary}
         saving={saving}
-        editorLabel={copy.editorLabel}
         onUploadError={setError}
         onCreateCategory={addCategory}
         onChange={setForm}

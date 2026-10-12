@@ -760,6 +760,7 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   const [wastageForm, setWastageForm] = useState<WastageFormState>(EMPTY_WASTAGE_FORM);
   const [logEdit, setLogEdit] = useState<LogEditState | null>(null);
   const [recipeEdit, setRecipeEdit] = useState<RecipeEditState | null>(null);
+  const [requestedRecipeProductId, setRequestedRecipeProductId] = useState("");
   const [saving, setSaving] = useState(false);
   const [deductionSaving, setDeductionSaving] = useState(false);
   const [logPreset, setLogPreset] = useState<LogPreset>("today");
@@ -801,6 +802,26 @@ export function InventoryWorkspace({ mode = "overview" }: { mode?: "overview" | 
   useEffect(() => {
     void loadAll();
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab") === "recipes") setActiveTab("recipes");
+    const productId = params.get("productId");
+    if (productId) setRequestedRecipeProductId(productId);
+  }, []);
+
+  useEffect(() => {
+    if (!requestedRecipeProductId || !recipes) return;
+    const product = recipes.products.find((entry) => entry.id === requestedRecipeProductId);
+    if (!product) return;
+    setActiveTab("recipes");
+    setRecipeEdit({
+      mode: "product",
+      id: product.id,
+      components: product.recipeComponents.map((component) => newRecipeRow(component.ingredientId, String(component.quantityNeeded)))
+    });
+    setRequestedRecipeProductId("");
+  }, [recipes, requestedRecipeProductId]);
 
   const items = useMemo(() => {
     const source = data?.items ?? [];
