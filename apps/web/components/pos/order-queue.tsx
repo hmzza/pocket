@@ -49,7 +49,8 @@ function formatServiceType(value: string) {
     FOODPANDA: "Foodpanda",
     TAKEAWAY: "Takeaway",
     DINE_IN: "Dine-in",
-    DELIVERY: "Delivery"
+    DELIVERY: "Delivery",
+    NASCON: "Nascon"
   };
 
   return map[value] ?? value.replaceAll("_", " ");
@@ -156,13 +157,14 @@ function CompactOrderCard({
   const isUnpaid = order.paymentStatus === "PENDING";
   const isDelivery = order.serviceType === "DELIVERY";
   const isPickup = order.channel === "ONLINE" && order.serviceType === "TAKEAWAY";
+  const isNascon = order.serviceType === "NASCON";
   const incomingNeedsAcceptance = (isDelivery || isPickup) && order.status === "PENDING";
   const canSendDeliveryUpdate = order.status === "CONFIRMED" || order.status === "READY" || order.status === "OUT_FOR_DELIVERY";
-  const labelText = isDelivery ? "text-blue-100" : isPickup ? "text-amber-100" : "text-orange-600";
-  const primaryText = isDelivery || isPickup ? "text-white" : "text-slate-900";
-  const mutedText = isDelivery ? "text-blue-100" : isPickup ? "text-amber-100" : "text-slate-500";
-  const totalText = isDelivery || isPickup ? "text-white" : "text-orange-600";
-  const itemsSurface = isDelivery || isPickup ? "bg-white/95 text-slate-700 shadow-sm" : "bg-slate-50 text-slate-700";
+  const labelText = isDelivery ? "text-blue-100" : isPickup ? "text-amber-100" : isNascon ? "text-red-100" : "text-orange-600";
+  const primaryText = isDelivery || isPickup || isNascon ? "text-white" : "text-slate-900";
+  const mutedText = isDelivery ? "text-blue-100" : isPickup ? "text-amber-100" : isNascon ? "text-red-100" : "text-slate-500";
+  const totalText = isDelivery || isPickup || isNascon ? "text-white" : "text-orange-600";
+  const itemsSurface = isDelivery || isPickup || isNascon ? "bg-white/95 text-slate-700 shadow-sm" : "bg-slate-50 text-slate-700";
 
   return (
     <Card
@@ -170,10 +172,10 @@ function CompactOrderCard({
         embedded
           ? "flex h-full flex-col rounded-xl border p-2 shadow-none transition-all duration-150 ease-out transform-gpu"
           : "flex h-full flex-col rounded-xl border p-2.5 shadow-none transition-all duration-150 ease-out transform-gpu",
-        isDelivery ? "border-blue-300 bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 shadow-lg shadow-blue-950/30" : isPickup ? "border-[#d6a27b] bg-gradient-to-br from-[#70452e] via-[#8d5a3a] to-[#a86f4b] shadow-lg shadow-[#5c3826]/30" : isUnpaid ? "border-red-200 bg-red-50/80" : isPaid ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white",
+        isDelivery ? "border-blue-300 bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 shadow-lg shadow-blue-950/30" : isPickup ? "border-[#d6a27b] bg-gradient-to-br from-[#70452e] via-[#8d5a3a] to-[#a86f4b] shadow-lg shadow-[#5c3826]/30" : isNascon ? "border-red-300 bg-gradient-to-br from-red-700 via-red-600 to-rose-500 shadow-lg shadow-red-950/30" : isUnpaid ? "border-red-200 bg-red-50/80" : isPaid ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white",
         muted ? "pointer-events-none opacity-30" : "",
         exiting ? "pointer-events-none scale-[0.98] translate-y-1 opacity-0" : "",
-        busy ? isDelivery ? "ring-2 ring-sky-200" : isPickup ? "ring-2 ring-amber-200" : "ring-1 ring-orange-200" : ""
+        busy ? isDelivery ? "ring-2 ring-sky-200" : isPickup ? "ring-2 ring-amber-200" : isNascon ? "ring-2 ring-red-200" : "ring-1 ring-orange-200" : ""
       ].join(" ")}
     >
       <div className="flex items-start justify-between gap-2">
@@ -232,8 +234,8 @@ function CompactOrderCard({
       </div>
 
       {order.deliveryInstructions ? (
-        <div className={`${embedded ? "px-1.5 py-1 text-[9px]" : "px-2 py-1.5 text-[10px]"} mt-1 rounded-lg leading-tight ${isDelivery ? "bg-blue-950/25 text-blue-50" : isPickup ? "bg-black/15 text-amber-50" : "bg-orange-50 text-slate-700"}`}>
-          <span className={isDelivery || isPickup ? "font-semibold text-white" : "font-semibold text-orange-700"}>Note:</span> {order.deliveryInstructions}
+        <div className={`${embedded ? "px-1.5 py-1 text-[9px]" : "px-2 py-1.5 text-[10px]"} mt-1 rounded-lg leading-tight ${isDelivery ? "bg-blue-950/25 text-blue-50" : isPickup ? "bg-black/15 text-amber-50" : isNascon ? "bg-red-950/25 text-red-50" : "bg-orange-50 text-slate-700"}`}>
+          <span className={isDelivery || isPickup || isNascon ? "font-semibold text-white" : "font-semibold text-orange-700"}>Note:</span> {order.deliveryInstructions}
         </div>
       ) : null}
       {isDelivery && order.deliverySector ? (

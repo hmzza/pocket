@@ -1052,6 +1052,13 @@ export type PosPromotion = {
   unavailableReason?: string;
 };
 
+export type NasconPromotion = {
+  key: string;
+  name: string;
+  isActive: boolean;
+  serviceType: "NASCON";
+};
+
 export type PromotionStats = {
   range: { preset: string; label: string; start?: string; end?: string };
   promotionOrders: number;
@@ -1069,6 +1076,11 @@ export type PromotionStats = {
 
 export type AdminPromotionData = {
   promotion: PosPromotion;
+  stats: { allTime: PromotionStats; period: PromotionStats };
+};
+
+export type AdminNasconPromotionData = {
+  promotion: NasconPromotion;
   stats: { allTime: PromotionStats; period: PromotionStats };
 };
 

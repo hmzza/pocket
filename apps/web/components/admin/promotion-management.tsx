@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { ChevronDown, Gift } from "lucide-react";
-import { createAdminCoupon, fetchAdminCoupons, fetchAdminIndependencePromotion, updateAdminCoupon, updateAdminIndependencePromotion } from "@/lib/admin-client";
+import { Building2, ChevronDown, Gift } from "lucide-react";
+import { createAdminCoupon, fetchAdminCoupons, fetchAdminIndependencePromotion, fetchAdminNasconPromotion, updateAdminCoupon, updateAdminIndependencePromotion, updateAdminNasconPromotion } from "@/lib/admin-client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import type { AdminCoupon, AdminPromotionData, PosPromotion, PromotionStats } from "@/lib/types";
+import type { AdminCoupon, AdminNasconPromotionData, AdminPromotionData, PromotionStats } from "@/lib/types";
 import { formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 
 const ranges = [
@@ -17,6 +17,7 @@ const ranges = [
 
 export function PromotionManagement() {
   const [data, setData] = useState<AdminPromotionData | null>(null);
+  const [nasconData, setNasconData] = useState<AdminNasconPromotionData | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -32,6 +33,9 @@ export function PromotionManagement() {
       .then(setData)
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load promotion."))
       .finally(() => setLoading(false));
+    void fetchAdminNasconPromotion()
+      .then(setNasconData)
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load Nascon promotion."));
   }, []);
 
   async function loadStats(nextRange = range) {
@@ -111,8 +115,83 @@ export function PromotionManagement() {
 
         {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={changeRange} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
       </Card>
+      {nasconData ? <NasconPromotionCard data={nasconData} onDataChange={setNasconData} /> : null}
       <CouponManagement />
     </div>
+  );
+}
+
+function NasconPromotionCard({ data, onDataChange }: { data: AdminNasconPromotionData; onDataChange: (data: AdminNasconPromotionData) => void }) {
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsError, setStatsError] = useState("");
+  const [range, setRange] = useState<(typeof ranges)[number]["value"]>("all");
+  const [customDate, setCustomDate] = useState(getCurrentBusinessDateKey());
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function loadStats(nextRange = range) {
+    if (nextRange === "all") return;
+    try {
+      setStatsLoading(true);
+      setStatsError("");
+      const params = nextRange === "custom" ? { preset: nextRange, date: customDate } : { preset: nextRange };
+      const next = await fetchAdminNasconPromotion(params);
+      onDataChange({ ...data, stats: next.stats });
+    } catch (loadError) {
+      setStatsError(loadError instanceof Error ? loadError.message : "Could not load Nascon statistics.");
+    } finally {
+      setStatsLoading(false);
+    }
+  }
+
+  async function togglePromotion() {
+    try {
+      setSaving(true);
+      setError("");
+      setMessage("");
+      const updated = await updateAdminNasconPromotion(!data.promotion.isActive);
+      onDataChange({ ...data, promotion: updated });
+      setMessage(updated.isActive ? "Nascon Stall is now active." : "Nascon Stall is now inactive.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not update Nascon Stall.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const stats = range === "all" ? data.stats.allTime : data.stats.period;
+
+  return (
+    <Card className="overflow-hidden p-5">
+      {error ? <p className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
+      {message ? <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{message}</p> : null}
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-red-50 text-red-700"><Building2 className="h-5 w-5" /></div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-red-700">Promotion</p>
+            <h2 className="mt-1 text-2xl font-black text-pocket-navy">{data.promotion.name}</h2>
+            <p className="mt-2 text-sm text-pocket-navy/65">Record POS orders from the Nascon stall separately for performance tracking.</p>
+          </div>
+        </div>
+        <button type="button" onClick={() => void togglePromotion()} disabled={saving} className={`relative h-7 w-12 shrink-0 rounded-full transition ${data.promotion.isActive ? "bg-red-600" : "bg-pocket-navy/20"}`} aria-label={`${data.promotion.isActive ? "Deactivate" : "Activate"} ${data.promotion.name}`}>
+          <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${data.promotion.isActive ? "left-6" : "left-1"}`} />
+        </button>
+      </div>
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <PromotionDetail label="Status" value={data.promotion.isActive ? "Active" : "Inactive"} />
+        <PromotionDetail label="POS service type" value="Nascon" />
+        <PromotionDetail label="Queue color" value="Red" />
+        <PromotionDetail label="Tracked orders" value="Nascon Stall orders" />
+      </div>
+      <button type="button" onClick={() => { const next = !statsOpen; setStatsOpen(next); if (next && range !== "all") void loadStats(); }} className="mt-5 flex w-full items-center justify-between border-t border-pocket-navy/10 pt-4 text-left">
+        <span><span className="block font-black text-pocket-navy">{statsOpen ? "Hide performance" : "View performance"}</span><span className="mt-1 block text-xs text-pocket-navy/55">{data.stats.allTime.promotionOrders} Nascon Stall orders recorded</span></span>
+        <ChevronDown className={`h-5 w-5 text-pocket-navy transition-transform ${statsOpen ? "rotate-180" : ""}`} />
+      </button>
+      {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={(nextRange) => { setRange(nextRange); if (nextRange !== "all") void loadStats(nextRange); }} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
+    </Card>
   );
 }
 

@@ -23,7 +23,7 @@ import {
 } from "../lib/meal-options.js";
 import { resolveBranchContext } from "../lib/branch-context.js";
 import { requirePermission } from "../lib/permissions.js";
-import { readIndependencePromotion } from "../lib/promotions.js";
+import { INDEPENDENCE_PROMOTION_NAME, NASCON_PROMOTION_NAME, readIndependencePromotion, readNasconPromotion } from "../lib/promotions.js";
 import { DELIVERY_CITY, findActiveDeliverySector, findDeliverySector, getDeliveryConfigSnapshot, isDeliverySubsector } from "../lib/delivery-config.js";
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 import {
@@ -147,7 +147,7 @@ const deliveryDetailsSchema = z.object({
 const checkoutSchema = z
   .object({
     branchId: z.string().cuid().optional(),
-    serviceType: z.enum(["INSHOP", "TAKEAWAY", "FOODPANDA", "DELIVERY"]),
+    serviceType: z.enum(["INSHOP", "TAKEAWAY", "FOODPANDA", "DELIVERY", "NASCON"]),
     paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT", "CASH_ON_DELIVERY"]),
     customerName: z.string().max(80).optional(),
     customerPhone: z.string().max(20).optional(),
@@ -340,7 +340,13 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
   const boxOfSix = await syncBoxOfSixOptions(prisma);
   await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
   const requestedProductIds = getProductIds(payload.items);
-  const promotion = await readIndependencePromotion(prisma, payload.branchId);
+  const [promotion, nasconPromotion] = await Promise.all([
+    readIndependencePromotion(prisma, payload.branchId),
+    readNasconPromotion(prisma)
+  ]);
+  if (payload.serviceType === "NASCON" && !nasconPromotion.isActive) {
+    throw Object.assign(new Error("Nascon Stall is not active."), { statusCode: 400 });
+  }
   const productIds = [...new Set([
     ...requestedProductIds,
     ...(promotion.isActive && promotion.available && promotion.rewardProductId ? [promotion.rewardProductId] : [])
@@ -544,7 +550,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     };
   });
 
-  let appliedPromotionName: string | null = null;
+  let appliedPromotionName: string | null = payload.serviceType === "NASCON" ? NASCON_PROMOTION_NAME : null;
   let promotionDiscountAmount = 0;
   if (promotion.isActive && promotion.available && promotion.rewardProductId && (payload.serviceType === "INSHOP" || payload.serviceType === "TAKEAWAY")) {
     const eligibleShawarmaQuantity = normalizedItems.reduce((total, item) => {
@@ -621,7 +627,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
       : payload.discountType === "FIXED"
         ? Number(payload.discountValue.toFixed(2))
         : 0;
-  const safeDiscountAmount = appliedPromotionName
+  const safeDiscountAmount = appliedPromotionName === INDEPENDENCE_PROMOTION_NAME
     ? Math.min(subtotal, promotionDiscountAmount)
     : Math.min(subtotal, manualDiscountAmount);
   const totalAmount = Number(Math.max(0, subtotal - safeDiscountAmount).toFixed(2));
@@ -633,7 +639,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     subtotal,
     discountAmount: safeDiscountAmount,
     promotionName: appliedPromotionName,
-    promotionDiscountAmount: appliedPromotionName ? safeDiscountAmount : 0,
+    promotionDiscountAmount: appliedPromotionName === INDEPENDENCE_PROMOTION_NAME ? safeDiscountAmount : 0,
     totalAmount,
     paidAmount: totalAmount,
     changeDueAmount: 0
@@ -733,7 +739,10 @@ router.get("/catalog", async (req, res, next) => {
     const branchId = branchContext.branchId;
     const boxOfSix = await syncBoxOfSixOptions(prisma);
     await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
-    const promotion = await readIndependencePromotion(prisma, branchId);
+    const [promotion, nasconPromotion] = await Promise.all([
+      readIndependencePromotion(prisma, branchId),
+      readNasconPromotion(prisma)
+    ]);
 
     const where: Prisma.ProductWhereInput = {
       isActive: true,
@@ -793,7 +802,7 @@ router.get("/catalog", async (req, res, next) => {
     );
 
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ branches, branchId, categories, products: posProducts, promotion });
+    return res.json({ branches, branchId, categories, products: posProducts, promotion, nasconPromotion });
   } catch (error) {
     return next(error);
   }
@@ -802,8 +811,11 @@ router.get("/catalog", async (req, res, next) => {
 router.get("/promotion", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
-    const promotion = await readIndependencePromotion(prisma, branchContext.branchId);
-    return res.json({ promotion });
+    const [promotion, nasconPromotion] = await Promise.all([
+      readIndependencePromotion(prisma, branchContext.branchId),
+      readNasconPromotion(prisma)
+    ]);
+    return res.json({ promotion, nasconPromotion });
   } catch (error) {
     return next(error);
   }
@@ -963,8 +975,8 @@ router.post("/checkout", async (req, res, next) => {
             taxAmount: 0,
             deliveryFee: deliverySector ? Number(deliverySector.deliveryFee) : 0,
             discountAmount: orderPayload.discountAmount,
-            manualDiscountType: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
-            manualDiscountValue: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
+            manualDiscountType: orderPayload.promotionName === INDEPENDENCE_PROMOTION_NAME ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
+            manualDiscountValue: orderPayload.promotionName === INDEPENDENCE_PROMOTION_NAME ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
             promotionName: orderPayload.promotionName,
             promotionDiscountAmount: orderPayload.promotionDiscountAmount,
             cashReceivedAmount: delivery ? null : orderPayload.paidAmount,
@@ -1164,8 +1176,8 @@ router.patch("/orders/:orderId", async (req, res, next) => {
           taxAmount: 0,
           deliveryFee: deliverySector ? Number(deliverySector.deliveryFee) : 0,
           discountAmount: orderPayload.discountAmount,
-          manualDiscountType: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
-          manualDiscountValue: orderPayload.promotionName ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
+          manualDiscountType: orderPayload.promotionName === INDEPENDENCE_PROMOTION_NAME ? null : (payload.discountType === "NONE" ? null : (payload.discountType as DiscountType)),
+          manualDiscountValue: orderPayload.promotionName === INDEPENDENCE_PROMOTION_NAME ? null : (payload.discountType === "NONE" ? null : payload.discountValue),
           promotionName: orderPayload.promotionName,
           promotionDiscountAmount: orderPayload.promotionDiscountAmount,
           cashReceivedAmount: delivery ? null : orderPayload.paidAmount,

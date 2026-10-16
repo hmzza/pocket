@@ -54,6 +54,7 @@ enum ServiceType {
   DINE_IN
   INSHOP
   FOODPANDA
+  NASCON
 }
 
 enum PaymentStatus {

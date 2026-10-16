@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bike, CalendarDays, Car, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
+import { Bike, Building2, CalendarDays, Car, Minus, PencilLine, Plus, Receipt, Search, Send, ShoppingBag, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import { PosOrderQueue } from "@/components/pos/order-queue";
 import { PosToolbar } from "@/components/pos/pos-toolbar";
 import { DesktopPrinterSettings } from "@/components/pos/desktop-printer-settings";
 import { createPosOrder, fetchPosCatalog, fetchPosDeliveryConfig, fetchPosOrderByNumber, fetchPosPromotion, fetchPosSession, getPosReceiptCacheKey, isPosAuthError, lookupPosCustomer, recordPosReceiptEvent, updatePosOrder } from "@/lib/pos-client";
-import type { AddOnGroup, DeliveryConfig, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
+import type { AddOnGroup, DeliveryConfig, NasconPromotion, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { cn, formatCompactCurrency, formatCurrency, getCurrentBusinessDateKey } from "@/lib/utils";
 import { formatAddOnNames, formatBundleSummary, formatItemDetailLines } from "@/lib/item-detail-display";
 import { BOX_OF_SIX_SIZE, isBoxOfSixGroup, isBoxOfSixProduct } from "@/lib/box-of-six";
@@ -35,7 +35,7 @@ type TicketLine = {
 type ProductSelection = { groupId: string; optionIds: string[]; optionQuantities?: Record<string, number> };
 
 type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT" | "CASH_ON_DELIVERY" | "PAY_AT_COUNTER";
-type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA" | "DELIVERY";
+type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA" | "DELIVERY" | "NASCON";
 type ServiceTypeSelection = ServiceTypeValue | "";
 
 const basePaymentOptions = [
@@ -178,7 +178,8 @@ function formatServiceType(value: string) {
     FOODPANDA: "Foodpanda",
     TAKEAWAY: "Takeaway",
     DINE_IN: "Dine-in",
-    DELIVERY: "Delivery"
+    DELIVERY: "Delivery",
+    NASCON: "Nascon"
   };
 
   return map[value] ?? value.replaceAll("_", " ");
@@ -276,7 +277,7 @@ function mergeTicketLine(lines: TicketLine[], nextLine: TicketLine) {
 }
 
 function synchronizeIndependenceOffer(lines: TicketLine[], promotion: PosPromotion | null, serviceType: ServiceTypeSelection, products: PosCatalogProduct[]) {
-  const eligible = promotion?.isActive && promotion.available && promotion.rewardProductId && serviceType !== "FOODPANDA" ? promotion : null;
+  const eligible = promotion?.isActive && promotion.available && promotion.rewardProductId && (serviceType === "INSHOP" || serviceType === "TAKEAWAY") ? promotion : null;
   const eligibleQuantity = eligible
     ? lines.reduce((total, line) => total + (line.type === "product" && products.find((product) => product.id === line.productId)?.categorySlug === "shawarma" ? line.quantity : 0), 0)
     : 0;
@@ -385,6 +386,7 @@ export function PosTerminal() {
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [products, setProducts] = useState<PosCatalogProduct[]>([]);
   const [promotion, setPromotion] = useState<PosPromotion | null>(null);
+  const [nasconPromotion, setNasconPromotion] = useState<NasconPromotion | null>(null);
   const [deliveryConfig, setDeliveryConfig] = useState<DeliveryConfig | null>(null);
   const [sessionUser, setSessionUser] = useState<Awaited<ReturnType<typeof fetchPosSession>>["user"] | null>(null);
   const [branchId, setBranchId] = useState("");
@@ -440,6 +442,7 @@ export function PosTerminal() {
     setCategories(data.categories.map((category) => ({ id: category.id, name: category.name })));
     setProducts(data.products);
     setPromotion(data.promotion ?? null);
+    setNasconPromotion(data.nasconPromotion ?? null);
     const nextDeliveryConfig = await fetchPosDeliveryConfig();
     setDeliveryConfig(nextDeliveryConfig);
     if (!branchId || nextBranchId) {
@@ -504,7 +507,7 @@ export function PosTerminal() {
 
   const subtotal = useMemo(() => ticket.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0), [ticket]);
   const promotionFreeQuantity = useMemo(() => ticket.reduce((sum, item) => sum + (item.promotionFreeQuantity ?? 0), 0), [ticket]);
-  const promotionApplied = Boolean(promotion?.isActive && promotion?.available && promotionFreeQuantity > 0 && serviceType !== "FOODPANDA");
+  const promotionApplied = Boolean(promotion?.isActive && promotion?.available && promotionFreeQuantity > 0 && (serviceType === "INSHOP" || serviceType === "TAKEAWAY"));
   const promotionDiscountAmount = promotionApplied ? promotionFreeQuantity * (promotion?.rewardUnitPrice ?? 0) : 0;
   const manualDiscountAmount = useMemo(() => {
     if (discountType === "PERCENTAGE") {
@@ -530,9 +533,19 @@ export function PosTerminal() {
   }, [ticket, promotion, serviceType, products]);
 
   useEffect(() => {
+    if (serviceType === "NASCON" && !nasconPromotion?.isActive) {
+      setServiceType("");
+      setPaymentMethod("");
+    }
+  }, [nasconPromotion?.isActive, serviceType]);
+
+  useEffect(() => {
     if (!ready) return;
     const interval = window.setInterval(() => {
-      void fetchPosPromotion().then(setPromotion).catch(() => null);
+      void fetchPosPromotion().then((data) => {
+        setPromotion(data.promotion);
+        setNasconPromotion(data.nasconPromotion);
+      }).catch(() => null);
     }, 15000);
     return () => window.clearInterval(interval);
   }, [ready]);
@@ -796,7 +809,7 @@ export function PosTerminal() {
     const submittedFoodpandaOrderNumber = foodpandaOrderNumber.trim();
 
     if (!serviceType) {
-      setError("Pick Dine-in, Takeaway, Foodpanda, or Delivery before finishing the order.");
+      setError("Pick Dine-in, Takeaway, Foodpanda, Nascon, or Delivery before finishing the order.");
       setSubmitting(false);
       return;
     }
@@ -1199,7 +1212,7 @@ export function PosTerminal() {
                 <div className="space-y-1.5">
                   <p className="text-[0.6rem] font-semibold uppercase tracking-[0.22em] text-slate-500">Order type</p>
                   <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1">
-                    {serviceTypes.map((entry) => {
+                    {[...serviceTypes, ...(nasconPromotion?.isActive ? [{ value: "NASCON" as const, label: "Nascon", icon: Building2 }] : [])].map((entry) => {
                       const selected = serviceType === entry.value;
                       return (
                         <button

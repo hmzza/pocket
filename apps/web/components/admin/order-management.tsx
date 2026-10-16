@@ -47,6 +47,7 @@ function formatServiceType(value: string) {
   if (["INSHOP", "DINE_IN"].includes(value)) return "Dine-in";
   if (value === "TAKEAWAY") return "Takeaway";
   if (value === "FOODPANDA") return "Foodpanda";
+  if (value === "NASCON") return "Nascon";
   if (value === "DELIVERY") return "Delivery";
   return value.replaceAll("_", " ");
 }

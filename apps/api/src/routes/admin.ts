@@ -16,7 +16,7 @@ import { applyOrderInventory, calculateCompatibleBatchOutputQuantity, recordInve
 import { CANONICAL_MEAL_PRODUCT_SLUG, MEAL_BASE_PRICE, MEAL_CATEGORY_SLUG, THELA_FRIES_SLUG, syncMealPairingOptions } from "../lib/meal-options.js";
 import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchContext } from "../lib/branch-context.js";
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
-import { readIndependencePromotion, readPromotionStats, saveIndependencePromotion } from "../lib/promotions.js";
+import { readIndependencePromotion, readNasconPromotion, readNasconPromotionStats, readPromotionStats, saveIndependencePromotion, saveNasconPromotion } from "../lib/promotions.js";
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
 import {
   getDeliveryConfigSnapshot,
@@ -1151,6 +1151,10 @@ function getServiceBreakdown(value: ServiceType | string) {
 
   if (value === ServiceType.DELIVERY) {
     return { key: "DELIVERY", label: "Delivery" };
+  }
+
+  if (value === ServiceType.NASCON) {
+    return { key: "NASCON", label: "Nascon" };
   }
 
   return { key: String(value), label: String(value).replaceAll("_", " ") };
@@ -8493,6 +8497,44 @@ router.patch("/promotions/independence-day", async (req, res, next) => {
     await saveIndependencePromotion(prisma, payload.isActive);
     const promotion = await readIndependencePromotion(prisma, branchContext.branchId);
     await writeAuditLog({ actorId: req.user!.id, action: "promotion.independence_day_update", entityType: "setting", entityId: promotion.key, payload });
+    return res.json({ promotion });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/promotions/nascon-stall", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const promotion = await readNasconPromotion(prisma);
+    const query = z.object({
+      preset: z.enum(["all", "today", "custom"]).default("all"),
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+    }).superRefine((value, context) => {
+      if (value.preset === "custom" && !value.date) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "Custom statistics require one business day.", path: ["date"] });
+      }
+    }).parse(req.query);
+    const periodRange = query.preset === "all"
+      ? { preset: "all", label: "All time" }
+      : query.preset === "custom"
+        ? { ...businessDayRange(query.date!), preset: "custom", label: `${formatPakistanDate(businessDayRange(query.date!).start, { dateStyle: "medium" })} business day` }
+        : buildDashboardRange({ preset: "today", segment: "all" });
+    const allTime = await readNasconPromotionStats(prisma, branchContext.branchId, { preset: "all", label: "All time" });
+    const period = query.preset === "all" ? allTime : await readNasconPromotionStats(prisma, branchContext.branchId, periodRange);
+    return res.json({ promotion, stats: { allTime, period } });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.patch("/promotions/nascon-stall", async (req, res, next) => {
+  try {
+    const branchContext = await resolveBranchContext(req);
+    const payload = z.object({ isActive: z.boolean() }).parse(req.body);
+    await saveNasconPromotion(prisma, payload.isActive);
+    const promotion = await readNasconPromotion(prisma);
+    await writeAuditLog({ actorId: req.user!.id, action: "promotion.nascon_stall_update", entityType: "setting", entityId: promotion.key, payload: { ...payload, branchId: branchContext.branchId } });
     return res.json({ promotion });
   } catch (error) {
     return next(error);
