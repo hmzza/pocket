@@ -56,6 +56,7 @@ export type PromotionStats = {
   freeRewardUnits: number;
   averageDiscountPerOrder: number;
   discountRate: number;
+  paymentBreakdown: { CASH: number; EASYPAISA: number; JAZZCASH: number };
   trend: Array<{ date: string; label: string; orders: number; netRevenue: number; discount: number }>;
 };
 
@@ -164,6 +165,7 @@ async function readPromotionStatsFor(client: PromotionStatsClient, branchId: str
       totalAmount: true,
       promotionName: true,
       promotionDiscountAmount: true,
+      paymentMethod: true,
       items: { select: { promotionFreeQuantity: true } }
     },
     orderBy: { placedAt: "asc" }
@@ -185,6 +187,12 @@ async function readPromotionStatsFor(client: PromotionStatsClient, branchId: str
   const netRevenue = scopedPromotionOrders.reduce((sum, order) => sum + numberValue(order.totalAmount), 0);
   const promotionDiscount = scopedPromotionOrders.reduce((sum, order) => sum + numberValue(order.promotionDiscountAmount), 0);
   const freeRewardUnits = scopedPromotionOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + item.promotionFreeQuantity, 0), 0);
+  const paymentBreakdown = { CASH: 0, EASYPAISA: 0, JAZZCASH: 0 };
+  for (const order of scopedPromotionOrders) {
+    if (order.paymentMethod === "CASH" || order.paymentMethod === "EASYPAISA" || order.paymentMethod === "JAZZCASH") {
+      paymentBreakdown[order.paymentMethod] += numberValue(order.totalAmount);
+    }
+  }
   const trendMap = new Map<string, { orders: number; netRevenue: number; discount: number }>();
   for (const order of scopedPromotionOrders) {
     const date = getBusinessDateKey(order.placedAt);
@@ -206,6 +214,7 @@ async function readPromotionStatsFor(client: PromotionStatsClient, branchId: str
     freeRewardUnits,
     averageDiscountPerOrder: scopedPromotionOrders.length ? promotionDiscount / scopedPromotionOrders.length : 0,
     discountRate: grossSales ? (promotionDiscount / grossSales) * 100 : 0,
+    paymentBreakdown,
     trend: [...trendMap.entries()].map(([date, values]) => ({ date, label: formatPakistanDate(new Date(`${date}T06:00:00+05:00`), { month: "short", day: "numeric" }), ...values }))
   };
 }

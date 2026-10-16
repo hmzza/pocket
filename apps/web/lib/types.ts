@@ -1071,6 +1071,7 @@ export type PromotionStats = {
   freeRewardUnits: number;
   averageDiscountPerOrder: number;
   discountRate: number;
+  paymentBreakdown: { CASH: number; EASYPAISA: number; JAZZCASH: number };
   trend: Array<{ date: string; label: string; orders: number; netRevenue: number; discount: number }>;
 };
 
