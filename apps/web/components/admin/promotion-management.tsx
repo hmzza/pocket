@@ -113,7 +113,7 @@ export function PromotionManagement() {
           <ChevronDown className={`h-5 w-5 text-pocket-navy transition-transform ${statsOpen ? "rotate-180" : ""}`} />
         </button>
 
-        {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={changeRange} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
+      {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={changeRange} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
       </Card>
       {nasconData ? <NasconPromotionCard data={nasconData} onDataChange={setNasconData} /> : null}
       <CouponManagement />
@@ -190,7 +190,7 @@ function NasconPromotionCard({ data, onDataChange }: { data: AdminNasconPromotio
         <span><span className="block font-black text-pocket-navy">{statsOpen ? "Hide performance" : "View performance"}</span><span className="mt-1 block text-xs text-pocket-navy/55">{data.stats.allTime.promotionOrders} Nascon Stall orders recorded</span></span>
         <ChevronDown className={`h-5 w-5 text-pocket-navy transition-transform ${statsOpen ? "rotate-180" : ""}`} />
       </button>
-      {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={(nextRange) => { setRange(nextRange); if (nextRange !== "all") void loadStats(nextRange); }} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
+      {statsOpen ? <PromotionStatsPanel stats={stats} showPaymentBreakdown range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={(nextRange) => { setRange(nextRange); if (nextRange !== "all") void loadStats(nextRange); }} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
     </Card>
   );
 }
@@ -289,8 +289,9 @@ function CouponManagement() {
   </Card>;
 }
 
-function PromotionStatsPanel({ stats, range, customDate, statsLoading, statsError, onRangeChange, onDateChange, onApplyCustom }: {
+function PromotionStatsPanel({ stats, showPaymentBreakdown = false, range, customDate, statsLoading, statsError, onRangeChange, onDateChange, onApplyCustom }: {
   stats: PromotionStats;
+  showPaymentBreakdown?: boolean;
   range: (typeof ranges)[number]["value"];
   customDate: string;
   statsLoading: boolean;
@@ -312,10 +313,21 @@ function PromotionStatsPanel({ stats, range, customDate, statsLoading, statsErro
         <Stat label="Revenue from promotion orders" value={formatCurrency(stats.netRevenue)} helper="After promotion discount" />
         <Stat label="Gross promotion sales" value={formatCurrency(stats.grossSales)} helper="Before discount" />
         <Stat label="Promotion discount" value={formatCurrency(stats.promotionDiscount)} helper={`${stats.discountRate.toFixed(1)}% of gross`} />
-        <Stat label="Free Loaded Fries" value={`${stats.freeRewardUnits}`} helper={`Avg discount ${formatCurrency(stats.averageDiscountPerOrder)}`} />
+        {showPaymentBreakdown ? <PaymentBreakdownStat breakdown={stats.paymentBreakdown} /> : <Stat label="Free Loaded Fries" value={`${stats.freeRewardUnits}`} helper={`Avg discount ${formatCurrency(stats.averageDiscountPerOrder)}`} />}
       </div>
       <div className="mt-5 rounded-xl bg-pocket-cream/60 p-4"><div className="flex items-center justify-between gap-3"><div><p className="font-black text-pocket-navy">Promotion revenue trend</p><p className="text-xs text-pocket-navy/55">Daily net revenue for {stats.range.label.toLowerCase()}.</p></div><p className="text-sm font-bold text-pocket-navy">Avg order {formatCurrency(stats.averageOrderValue)}</p></div>{stats.trend.length ? <div className="mt-5 flex min-h-48 items-end gap-2 overflow-x-auto pb-1">{stats.trend.map((entry) => <div key={entry.date} className="flex w-12 shrink-0 flex-col items-center gap-2"><div className="flex h-36 w-full items-end"><div className="w-full rounded-t-md bg-pocket-orange" style={{ height: `${Math.max(8, (entry.netRevenue / peak) * 100)}%` }} title={`${entry.orders} orders · ${formatCurrency(entry.netRevenue)}`} /></div><span className="text-[10px] font-bold text-pocket-navy/55">{entry.label}</span><span className="text-[10px] font-bold text-pocket-navy">{entry.orders}</span></div>)}</div> : <p className="mt-6 text-sm text-pocket-navy/60">No promotion orders in this period.</p>}</div>
     </>}
+  </div>;
+}
+
+function PaymentBreakdownStat({ breakdown }: { breakdown: PromotionStats["paymentBreakdown"] }) {
+  return <div className="rounded-xl border border-pocket-navy/10 bg-white p-4">
+    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-pocket-navy/55">Revenue by payment</p>
+    <div className="mt-2 space-y-1.5 text-sm font-bold text-pocket-navy">
+      <div className="flex justify-between gap-3"><span>Cash</span><span>{formatCurrency(breakdown.CASH)}</span></div>
+      <div className="flex justify-between gap-3"><span>Easypaisa</span><span>{formatCurrency(breakdown.EASYPAISA)}</span></div>
+      <div className="flex justify-between gap-3"><span>JazzCash</span><span>{formatCurrency(breakdown.JAZZCASH)}</span></div>
+    </div>
   </div>;
 }
 
