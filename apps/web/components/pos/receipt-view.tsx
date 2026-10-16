@@ -28,7 +28,8 @@ function formatServiceType(value: string) {
     FOODPANDA: "Foodpanda",
     TAKEAWAY: "Takeaway",
     DINE_IN: "Dine-in",
-    DELIVERY: "Delivery"
+    DELIVERY: "Delivery",
+    NASCON: "Nascon"
   };
 
   return map[value] ?? value.replaceAll("_", " ");

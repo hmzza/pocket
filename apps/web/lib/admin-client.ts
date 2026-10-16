@@ -34,6 +34,8 @@ import type {
   Category,
   DashboardData,
   AdminPromotionData,
+  AdminNasconPromotionData,
+  NasconPromotion,
   PosPromotion,
   AdminCoupon,
   DeliveryConfig,
@@ -711,6 +713,22 @@ export async function updateAdminDeliverySector(sectorId: string, payload: Parti
 
 export async function updateAdminIndependencePromotion(isActive: boolean) {
   const data = await adminFetch<{ promotion: PosPromotion }>("/api/admin/promotions/independence-day", {
+    method: "PATCH",
+    body: JSON.stringify({ isActive })
+  });
+  return data.promotion;
+}
+
+export async function fetchAdminNasconPromotion(params?: { preset?: string; date?: string }) {
+  const query = new URLSearchParams();
+  if (params?.preset) query.set("preset", params.preset);
+  if (params?.date) query.set("date", params.date);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return adminFetch<AdminNasconPromotionData>(`/api/admin/promotions/nascon-stall${suffix}`);
+}
+
+export async function updateAdminNasconPromotion(isActive: boolean) {
+  const data = await adminFetch<{ promotion: NasconPromotion }>("/api/admin/promotions/nascon-stall", {
     method: "PATCH",
     body: JSON.stringify({ isActive })
   });

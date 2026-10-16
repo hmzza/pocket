@@ -1,6 +1,6 @@
 "use client";
 
-import type { AdminOrder, Branch, DeliveryConfig, DeliveryRider, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
+import type { AdminOrder, Branch, DeliveryConfig, DeliveryRider, NasconPromotion, PosBranch, PosCatalogProduct, PosCustomerLookup, PosEditableOrder, PosPromotion, PosReceiptOrder } from "@/lib/types";
 import { getSelectedBranchId } from "@/lib/branch-selection";
 import { resolvePocketImagePath } from "@/lib/image-paths";
 
@@ -96,7 +96,7 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
   if (params?.categoryId) query.set("categoryId", params.categoryId);
   if (params?.search) query.set("search", params.search);
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  const data = await posFetch<{ branches: any[]; categories: any[]; products: any[]; branchId?: string; promotion: PosPromotion }>(`/api/pos/catalog${suffix}`, {
+  const data = await posFetch<{ branches: any[]; categories: any[]; products: any[]; branchId?: string; promotion: PosPromotion; nasconPromotion: NasconPromotion }>(`/api/pos/catalog${suffix}`, {
     cache: "no-store"
   });
 
@@ -116,6 +116,7 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
   return {
     branchId: data.branchId,
     promotion: data.promotion,
+    nasconPromotion: data.nasconPromotion,
     branches: data.branches.map(
       (branch): PosBranch => ({
         id: branch.id,
@@ -297,8 +298,8 @@ export async function recordPosReceiptEvent(orderId: string, copy: "all" | "cust
 }
 
 export async function fetchPosPromotion() {
-  const data = await posFetch<{ promotion: PosPromotion }>("/api/pos/promotion");
-  return data.promotion;
+  const data = await posFetch<{ promotion: PosPromotion; nasconPromotion: NasconPromotion }>("/api/pos/promotion");
+  return data;
 }
 
 export async function deletePosOrder(orderId: string) {

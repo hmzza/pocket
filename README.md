@@ -45,11 +45,12 @@ database.
 
 ### POS
 
-- Counter checkout for dine-in, takeaway, delivery, Foodpanda, and online pickup orders
+- Counter checkout for dine-in, takeaway, delivery, Foodpanda, Nascon Stall, and online pickup orders
 - Active order queue, watch-later flow, order history, editing, deletion, receipts,
   payment status, and payment-method capture
 - Delivery rider assignment and WhatsApp dispatch
 - Pickup orders enter the queue as takeaway orders and show their requested pickup time
+- Nascon Stall can be enabled from Promotions; its POS orders are tagged and shown with red queue cards
 - Realtime incoming delivery and pickup notifications with browser sound controls
 - Branch-specific catalog, pricing, availability, and product ordering
 

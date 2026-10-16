@@ -4,6 +4,8 @@ import { getBusinessDateKey, formatPakistanDate } from "./business-day.js";
 export const INDEPENDENCE_PROMOTION_KEY = "promotion.independence-day";
 export const INDEPENDENCE_PROMOTION_NAME = "Independence Day Offer";
 export const INDEPENDENCE_PROMOTION_THRESHOLD = 3;
+export const NASCON_PROMOTION_KEY = "promotion.nascon-stall";
+export const NASCON_PROMOTION_NAME = "Nascon Stall";
 
 type PromotionClient = Pick<PrismaClient, "setting" | "category" | "product" | "branchProduct">;
 type PromotionStatsClient = Pick<PrismaClient, "order" | "setting">;
@@ -26,6 +28,13 @@ export type IndependencePromotion = {
   appliesTo: ["INSHOP", "TAKEAWAY"];
   available: boolean;
   unavailableReason?: string;
+};
+
+export type NasconPromotion = {
+  key: string;
+  name: string;
+  isActive: boolean;
+  serviceType: "NASCON";
 };
 
 export type PromotionStatsRange = {
@@ -98,8 +107,47 @@ export async function saveIndependencePromotion(client: PromotionClient, isActiv
   });
 }
 
+export async function readNasconPromotion(client: Pick<PrismaClient, "setting">): Promise<NasconPromotion> {
+  const setting = await client.setting.findUnique({ where: { key: NASCON_PROMOTION_KEY } });
+  const settingValue = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
+    ? setting.value as PromotionSettingValue
+    : {};
+
+  return {
+    key: NASCON_PROMOTION_KEY,
+    name: NASCON_PROMOTION_NAME,
+    isActive: Boolean(settingValue.isActive),
+    serviceType: "NASCON"
+  };
+}
+
+export async function saveNasconPromotion(client: Pick<PrismaClient, "setting">, isActive: boolean) {
+  const current = await client.setting.findUnique({ where: { key: NASCON_PROMOTION_KEY } });
+  const value = current?.value && typeof current.value === "object" && !Array.isArray(current.value)
+    ? current.value as PromotionSettingValue
+    : {};
+  const periods = [...(value.activePeriods ?? [])];
+  const openPeriod = periods.find((period) => !period.end);
+  if (isActive && !openPeriod) periods.push({ start: new Date().toISOString() });
+  if (!isActive && openPeriod) openPeriod.end = new Date().toISOString();
+
+  await client.setting.upsert({
+    where: { key: NASCON_PROMOTION_KEY },
+    update: { value: { isActive, activePeriods: periods } },
+    create: { key: NASCON_PROMOTION_KEY, value: { isActive, activePeriods: periods } }
+  });
+}
+
 export async function readPromotionStats(client: PromotionStatsClient, branchId: string, range: PromotionStatsRange): Promise<PromotionStats> {
-  const setting = await client.setting.findUnique({ where: { key: INDEPENDENCE_PROMOTION_KEY } });
+  return readPromotionStatsFor(client, branchId, range, INDEPENDENCE_PROMOTION_KEY, INDEPENDENCE_PROMOTION_NAME);
+}
+
+export async function readNasconPromotionStats(client: PromotionStatsClient, branchId: string, range: PromotionStatsRange): Promise<PromotionStats> {
+  return readPromotionStatsFor(client, branchId, range, NASCON_PROMOTION_KEY, NASCON_PROMOTION_NAME);
+}
+
+async function readPromotionStatsFor(client: PromotionStatsClient, branchId: string, range: PromotionStatsRange, promotionKey: string, promotionName: string): Promise<PromotionStats> {
+  const setting = await client.setting.findUnique({ where: { key: promotionKey } });
   const settingValue = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
     ? setting.value as PromotionSettingValue
     : {};
@@ -120,7 +168,7 @@ export async function readPromotionStats(client: PromotionStatsClient, branchId:
     },
     orderBy: { placedAt: "asc" }
   });
-  const promotionOrders = orders.filter((order) => order.promotionName === INDEPENDENCE_PROMOTION_NAME);
+  const promotionOrders = orders.filter((order) => order.promotionName === promotionName);
   let scopedOrders = orders;
   if (range.preset === "all") {
     let periods = (settingValue.activePeriods ?? [])
@@ -131,7 +179,7 @@ export async function readPromotionStats(client: PromotionStatsClient, branchId:
     }
     scopedOrders = orders.filter((order) => periods.some((period) => order.placedAt >= period.start && order.placedAt <= period.end));
   }
-  const scopedPromotionOrders = scopedOrders.filter((order) => order.promotionName === INDEPENDENCE_PROMOTION_NAME);
+  const scopedPromotionOrders = scopedOrders.filter((order) => order.promotionName === promotionName);
   const numberValue = (value: unknown) => Number(value ?? 0);
   const grossSales = scopedPromotionOrders.reduce((sum, order) => sum + numberValue(order.subtotal), 0);
   const netRevenue = scopedPromotionOrders.reduce((sum, order) => sum + numberValue(order.totalAmount), 0);

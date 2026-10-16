@@ -174,7 +174,8 @@ function formatServiceType(value: unknown) {
     DINE_IN: "Dine-in",
     TAKEAWAY: "Takeaway",
     DELIVERY: "Delivery",
-    FOODPANDA: "Foodpanda"
+    FOODPANDA: "Foodpanda",
+    NASCON: "Nascon"
   };
   return labels[String(value)] ?? String(value ?? "None").replaceAll("_", " ");
 }
