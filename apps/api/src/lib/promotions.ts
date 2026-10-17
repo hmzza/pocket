@@ -144,10 +144,20 @@ export async function readPromotionStats(client: PromotionStatsClient, branchId:
 }
 
 export async function readNasconPromotionStats(client: PromotionStatsClient, branchId: string, range: PromotionStatsRange): Promise<PromotionStats> {
-  return readPromotionStatsFor(client, branchId, range, NASCON_PROMOTION_KEY, NASCON_PROMOTION_NAME);
+  // Nascon is a service-type tracker, not a time-limited offer. Its all-time
+  // totals must include orders entered with a backdated business date, even
+  // when that date is before the Nascon toggle was enabled.
+  return readPromotionStatsFor(client, branchId, range, NASCON_PROMOTION_KEY, NASCON_PROMOTION_NAME, false);
 }
 
-async function readPromotionStatsFor(client: PromotionStatsClient, branchId: string, range: PromotionStatsRange, promotionKey: string, promotionName: string): Promise<PromotionStats> {
+async function readPromotionStatsFor(
+  client: PromotionStatsClient,
+  branchId: string,
+  range: PromotionStatsRange,
+  promotionKey: string,
+  promotionName: string,
+  scopeAllTimeToActivePeriods = true
+): Promise<PromotionStats> {
   const setting = await client.setting.findUnique({ where: { key: promotionKey } });
   const settingValue = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
     ? setting.value as PromotionSettingValue
@@ -172,7 +182,7 @@ async function readPromotionStatsFor(client: PromotionStatsClient, branchId: str
   });
   const promotionOrders = orders.filter((order) => order.promotionName === promotionName);
   let scopedOrders = orders;
-  if (range.preset === "all") {
+  if (range.preset === "all" && scopeAllTimeToActivePeriods) {
     let periods = (settingValue.activePeriods ?? [])
       .map((period) => ({ start: new Date(period.start), end: period.end ? new Date(period.end) : new Date() }))
       .filter((period) => !Number.isNaN(period.start.getTime()) && !Number.isNaN(period.end.getTime()));
