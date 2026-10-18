@@ -162,36 +162,50 @@ async function readPromotionStatsFor(
   const settingValue = setting?.value && typeof setting.value === "object" && !Array.isArray(setting.value)
     ? setting.value as PromotionSettingValue
     : {};
-  const orders = await client.order.findMany({
-    where: {
-      branchId,
-      channel: "POS",
-      status: { not: "CANCELLED" },
-      ...(range.start && range.end ? { placedAt: { gte: range.start, lte: range.end } } : {})
-    },
-    select: {
-      placedAt: true,
-      subtotal: true,
-      totalAmount: true,
-      promotionName: true,
-      promotionDiscountAmount: true,
-      paymentMethod: true,
-      items: { select: { promotionFreeQuantity: true } }
-    },
-    orderBy: { placedAt: "asc" }
-  });
-  const promotionOrders = orders.filter((order) => order.promotionName === promotionName);
-  let scopedOrders = orders;
+  let periods: Array<{ start: Date; end: Date }> = [];
   if (range.preset === "all" && scopeAllTimeToActivePeriods) {
-    let periods = (settingValue.activePeriods ?? [])
+    periods = (settingValue.activePeriods ?? [])
       .map((period) => ({ start: new Date(period.start), end: period.end ? new Date(period.end) : new Date() }))
       .filter((period) => !Number.isNaN(period.start.getTime()) && !Number.isNaN(period.end.getTime()));
-    if (!periods.length && promotionOrders.length) {
-      periods = [{ start: promotionOrders[0]!.placedAt, end: settingValue.isActive ? new Date() : promotionOrders[promotionOrders.length - 1]!.placedAt }];
+    if (!periods.length) {
+      const firstAndLastPromotion = await Promise.all([
+        client.order.findFirst({ where: { branchId, channel: "POS", status: { not: "CANCELLED" }, promotionName, }, select: { placedAt: true }, orderBy: { placedAt: "asc" } }),
+        client.order.findFirst({ where: { branchId, channel: "POS", status: { not: "CANCELLED" }, promotionName, }, select: { placedAt: true }, orderBy: { placedAt: "desc" } })
+      ]);
+      if (firstAndLastPromotion[0] && firstAndLastPromotion[1]) {
+        periods = [{ start: firstAndLastPromotion[0].placedAt, end: settingValue.isActive ? new Date() : firstAndLastPromotion[1].placedAt }];
+      }
     }
-    scopedOrders = orders.filter((order) => periods.some((period) => order.placedAt >= period.start && order.placedAt <= period.end));
   }
-  const scopedPromotionOrders = scopedOrders.filter((order) => order.promotionName === promotionName);
+
+  const dateWhere = range.start && range.end
+    ? { placedAt: { gte: range.start, lte: range.end } }
+    : periods.length
+      ? { OR: periods.map((period) => ({ placedAt: { gte: period.start, lte: period.end } })) }
+      : {};
+  const baseWhere = {
+    branchId,
+    channel: "POS" as const,
+    status: { not: "CANCELLED" as const },
+    ...dateWhere
+  };
+  const [totalOrders, promotionOrders] = await Promise.all([
+    client.order.count({ where: baseWhere }),
+    client.order.findMany({
+      where: { ...baseWhere, promotionName },
+      select: {
+        placedAt: true,
+        subtotal: true,
+        totalAmount: true,
+        promotionName: true,
+        promotionDiscountAmount: true,
+        paymentMethod: true,
+        items: { select: { promotionFreeQuantity: true } }
+      },
+      orderBy: { placedAt: "asc" }
+    })
+  ]);
+  const scopedPromotionOrders = promotionOrders;
   const numberValue = (value: unknown) => Number(value ?? 0);
   const grossSales = scopedPromotionOrders.reduce((sum, order) => sum + numberValue(order.subtotal), 0);
   const netRevenue = scopedPromotionOrders.reduce((sum, order) => sum + numberValue(order.totalAmount), 0);
@@ -215,8 +229,8 @@ async function readPromotionStatsFor(
   return {
     range,
     promotionOrders: scopedPromotionOrders.length,
-    totalOrders: scopedOrders.length,
-    participationRate: scopedOrders.length ? (scopedPromotionOrders.length / scopedOrders.length) * 100 : 0,
+    totalOrders,
+    participationRate: totalOrders ? (scopedPromotionOrders.length / totalOrders) * 100 : 0,
     netRevenue,
     grossSales,
     promotionDiscount,

@@ -8478,9 +8478,10 @@ router.get("/promotions/independence-day", async (req, res, next) => {
       : query.preset === "custom"
         ? { ...businessDayRange(query.date!), preset: "custom", label: `${formatPakistanDate(businessDayRange(query.date!).start, { dateStyle: "medium" })} business day` }
         : buildDashboardRange({ preset: "today", segment: "all" });
-    const allTime = await readPromotionStats(prisma, branchContext.branchId, { preset: "all", label: "All time" });
-    const period = query.preset === "all" ? allTime : await readPromotionStats(prisma, branchContext.branchId, periodRange);
-    return res.json({ promotion, stats: { allTime, period } });
+    const allTime = readPromotionStats(prisma, branchContext.branchId, { preset: "all", label: "All time" });
+    const period = query.preset === "all" ? allTime : readPromotionStats(prisma, branchContext.branchId, periodRange);
+    const [resolvedAllTime, resolvedPeriod] = await Promise.all([allTime, period]);
+    return res.json({ promotion, stats: { allTime: resolvedAllTime, period: resolvedPeriod } });
   } catch (error) {
     return next(error);
   }
@@ -8520,9 +8521,10 @@ router.get("/promotions/nascon-stall", async (req, res, next) => {
       : query.preset === "custom"
         ? { ...businessDayRange(query.date!), preset: "custom", label: `${formatPakistanDate(businessDayRange(query.date!).start, { dateStyle: "medium" })} business day` }
         : buildDashboardRange({ preset: "today", segment: "all" });
-    const allTime = await readNasconPromotionStats(prisma, branchContext.branchId, { preset: "all", label: "All time" });
-    const period = query.preset === "all" ? allTime : await readNasconPromotionStats(prisma, branchContext.branchId, periodRange);
-    return res.json({ promotion, stats: { allTime, period } });
+    const allTime = readNasconPromotionStats(prisma, branchContext.branchId, { preset: "all", label: "All time" });
+    const period = query.preset === "all" ? allTime : readNasconPromotionStats(prisma, branchContext.branchId, periodRange);
+    const [resolvedAllTime, resolvedPeriod] = await Promise.all([allTime, period]);
+    return res.json({ promotion, stats: { allTime: resolvedAllTime, period: resolvedPeriod } });
   } catch (error) {
     return next(error);
   }

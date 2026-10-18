@@ -38,13 +38,13 @@ export function PromotionManagement() {
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Could not load Nascon promotion."));
   }, []);
 
-  async function loadStats(nextRange = range) {
+  async function loadStats(nextRange = range, selectedDate = customDate) {
     if (!data || nextRange === "all") return;
     try {
       setStatsLoading(true);
       setStatsError("");
       const params = nextRange === "custom"
-        ? { preset: nextRange, date: customDate }
+        ? { preset: nextRange, date: selectedDate }
         : { preset: nextRange };
       const next = await fetchAdminIndependencePromotion(params);
       setData((current) => current ? { ...current, stats: next.stats } : next);
@@ -73,7 +73,7 @@ export function PromotionManagement() {
 
   function changeRange(nextRange: (typeof ranges)[number]["value"]) {
     setRange(nextRange);
-    if (nextRange !== "all" && statsOpen) void loadStats(nextRange);
+    if (nextRange !== "all" && nextRange !== "custom" && statsOpen) void loadStats(nextRange);
   }
 
   if (loading) return <Card className="p-6 text-sm text-pocket-navy/60">Loading promotions...</Card>;
@@ -113,7 +113,7 @@ export function PromotionManagement() {
           <ChevronDown className={`h-5 w-5 text-pocket-navy transition-transform ${statsOpen ? "rotate-180" : ""}`} />
         </button>
 
-      {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={changeRange} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
+        {statsOpen ? <PromotionStatsPanel stats={stats} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={changeRange} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom", customDate)} /> : null}
       </Card>
       {nasconData ? <NasconPromotionCard data={nasconData} onDataChange={setNasconData} /> : null}
       <CouponManagement />
@@ -131,12 +131,12 @@ function NasconPromotionCard({ data, onDataChange }: { data: AdminNasconPromotio
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  async function loadStats(nextRange = range) {
+  async function loadStats(nextRange = range, selectedDate = customDate) {
     if (nextRange === "all") return;
     try {
       setStatsLoading(true);
       setStatsError("");
-      const params = nextRange === "custom" ? { preset: nextRange, date: customDate } : { preset: nextRange };
+      const params = nextRange === "custom" ? { preset: nextRange, date: selectedDate } : { preset: nextRange };
       const next = await fetchAdminNasconPromotion(params);
       onDataChange({ ...data, stats: next.stats });
     } catch (loadError) {
@@ -190,7 +190,7 @@ function NasconPromotionCard({ data, onDataChange }: { data: AdminNasconPromotio
         <span><span className="block font-black text-pocket-navy">{statsOpen ? "Hide performance" : "View performance"}</span><span className="mt-1 block text-xs text-pocket-navy/55">{data.stats.allTime.promotionOrders} Nascon Stall orders recorded</span></span>
         <ChevronDown className={`h-5 w-5 text-pocket-navy transition-transform ${statsOpen ? "rotate-180" : ""}`} />
       </button>
-      {statsOpen ? <PromotionStatsPanel stats={stats} showPaymentBreakdown range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={(nextRange) => { setRange(nextRange); if (nextRange !== "all") void loadStats(nextRange); }} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom")} /> : null}
+      {statsOpen ? <PromotionStatsPanel stats={stats} showPaymentBreakdown showTotalComparison={false} range={range} customDate={customDate} statsLoading={statsLoading} statsError={statsError} onRangeChange={(nextRange) => { setRange(nextRange); if (nextRange !== "all" && nextRange !== "custom") void loadStats(nextRange); }} onDateChange={setCustomDate} onApplyCustom={() => void loadStats("custom", customDate)} /> : null}
     </Card>
   );
 }
@@ -289,9 +289,10 @@ function CouponManagement() {
   </Card>;
 }
 
-function PromotionStatsPanel({ stats, showPaymentBreakdown = false, range, customDate, statsLoading, statsError, onRangeChange, onDateChange, onApplyCustom }: {
+function PromotionStatsPanel({ stats, showPaymentBreakdown = false, showTotalComparison = true, range, customDate, statsLoading, statsError, onRangeChange, onDateChange, onApplyCustom }: {
   stats: PromotionStats;
   showPaymentBreakdown?: boolean;
+  showTotalComparison?: boolean;
   range: (typeof ranges)[number]["value"];
   customDate: string;
   statsLoading: boolean;
@@ -309,7 +310,7 @@ function PromotionStatsPanel({ stats, showPaymentBreakdown = false, range, custo
     {statsError ? <p className="mt-4 text-sm font-semibold text-red-700">{statsError}</p> : null}
     {statsLoading ? <p className="mt-5 text-sm text-pocket-navy/60">Loading promotion performance...</p> : <>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Stat label="Promotion orders" value={`${stats.promotionOrders} / ${stats.totalOrders}`} helper={`${stats.participationRate.toFixed(1)}% of orders`} />
+        {showTotalComparison ? <Stat label="Promotion orders" value={`${stats.promotionOrders} / ${stats.totalOrders}`} helper={`${stats.participationRate.toFixed(1)}% of orders`} /> : <Stat label="Promotion orders" value={`${stats.promotionOrders}`} helper="Nascon Stall orders" />}
         <Stat label="Revenue from promotion orders" value={formatCurrency(stats.netRevenue)} helper="After promotion discount" />
         <Stat label="Gross promotion sales" value={formatCurrency(stats.grossSales)} helper="Before discount" />
         <Stat label="Promotion discount" value={formatCurrency(stats.promotionDiscount)} helper={`${stats.discountRate.toFixed(1)}% of gross`} />
