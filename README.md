@@ -110,6 +110,20 @@ POS permissions.
   admin sidebar.
 - New online delivery and pickup orders show only Accept in the POS queue until
   staff accepts them.
+- Overview includes a Super Admin-only **Download investor PDF** button. Each
+  click generates a confidential, uncached PDF from a read-only database snapshot
+  covering 1 June 2026 at 06:00 Pakistan time through generation, across all branches
+  (including inactive branches), independent of Overview filters. The authenticated
+  `GET /api/admin/dashboard/investor-report` endpoint also enforces Super Admin access.
+  The PDF includes monthly traction, expenses, channel/branch mix, products, customer
+  repeat behaviour, capital, settlements, data quality and labelled growth scenarios.
+  Sales include paid or fulfilled orders, excluding cancelled/refunded/failed orders;
+  other open or unverified orders are disclosed separately. Foodpanda fees use the
+  existing 38% estimate, with recorded settlements shown separately. Paid expenses
+  include stock purchases once; unpaid fixed bills are disclosed separately. The
+  indicative surplus is not audited profit or historical COGS. No records or fixed
+  expense occurrences are created by exporting, and no customer contact information
+  is included in the PDF.
 
 ## Local Development
 
@@ -185,6 +199,7 @@ npm run build
 npm run prisma:generate
 npm run prisma:migrate
 npm run validate:permissions
+npm run test:investor-report --workspace @pocket/api
 ```
 
 The permission validation command checks protected admin API routes against the

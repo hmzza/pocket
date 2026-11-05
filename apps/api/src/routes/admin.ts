@@ -18,6 +18,8 @@ import { getAccessibleBranchesForUser, readRequestedBranchId, resolveBranchConte
 import { PERMISSION_DEFINITIONS, requireAdminRoutePermission } from "../lib/permissions.js";
 import { readIndependencePromotion, readNasconPromotion, readNasconPromotionStats, readPromotionStats, saveIndependencePromotion, saveNasconPromotion } from "../lib/promotions.js";
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
+import { loadInvestorReport } from "../lib/investor-report-data.js";
+import { renderInvestorReport } from "../lib/investor-report-pdf.js";
 import {
   getDeliveryConfigSnapshot,
   ensureDeliveryConfiguration,
@@ -1369,6 +1371,20 @@ function buildExpenseSeries(expenses: Array<{ expenseDate: Date; amount: Prisma.
     .sort((left, right) => left.sortKey - right.sortKey)
     .map(({ label, revenue, orders }) => ({ label, revenue: Number(revenue.toFixed(2)), orders }));
 }
+
+router.get("/dashboard/investor-report", authorize(RoleCode.SUPER_ADMIN), async (_req, res, next) => {
+  try {
+    const report = await loadInvestorReport();
+    const pdf = await renderInvestorReport(report);
+    const fileDate = getBusinessDateKey(report.generatedAt);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="Pocket_Investor_Report_2026-06-01_to_${fileDate}.pdf"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(pdf);
+  } catch (error) {
+    return next(error);
+  }
+});
 
 router.get("/dashboard", async (req, res, next) => {
   try {

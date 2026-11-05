@@ -41,7 +41,7 @@ const links: Array<{
 
 type AdminSession = Awaited<ReturnType<typeof fetchAdminSession>>;
 
-export function AdminShell({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+export function AdminShell({ title, description, children, superAdminContent }: { title: string; description: string; children: React.ReactNode; superAdminContent?: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [session, setSession] = useState<AdminSession | null>(null);
@@ -180,6 +180,7 @@ export function AdminShell({ title, description, children }: { title: string; de
           </div>
           {session ? <BranchSwitcher user={session.user} /> : null}
         </div>
+        {session?.user.role === "SUPER_ADMIN" ? superAdminContent : null}
         {children}
       </div>
     </div>

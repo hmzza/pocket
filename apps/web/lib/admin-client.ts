@@ -401,6 +401,36 @@ export async function downloadAdminProductAnalyticsExport(params: {
   URL.revokeObjectURL(objectUrl);
 }
 
+export async function downloadAdminInvestorReport() {
+  // Deliberately omit selected-branch and dashboard filters: this is a whole-business export.
+  const response = await fetch(`${API_URL}/api/admin/dashboard/investor-report`, {
+    credentials: "include",
+    cache: "no-store"
+  });
+  if (!response.ok) {
+    let message = "Unable to generate the investor report. Please try again.";
+    try {
+      const payload = await response.json();
+      message = payload.message ?? message;
+    } catch {}
+    throw new Error(message);
+  }
+  if (!response.headers.get("Content-Type")?.includes("application/pdf")) {
+    throw new Error("The server did not return a PDF. Please sign in again and retry.");
+  }
+  const blob = await response.blob();
+  const fileName = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "Pocket_Investor_Report.pdf";
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Allow the download to start before releasing the object URL (including in Electron).
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
 export async function deleteAdminProduct(productId: string) {
   const data = await adminFetch<{ mode: "deleted"; message: string }>(`/api/admin/products/${productId}`, {
     method: "DELETE"
