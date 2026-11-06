@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "test:investor-report": "tsx --test tests/investor-report.test.ts"
+    "test:investor-report": "tsx --test tests/investor-report.test.ts",
+    "test:profit-loss-report": "tsx --test tests/profit-loss-report.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
