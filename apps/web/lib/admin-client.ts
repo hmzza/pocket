@@ -401,14 +401,14 @@ export async function downloadAdminProductAnalyticsExport(params: {
   URL.revokeObjectURL(objectUrl);
 }
 
-export async function downloadAdminInvestorReport() {
+async function downloadAdminPdfReport(endpoint: string, fallbackName: string, errorMessage: string) {
   // Deliberately omit selected-branch and dashboard filters: this is a whole-business export.
-  const response = await fetch(`${API_URL}/api/admin/dashboard/investor-report`, {
+  const response = await fetch(`${API_URL}${endpoint}`, {
     credentials: "include",
     cache: "no-store"
   });
   if (!response.ok) {
-    let message = "Unable to generate the investor report. Please try again.";
+    let message = errorMessage;
     try {
       const payload = await response.json();
       message = payload.message ?? message;
@@ -419,7 +419,7 @@ export async function downloadAdminInvestorReport() {
     throw new Error("The server did not return a PDF. Please sign in again and retry.");
   }
   const blob = await response.blob();
-  const fileName = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "Pocket_Investor_Report.pdf";
+  const fileName = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? fallbackName;
   const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = objectUrl;
@@ -429,6 +429,14 @@ export async function downloadAdminInvestorReport() {
   link.remove();
   // Allow the download to start before releasing the object URL (including in Electron).
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+export function downloadAdminInvestorReport() {
+  return downloadAdminPdfReport("/api/admin/dashboard/investor-report", "Pocket_Investor_Report.pdf", "Unable to generate the investor report. Please try again.");
+}
+
+export function downloadAdminProfitLossReport() {
+  return downloadAdminPdfReport("/api/admin/dashboard/profit-loss-report", "Pocket_PnL.pdf", "Unable to generate the P&L report. Please try again.");
 }
 
 export async function deleteAdminProduct(productId: string) {

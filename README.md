@@ -124,6 +124,22 @@ POS permissions.
   indicative surplus is not audited profit or historical COGS. No records or fixed
   expense occurrences are created by exporting, and no customer contact information
   is included in the PDF.
+- Overview also has a Super Admin-only **Download P&L PDF** button. The authenticated
+  `GET /api/admin/dashboard/profit-loss-report` generates an uncached PDF for the
+  last fully closed Pakistan business month (06:00 on the first through 06:00 on
+  the next first), across all branches including inactive ones. For example, an
+  export on 5 November 2026 covers October 2026, independent of Overview filters.
+  The statement includes sales excluding recorded sales tax, delivery income,
+  discounts, category/title expense detail with narrations, and provisional profit
+  or loss. It uses the investor report's paid-or-fulfilled order eligibility.
+  Recorded unpaid fixed bills are included as costs; absent occurrences are not
+  generated. Stock purchases are expensed on a recorded-cost basis rather than
+  claimed as verified COGS. Explicitly named Foodpanda commission/fee/charge/deduction
+  expense entries replace the 38% estimate; otherwise that estimate is added once.
+  Differently labelled or incomplete fee entries require review. Borrowings, capital,
+  repayments, transfers and settlement receipts are excluded from operating results.
+  No supplied workbook figures, formulas, hotel tax rates or organisation details
+  are imported. The reference workbook is not required at runtime.
 
 ## Local Development
 
@@ -200,6 +216,7 @@ npm run prisma:generate
 npm run prisma:migrate
 npm run validate:permissions
 npm run test:investor-report --workspace @pocket/api
+npm run test:profit-loss-report --workspace @pocket/api
 ```
 
 The permission validation command checks protected admin API routes against the

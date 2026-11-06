@@ -20,6 +20,8 @@ import { readIndependencePromotion, readNasconPromotion, readNasconPromotionStat
 import { dispatchDeliveryOrder } from "../lib/delivery.js";
 import { loadInvestorReport } from "../lib/investor-report-data.js";
 import { renderInvestorReport } from "../lib/investor-report-pdf.js";
+import { loadProfitLossReport } from "../lib/profit-loss-report-data.js";
+import { renderProfitLossReport } from "../lib/profit-loss-report-pdf.js";
 import {
   getDeliveryConfigSnapshot,
   ensureDeliveryConfiguration,
@@ -1371,6 +1373,19 @@ function buildExpenseSeries(expenses: Array<{ expenseDate: Date; amount: Prisma.
     .sort((left, right) => left.sortKey - right.sortKey)
     .map(({ label, revenue, orders }) => ({ label, revenue: Number(revenue.toFixed(2)), orders }));
 }
+
+router.get("/dashboard/profit-loss-report", authorize(RoleCode.SUPER_ADMIN), async (_req, res, next) => {
+  try {
+    const report = await loadProfitLossReport();
+    const pdf = await renderProfitLossReport(report);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="Pocket_PnL_${report.period.monthKey}.pdf"`);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(pdf);
+  } catch (error) {
+    return next(error);
+  }
+});
 
 router.get("/dashboard/investor-report", authorize(RoleCode.SUPER_ADMIN), async (_req, res, next) => {
   try {
