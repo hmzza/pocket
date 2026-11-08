@@ -22,6 +22,7 @@ import { loadInvestorReport } from "../lib/investor-report-data.js";
 import { renderInvestorReport } from "../lib/investor-report-pdf.js";
 import { loadProfitLossReport } from "../lib/profit-loss-report-data.js";
 import { renderProfitLossReport } from "../lib/profit-loss-report-pdf.js";
+import { calculateInvestmentPositions } from "../lib/investment-positions.js";
 import {
   getDeliveryConfigSnapshot,
   ensureDeliveryConfiguration,
@@ -4786,26 +4787,6 @@ type ShareTransferWithRelations = Prisma.ShareTransferGetPayload<{
   include: { fromPartner: true; toPartner: true; createdBy: true };
 }>;
 
-function calculateInvestmentEquity(
-  partnerTotals: Array<{ id: string; committedAmount: number }>,
-  transfers: Array<{ fromPartnerId: string; toPartnerId: string; percentage: number | Prisma.Decimal; transferDate: Date; createdAt: Date }>
-) {
-  const totalCommitted = partnerTotals.reduce((sum, partner) => sum + partner.committedAmount, 0);
-  const equity = new Map(partnerTotals.map((partner) => [
-    partner.id,
-    totalCommitted > 0 ? (partner.committedAmount / totalCommitted) * 100 : 0
-  ]));
-  for (const transfer of transfers.slice().sort((left, right) => {
-    const dateDifference = left.transferDate.getTime() - right.transferDate.getTime();
-    return dateDifference || left.createdAt.getTime() - right.createdAt.getTime();
-  })) {
-    const percentage = parseDecimal(transfer.percentage);
-    equity.set(transfer.fromPartnerId, (equity.get(transfer.fromPartnerId) ?? 0) - percentage);
-    equity.set(transfer.toPartnerId, (equity.get(transfer.toPartnerId) ?? 0) + percentage);
-  }
-  return equity;
-}
-
 function serializeInvestmentData(partners: InvestmentPartnerWithRelations[], transfers: ShareTransferWithRelations[]) {
   const partnerTotals = partners.map((partner) => {
     const committedAmount = partner.commitments.reduce((sum, commitment) => sum + parseDecimal(commitment.amount), 0);
@@ -4820,33 +4801,35 @@ function serializeInvestmentData(partners: InvestmentPartnerWithRelations[], tra
   const totalCommitted = roundMoney(partnerTotals.reduce((sum, item) => sum + item.committedAmount, 0));
   const totalPaid = roundMoney(partnerTotals.reduce((sum, item) => sum + item.paidAmount, 0));
   const totalUnpaid = roundMoney(Math.max(0, totalCommitted - totalPaid));
-  const impliedCompanyValue = totalCommitted;
-  const pricePerPercent = roundMoney(impliedCompanyValue / 100);
-  const equityAfterTransfers = calculateInvestmentEquity(
-    partnerTotals.map(({ partner, committedAmount }) => ({ id: partner.id, committedAmount })),
-    transfers
-  );
+  const currentHoldings = calculateInvestmentPositions(partners, transfers);
+  const impliedCompanyValue = roundMoney(currentHoldings.equityBasis);
+  const pricePerPercent = impliedCompanyValue / 100;
 
   return {
     summary: {
       totalCommitted,
       totalPaid,
       totalUnpaid,
-      partnerCount: partners.length,
+      partnerCount: [...currentHoldings.positions.values()].filter((position) => position.isActive).length,
+      totalPartnerCount: partners.length,
+      pendingCommitted: roundMoney([...currentHoldings.positions.values()].reduce((sum, position) => sum + position.pendingCents, 0) / 100),
       impliedCompanyValue,
       pricePerPercent
     },
-    partners: partnerTotals.map(({ partner, committedAmount, paidAmount, unpaidAmount }) => ({
+    positionIssues: currentHoldings.issues,
+    partners: partnerTotals.map(({ partner }) => ({
       id: partner.id,
       name: partner.name,
       note: partner.note,
       createdByName: partner.createdBy?.name ?? null,
       createdAt: partner.createdAt.toISOString(),
-      committedAmount,
-      paidAmount,
-      unpaidAmount,
-      baseEquityPercent: totalCommitted > 0 ? Number(((committedAmount / totalCommitted) * 100).toFixed(2)) : 0,
-      equityPercent: Number((equityAfterTransfers.get(partner.id) ?? 0).toFixed(2)),
+      committedAmount: currentHoldings.positions.get(partner.id)!.committedCents / 100,
+      paidAmount: currentHoldings.positions.get(partner.id)!.paidCents / 100,
+      unpaidAmount: currentHoldings.positions.get(partner.id)!.unpaidCents / 100,
+      pendingCommittedAmount: currentHoldings.positions.get(partner.id)!.pendingCents / 100,
+      isActive: currentHoldings.positions.get(partner.id)!.isActive,
+      baseEquityPercent: currentHoldings.positions.get(partner.id)!.equityPercent,
+      equityPercent: currentHoldings.positions.get(partner.id)!.equityPercent,
       commitments: partner.commitments
         .slice()
         .sort((left, right) => right.commitmentDate.getTime() - left.commitmentDate.getTime())
@@ -4856,6 +4839,10 @@ function serializeInvestmentData(partners: InvestmentPartnerWithRelations[], tra
           return {
             id: commitment.id,
             partnerId: commitment.partnerId,
+            ownershipLocked: currentHoldings.transferredCommitmentIds.has(commitment.id),
+            currentHolders: (currentHoldings.holdersByCommitment.get(commitment.id) ?? []).map((holder) => ({
+              ...holder, partnerName: partners.find((candidate) => candidate.id === holder.partnerId)?.name ?? "Unknown partner"
+            })),
             amount: roundMoney(commitmentAmount),
             paidAmount: roundMoney(commitmentPaid),
             unpaidAmount: roundMoney(Math.max(0, commitmentAmount - commitmentPaid)),
@@ -5206,8 +5193,8 @@ router.delete("/loans/:id/repayments/:repaymentId", async (req, res, next) => {
 router.get("/investments", async (req, res, next) => {
   try {
     const branchContext = await resolveBranchContext(req);
-    const [partners, transfers] = await Promise.all([
-      prisma.investmentPartner.findMany({
+    const [partners, transfers] = await prisma.$transaction(async (tx) => Promise.all([
+      tx.investmentPartner.findMany({
         include: {
           createdBy: true,
           commitments: {
@@ -5224,11 +5211,11 @@ router.get("/investments", async (req, res, next) => {
         },
         orderBy: [{ createdAt: "asc" }, { name: "asc" }]
       }),
-      prisma.shareTransfer.findMany({
+      tx.shareTransfer.findMany({
         include: { fromPartner: true, toPartner: true, createdBy: true },
         orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }]
       })
-    ]);
+    ]), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const investmentData = serializeInvestmentData(partners, transfers);
     return res.json({
       ...investmentData,
@@ -5248,65 +5235,79 @@ router.get("/investments", async (req, res, next) => {
   }
 });
 
-async function getTransferContext() {
+type InvestmentReader = Pick<Prisma.TransactionClient, "investmentPartner" | "shareTransfer">;
+
+async function getTransferContext(client: InvestmentReader = prisma) {
   const [partners, transfers] = await Promise.all([
-    prisma.investmentPartner.findMany({
-      select: { id: true, commitments: { select: { amount: true } } }
+    client.investmentPartner.findMany({
+      select: { id: true, commitments: { select: {
+        id: true, amount: true, commitmentDate: true, createdAt: true,
+        payments: { select: { id: true, amount: true, paymentDate: true, createdAt: true } }
+      } } }
     }),
-    prisma.shareTransfer.findMany({
-      include: { fromPartner: true, toPartner: true, createdBy: true },
-      orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }]
-    })
+    client.shareTransfer.findMany({ orderBy: [{ transferDate: "asc" }, { createdAt: "asc" }, { id: "asc" }] })
   ]);
-  const partnerTotals = partners.map((partner) => ({
-    id: partner.id,
-    committedAmount: partner.commitments.reduce((sum, commitment) => sum + parseDecimal(commitment.amount), 0)
-  }));
-  return { partners, partnerTotals, transfers };
+  return { partners, transfers };
 }
 
-async function resolveShareTransferValues(payload: z.infer<typeof shareTransferSchema>, excludingTransferId?: string) {
+async function mutateInvestmentLedger<T>(work: (tx: Prisma.TransactionClient) => Promise<T>) {
+  return prisma.$transaction(async (tx) => {
+    const result = await work(tx);
+    const context = await getTransferContext(tx);
+    calculateInvestmentPositions(context.partners, context.transfers, { strict: true });
+    return result;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 20000 });
+}
+
+async function assertCommitmentOwnershipEditable(client: InvestmentReader, commitmentId: string) {
+  const context = await getTransferContext(client);
+  const positions = calculateInvestmentPositions(context.partners, context.transfers);
+  if (positions.transferredCommitmentIds.has(commitmentId)) {
+    throw Object.assign(new Error("This commitment has transferred holdings. Its owner, amount and date must stay with the original record. Add a new commitment for new capital."), { statusCode: 400 });
+  }
+}
+
+async function resolveShareTransferValues(payload: z.infer<typeof shareTransferSchema>, excludingTransferId?: string, client: InvestmentReader = prisma) {
   if (payload.fromPartnerId === payload.toPartnerId) {
     throw Object.assign(new Error("Seller and buyer must be different partners."), { statusCode: 400 });
   }
-  const context = await getTransferContext();
+  const context = await getTransferContext(client);
   const partnerIds = new Set(context.partners.map((partner) => partner.id));
   if (!partnerIds.has(payload.fromPartnerId) || !partnerIds.has(payload.toPartnerId)) {
     throw Object.assign(new Error("Both partners must already exist in the Capital ledger."), { statusCode: 400 });
   }
   const currentTransfers = context.transfers.filter((transfer) => transfer.id !== excludingTransferId);
-  const currentEquity = calculateInvestmentEquity(context.partnerTotals, currentTransfers);
-  const totalCommitted = context.partnerTotals.reduce((sum, partner) => sum + partner.committedAmount, 0);
-  const pricePerPercent = totalCommitted / 100;
-  const percentage = payload.inputMode === "AMOUNT"
+  const createdAt = context.transfers.find((transfer) => transfer.id === excludingTransferId)?.createdAt ?? new Date();
+  const transferDate = new Date(payload.transferDate);
+  const atTransfer = calculateInvestmentPositions(context.partners, currentTransfers, { strict: true, before: { date: transferDate, createdAt } });
+  const sellerEquity = atTransfer.positions.get(payload.fromPartnerId)?.equityPercent ?? 0;
+  const pricePerPercent = atTransfer.equityBasis / 100;
+  const percentage = Number((payload.inputMode === "AMOUNT"
     ? (pricePerPercent > 0 ? payload.value / pricePerPercent : 0)
-    : payload.value;
-  if (!Number.isFinite(percentage) || percentage <= 0) {
-    throw Object.assign(new Error("A positive percentage or amount is required, and committed investment must exist for amount mode."), { statusCode: 400 });
+    : payload.value).toFixed(4));
+  if (!Number.isFinite(percentage) || percentage <= 0 || pricePerPercent <= 0) {
+    throw Object.assign(new Error("A positive, representable share and equity-bearing commitment must exist at the transfer date."), { statusCode: 400 });
   }
-  const sellerEquity = currentEquity.get(payload.fromPartnerId) ?? 0;
-  const buyerEquity = currentEquity.get(payload.toPartnerId) ?? 0;
-  if (percentage > sellerEquity + 0.0001) {
-    throw Object.assign(new Error(`Transfer cannot exceed the seller's current equity of ${sellerEquity.toFixed(2)}%.`), { statusCode: 400 });
+  if (percentage > sellerEquity + 0.00005) {
+    throw Object.assign(new Error(`Transfer cannot exceed the seller's equity of ${sellerEquity.toFixed(4)}% at the selected date.`), { statusCode: 400 });
   }
-  if (buyerEquity + percentage > 100.0001) {
-    throw Object.assign(new Error("Transfer would give the buyer more than 100% ownership."), { statusCode: 400 });
-  }
-  return {
-    percentage: Number(percentage.toFixed(4)),
-    referenceAmount: Number((payload.inputMode === "AMOUNT" ? payload.value : percentage * pricePerPercent).toFixed(2)),
-    transferDate: new Date(payload.transferDate),
-    note: payload.note?.trim() || undefined,
-    fromPartnerId: payload.fromPartnerId,
-    toPartnerId: payload.toPartnerId
-  };
+  const fullExit = percentage === Number(sellerEquity.toFixed(4));
+  const referenceAmount = roundMoney(fullExit ? sellerEquity * pricePerPercent : payload.inputMode === "AMOUNT" ? payload.value : percentage * pricePerPercent);
+  if (referenceAmount <= 0) throw Object.assign(new Error("Transfer amount must be at least Rs 0.01."), { statusCode: 400 });
+  const values = { percentage, referenceAmount, transferDate, note: payload.note?.trim() || undefined, fromPartnerId: payload.fromPartnerId, toPartnerId: payload.toPartnerId };
+  // Validate later sales too: editing/backdating a transfer must not oversell another holder.
+  calculateInvestmentPositions(context.partners, [...currentTransfers, { ...values, id: excludingTransferId ?? "pending", createdAt }], { strict: true });
+  return values;
 }
 
 router.post("/investments/transfers", async (req, res, next) => {
   try {
     const payload = shareTransferSchema.parse(req.body);
-    const values = await resolveShareTransferValues(payload);
-    const transfer = await prisma.shareTransfer.create({ data: { ...values, createdById: req.user!.id } });
+    const { values, transfer } = await prisma.$transaction(async (tx) => {
+      const values = await resolveShareTransferValues(payload, undefined, tx);
+      const transfer = await tx.shareTransfer.create({ data: { ...values, createdById: req.user!.id } });
+      return { values, transfer };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await writeAuditLog({ actorId: req.user!.id, action: "investment.share_transfer_create", entityType: "share_transfer", entityId: transfer.id, payload: values });
     return res.status(201).json({ transfer });
   } catch (error) {
@@ -5319,8 +5320,11 @@ router.patch("/investments/transfers/:id", async (req, res, next) => {
     const payload = shareTransferSchema.parse(req.body);
     const existing = await prisma.shareTransfer.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ message: "Share transfer not found." });
-    const values = await resolveShareTransferValues(payload, existing.id);
-    const transfer = await prisma.shareTransfer.update({ where: { id: existing.id }, data: values });
+    const { values, transfer } = await prisma.$transaction(async (tx) => {
+      const values = await resolveShareTransferValues(payload, existing.id, tx);
+      const transfer = await tx.shareTransfer.update({ where: { id: existing.id }, data: values });
+      return { values, transfer };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await writeAuditLog({ actorId: req.user!.id, action: "investment.share_transfer_update", entityType: "share_transfer", entityId: transfer.id, payload: values });
     return res.json({ transfer });
   } catch (error) {
@@ -5330,7 +5334,11 @@ router.patch("/investments/transfers/:id", async (req, res, next) => {
 
 router.delete("/investments/transfers/:id", async (req, res, next) => {
   try {
-    await prisma.shareTransfer.delete({ where: { id: req.params.id } });
+    await prisma.$transaction(async (tx) => {
+      const context = await getTransferContext(tx);
+      calculateInvestmentPositions(context.partners, context.transfers.filter((transfer) => transfer.id !== req.params.id), { strict: true });
+      await tx.shareTransfer.delete({ where: { id: req.params.id } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     await writeAuditLog({ actorId: req.user!.id, action: "investment.share_transfer_delete", entityType: "share_transfer", entityId: req.params.id, payload: { mode: "deleted" } });
     return res.json({ deleted: true });
   } catch (error) {
@@ -5378,7 +5386,11 @@ router.patch("/investments/partners/:id", async (req, res, next) => {
 
 router.delete("/investments/partners/:id", async (req, res, next) => {
   try {
-    await prisma.investmentPartner.delete({ where: { id: req.params.id } });
+    await mutateInvestmentLedger(async (tx) => {
+      const transfers = await tx.shareTransfer.count({ where: { OR: [{ fromPartnerId: req.params.id }, { toPartnerId: req.params.id }] } });
+      if (transfers) throw Object.assign(new Error("This partner has share transfers. Keep the inactive partner and original history, or correct the transfers before deleting the partner."), { statusCode: 400 });
+      return tx.investmentPartner.delete({ where: { id: req.params.id } });
+    });
     await writeAuditLog({ actorId: req.user!.id, action: "investment.partner_delete", entityType: "investment_partner", entityId: req.params.id, payload: { mode: "deleted" } });
     return res.json({ deleted: true });
   } catch (error) {
@@ -5393,7 +5405,7 @@ router.delete("/investments/partners/:id", async (req, res, next) => {
 router.post("/investments/commitments", async (req, res, next) => {
   try {
     const payload = investmentCommitmentSchema.parse(req.body);
-    const commitment = await prisma.investmentCommitment.create({
+    const commitment = await mutateInvestmentLedger((tx) => tx.investmentCommitment.create({
       data: {
         partnerId: payload.partnerId,
         amount: payload.amount,
@@ -5401,7 +5413,7 @@ router.post("/investments/commitments", async (req, res, next) => {
         note: payload.note?.trim() || undefined,
         createdById: req.user!.id
       }
-    });
+    }));
     await writeAuditLog({ actorId: req.user!.id, action: "investment.commitment_create", entityType: "investment_commitment", entityId: commitment.id, payload });
     return res.status(201).json({ commitment });
   } catch (error) {
@@ -5425,14 +5437,23 @@ router.patch("/investments/commitments/:id", async (req, res, next) => {
         return res.status(400).json({ message: "Commitment amount cannot be less than payments already recorded." });
       }
     }
-    const commitment = await prisma.investmentCommitment.update({
-      where: { id: req.params.id },
-      data: {
-        ...(payload.partnerId ? { partnerId: payload.partnerId } : {}),
-        ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
-        ...(payload.commitmentDate ? { commitmentDate: new Date(payload.commitmentDate) } : {}),
-        ...(payload.note !== undefined ? { note: payload.note.trim() || null } : {})
+    const commitment = await mutateInvestmentLedger(async (tx) => {
+      const existing = await tx.investmentCommitment.findUnique({ where: { id: req.params.id } });
+      if (!existing) throw Object.assign(new Error("Investment commitment not found."), { statusCode: 404 });
+      if ((payload.partnerId && payload.partnerId !== existing.partnerId) ||
+        (payload.amount !== undefined && payload.amount !== parseDecimal(existing.amount)) ||
+        (payload.commitmentDate && new Date(payload.commitmentDate).getTime() !== existing.commitmentDate.getTime())) {
+        await assertCommitmentOwnershipEditable(tx, existing.id);
       }
+      return tx.investmentCommitment.update({
+        where: { id: req.params.id },
+        data: {
+          ...(payload.partnerId ? { partnerId: payload.partnerId } : {}),
+          ...(typeof payload.amount === "number" ? { amount: payload.amount } : {}),
+          ...(payload.commitmentDate ? { commitmentDate: new Date(payload.commitmentDate) } : {}),
+          ...(payload.note !== undefined ? { note: payload.note.trim() || null } : {})
+        }
+      });
     });
     await writeAuditLog({ actorId: req.user!.id, action: "investment.commitment_update", entityType: "investment_commitment", entityId: commitment.id, payload });
     return res.json({ commitment });
@@ -5443,7 +5464,10 @@ router.patch("/investments/commitments/:id", async (req, res, next) => {
 
 router.delete("/investments/commitments/:id", async (req, res, next) => {
   try {
-    await prisma.investmentCommitment.delete({ where: { id: req.params.id } });
+    await mutateInvestmentLedger(async (tx) => {
+      await assertCommitmentOwnershipEditable(tx, req.params.id);
+      return tx.investmentCommitment.delete({ where: { id: req.params.id } });
+    });
     await writeAuditLog({ actorId: req.user!.id, action: "investment.commitment_delete", entityType: "investment_commitment", entityId: req.params.id, payload: { mode: "deleted" } });
     return res.json({ deleted: true });
   } catch (error) {
@@ -5464,7 +5488,7 @@ router.post("/investments/payments", async (req, res, next) => {
     if (payload.amount > unpaidAmount) {
       return res.status(400).json({ message: `Payment cannot exceed unpaid commitment balance of Rs ${unpaidAmount}.` });
     }
-    const payment = await prisma.investmentPayment.create({
+    const payment = await mutateInvestmentLedger((tx) => tx.investmentPayment.create({
       data: {
         commitmentId: payload.commitmentId,
         branchId: payload.branchId,
@@ -5474,7 +5498,7 @@ router.post("/investments/payments", async (req, res, next) => {
         note: payload.note?.trim() || undefined,
         createdById: req.user!.id
       }
-    });
+    }));
     await writeAuditLog({ actorId: req.user!.id, action: "investment.payment_create", entityType: "investment_payment", entityId: payment.id, payload });
     return res.status(201).json({ payment });
   } catch (error) {
@@ -5499,7 +5523,7 @@ router.patch("/investments/payments/:id", async (req, res, next) => {
     if (amount > unpaidAmount) {
       return res.status(400).json({ message: `Payment cannot exceed unpaid commitment balance of Rs ${unpaidAmount}.` });
     }
-    const payment = await prisma.investmentPayment.update({
+    const payment = await mutateInvestmentLedger((tx) => tx.investmentPayment.update({
       where: { id: existing.id },
       data: {
         ...(payload.commitmentId ? { commitmentId: payload.commitmentId } : {}),
@@ -5509,7 +5533,7 @@ router.patch("/investments/payments/:id", async (req, res, next) => {
         ...(payload.paymentDate ? { paymentDate: new Date(payload.paymentDate) } : {}),
         ...(payload.note !== undefined ? { note: payload.note.trim() || null } : {})
       }
-    });
+    }));
     await writeAuditLog({ actorId: req.user!.id, action: "investment.payment_update", entityType: "investment_payment", entityId: payment.id, payload });
     return res.json({ payment });
   } catch (error) {
@@ -5519,7 +5543,7 @@ router.patch("/investments/payments/:id", async (req, res, next) => {
 
 router.delete("/investments/payments/:id", async (req, res, next) => {
   try {
-    await prisma.investmentPayment.delete({ where: { id: req.params.id } });
+    await mutateInvestmentLedger((tx) => tx.investmentPayment.delete({ where: { id: req.params.id } }));
     await writeAuditLog({ actorId: req.user!.id, action: "investment.payment_delete", entityType: "investment_payment", entityId: req.params.id, payload: { mode: "deleted" } });
     return res.json({ deleted: true });
   } catch (error) {

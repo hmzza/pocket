@@ -180,8 +180,8 @@ export function AdminShell({ title, description, children, superAdminContent }: 
           </div>
           {session ? <BranchSwitcher user={session.user} /> : null}
         </div>
-        {session?.user.role === "SUPER_ADMIN" ? superAdminContent : null}
         {children}
+        {session?.user.role === "SUPER_ADMIN" ? superAdminContent : null}
       </div>
     </div>
   );

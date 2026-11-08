@@ -104,6 +104,32 @@ POS permissions.
   removed without changing historical expense records.
 - Packaging is retained for compatibility but excluded from current stock
   deduction and recipe costing.
+- Capital partner cards show **current holdings**: share transfers move the
+  corresponding proportional committed, paid and unpaid capital to the recipient.
+  The original commitment/payment records, their dates, branch/source cash flows
+  and audit history stay attached to their original entries. Payment selectors
+  identify the current holders; a payment on a shared original commitment is
+  allocated proportionately across those holders.
+- Equity is derived by replaying commitments, payments and transfers in effective
+  date/creation order. Transfers use their recorded contribution reference amount,
+  fixing the capital basis acquired at that time; later funding dilutes current
+  holders instead of reapplying old percentages to a new denominator. Full exits
+  remain exactly zero. Initial/active commitment-based equity is preserved; after
+  a full exit, a fresh commitment only becomes equity-bearing once funded, or
+  equity can return through an incoming transfer. Unfunded re-entry commitments
+  remain visible but are excluded from equity and the 1% reference price. Active
+  partner counts exclude zero-equity partners.
+  A newly entered commitment is recognised for ownership after already-recorded
+  share transfers even if its entered date is earlier, so backdating new capital
+  cannot undo a full exit. Original ledger dates and cash-flow dates remain intact.
+- Commitment owner, amount and date cannot be changed or deleted after that
+  commitment has transferred holdings; notes and original history remain available.
+  New capital requires a new commitment. Partners with share transfers must be
+  retained rather than cascade-deleting their history. Transfer creates/edits/deletes
+  and commitment/payment changes validate the resulting ledger in a serializable
+  transaction. Invalid backdated/dependent transfers are rejected; pre-existing
+  inconsistent transfers are flagged in the current-holdings view without showing
+  negative ownership. Monetary allocations reconcile to the paisa across partners.
 - Deployments run migrations and builds only. Production catalog data is not
   reseeded or overwritten during deployment.
 - Business Health remains available by route but is currently hidden from the
@@ -217,6 +243,7 @@ npm run prisma:migrate
 npm run validate:permissions
 npm run test:investor-report --workspace @pocket/api
 npm run test:profit-loss-report --workspace @pocket/api
+npm run test:investment-positions --workspace @pocket/api
 ```
 
 The permission validation command checks protected admin API routes against the

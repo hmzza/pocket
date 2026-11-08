@@ -549,6 +549,8 @@ export type AdminInvestmentPayment = {
 export type AdminInvestmentCommitment = {
   id: string;
   partnerId: string;
+  currentHolders: Array<{ partnerId: string; partnerName: string; amount: number; paidAmount: number; unpaidAmount: number }>;
+  ownershipLocked: boolean;
   amount: number;
   paidAmount: number;
   unpaidAmount: number;
@@ -568,6 +570,8 @@ export type AdminInvestmentPartner = {
   committedAmount: number;
   paidAmount: number;
   unpaidAmount: number;
+  pendingCommittedAmount: number;
+  isActive: boolean;
   baseEquityPercent: number;
   equityPercent: number;
   commitments: AdminInvestmentCommitment[];
@@ -595,11 +599,14 @@ export type AdminInvestmentData = {
     totalPaid: number;
     totalUnpaid: number;
     partnerCount: number;
+    totalPartnerCount: number;
+    pendingCommitted: number;
     impliedCompanyValue: number;
     pricePerPercent: number;
   };
   partners: AdminInvestmentPartner[];
   transfers: AdminShareTransfer[];
+  positionIssues: string[];
 };
 
 export type AdminSavingsMovement = {
