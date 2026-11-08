@@ -124,7 +124,7 @@ export function InvestmentManagement() {
     return (data?.partners ?? []).flatMap((partner) =>
       partner.commitments.map((commitment) => ({
         ...commitment,
-        partnerName: partner.name
+        partnerName: commitment.currentHolders?.filter((holder) => holder.amount > 0).map((holder) => holder.partnerName).join(" / ") || partner.name
       }))
     );
   }, [data]);
@@ -133,6 +133,7 @@ export function InvestmentManagement() {
     if (!paymentForm.id) return commitments.filter((commitment) => commitment.unpaidAmount > 0);
     return commitments.filter((commitment) => commitment.unpaidAmount > 0 || commitment.id === paymentForm.commitmentId);
   }, [commitments, paymentForm.commitmentId, paymentForm.id]);
+  const commitmentOwnershipLocked = commitments.find((commitment) => commitment.id === commitmentForm.id)?.ownershipLocked ?? false;
 
   const transferPricePerPercent = data?.summary.pricePerPercent ?? 0;
   const transferPreviewPercent = transferForm.inputMode === "AMOUNT"
@@ -241,7 +242,7 @@ export function InvestmentManagement() {
     setSaving(true);
     setError("");
     try {
-      const payload = {
+      const payload = commitmentOwnershipLocked ? { note: commitmentForm.note.trim() || "" } : {
         partnerId: commitmentForm.partnerId,
         amount: numberValue(commitmentForm.amount),
         commitmentDate: new Date(`${commitmentForm.commitmentDate}T12:00:00+05:00`).toISOString(),
@@ -380,16 +381,17 @@ export function InvestmentManagement() {
   return (
     <div className="space-y-6">
       {error ? <pre className="whitespace-pre-wrap rounded-lg border border-red-200 bg-red-50 p-3 font-sans text-sm font-semibold text-red-700">{error}</pre> : null}
+      {data?.positionIssues?.length ? <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{data.positionIssues.map((issue, index) => <p key={index}>{issue}</p>)}</div> : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Committed" value={formatCurrency(data?.summary.totalCommitted ?? 0)} description="Equity is based on this total." />
+        <SummaryCard label="Committed" value={formatCurrency(data?.summary.totalCommitted ?? 0)} description="Current holdings, including pending re-entry commitments." />
         <SummaryCard label="Paid" value={formatCurrency(data?.summary.totalPaid ?? 0)} description="Cash actually received." tone="positive" />
         <SummaryCard label="Unpaid" value={formatCurrency(data?.summary.totalUnpaid ?? 0)} description="Committed but not yet paid." tone="warning" />
-        <SummaryCard label="Partners" value={String(data?.summary.partnerCount ?? 0)} description="No partner data is seeded." />
+        <SummaryCard label="Active partners" value={String(data?.summary.partnerCount ?? 0)} description={`${data?.summary.totalPartnerCount ?? 0} registered; partners at 0% are inactive.`} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <SummaryCard label="Implied company value" value={formatCurrency(data?.summary.impliedCompanyValue ?? 0)} description="Paid plus unpaid committed investment." />
+        <SummaryCard label="Equity reference value" value={formatCurrency(data?.summary.impliedCompanyValue ?? 0)} description="Equity-bearing commitments; excludes unfunded re-entry amounts." />
         <SummaryCard label="Price of 1% share" value={formatCurrency(data?.summary.pricePerPercent ?? 0)} description="Contribution-based reference price." tone="positive" />
       </div>
 
@@ -410,12 +412,13 @@ export function InvestmentManagement() {
           <Card className="p-5">
             <CollapsibleHeader title={commitmentForm.id ? "Edit Commitment" : "Add Commitment"} open={expandedForms.commitment} onToggle={() => toggleForm("commitment")} />
             {expandedForms.commitment ? <div className="mt-4 space-y-3">
-              <select value={commitmentForm.partnerId} onChange={(event) => setCommitmentForm((current) => ({ ...current, partnerId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
+              <select disabled={commitmentOwnershipLocked} value={commitmentForm.partnerId} onChange={(event) => setCommitmentForm((current) => ({ ...current, partnerId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
                 <option value="">Select partner</option>
                 {(data?.partners ?? []).map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}
               </select>
-              <Input type="number" min="0" step="0.01" value={commitmentForm.amount} onChange={(event) => setCommitmentForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Committed amount" />
-              <Input type="date" value={commitmentForm.commitmentDate} onChange={(event) => setCommitmentForm((current) => ({ ...current, commitmentDate: event.target.value }))} />
+              <Input disabled={commitmentOwnershipLocked} type="number" min="0" step="0.01" value={commitmentForm.amount} onChange={(event) => setCommitmentForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Committed amount" />
+              <Input disabled={commitmentOwnershipLocked} type="date" value={commitmentForm.commitmentDate} onChange={(event) => setCommitmentForm((current) => ({ ...current, commitmentDate: event.target.value }))} />
+              {commitmentOwnershipLocked ? <p className="text-xs text-pocket-navy/60">This record has transferred holdings. Add a fresh commitment for new capital; its original owner, amount and date are preserved.</p> : null}
               <Textarea value={commitmentForm.note} onChange={(event) => setCommitmentForm((current) => ({ ...current, note: event.target.value }))} placeholder="Optional note" />
               <div className="flex flex-wrap gap-2"><Button onClick={() => void saveCommitment()} disabled={saving}>{saving ? "Saving..." : commitmentForm.id ? "Save Commitment" : "Add Commitment"}</Button>{commitmentForm.id ? <Button variant="outline" onClick={() => startCommitmentCreate(commitmentForm.partnerId)}>Cancel</Button> : null}</div>
             </div> : null}
@@ -430,6 +433,7 @@ export function InvestmentManagement() {
                 <option value="">Select commitment</option>
                 {paymentCommitments.map((commitment) => <option key={commitment.id} value={commitment.id}>{commitment.partnerName} - unpaid {formatCurrency(commitment.unpaidAmount)}</option>)}
               </select>
+              <p className="text-xs text-pocket-navy/60">Commitments are labelled by their current holders. Payments against a shared commitment are allocated proportionately.</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input type="number" min="0" step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))} placeholder="Payment amount" />
                 <select value={paymentForm.receivedSource} onChange={(event) => setPaymentForm((current) => ({ ...current, receivedSource: event.target.value as MoneySource }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
@@ -450,7 +454,7 @@ export function InvestmentManagement() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <select value={transferForm.fromPartnerId} onChange={(event) => setTransferForm((current) => ({ ...current, fromPartnerId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
                   <option value="">From partner</option>
-                  {(data?.partners ?? []).map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}
+                  {(data?.partners ?? []).filter((partner) => partner.isActive || (transferForm.id && partner.id === transferForm.fromPartnerId)).map((partner) => <option key={partner.id} value={partner.id}>{partner.name}</option>)}
                 </select>
                 <select value={transferForm.toPartnerId} onChange={(event) => setTransferForm((current) => ({ ...current, toPartnerId: event.target.value }))} className="flex h-11 w-full rounded-md border border-pocket-navy/15 bg-white px-3 text-sm">
                   <option value="">To partner</option>
@@ -485,43 +489,47 @@ export function InvestmentManagement() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-lg font-black text-pocket-navy">{partner.name}</p>
-                    <span className="rounded-full bg-pocket-cream px-2.5 py-1 text-xs font-bold text-pocket-navy">{partner.equityPercent}% equity</span>
+                    <span className="rounded-full bg-pocket-cream px-2.5 py-1 text-xs font-bold text-pocket-navy">{partner.equityPercent > 0 && partner.equityPercent < 0.0001 ? "<0.0001" : partner.equityPercent.toLocaleString("en-PK", { maximumFractionDigits: 4 })}% equity</span>
+                    {!partner.isActive ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">Inactive</span> : null}
                   </div>
                   {partner.note ? <p className="mt-2 text-sm text-pocket-navy/70">{partner.note}</p> : null}
+                  {partner.pendingCommittedAmount > 0 ? <p className="mt-2 text-sm text-amber-700">{formatCurrency(partner.pendingCommittedAmount)} pending re-entry commitment; equity starts after a payment is recorded.</p> : null}
                   <div className="mt-3 h-2 rounded-full bg-pocket-cream"><div className="h-2 rounded-full bg-pocket-orange" style={{ width: `${partner.committedAmount > 0 ? Math.min(100, (partner.paidAmount / partner.committedAmount) * 100) : 0}%` }} /></div>
                 </div>
-                <div className="grid min-w-[320px] gap-3 sm:grid-cols-3">
-                  <Metric label="Committed" value={formatCurrency(partner.committedAmount)} />
-                  <Metric label="Paid" value={formatCurrency(partner.paidAmount)} tone="positive" />
-                  <Metric label="Unpaid" value={formatCurrency(partner.unpaidAmount)} tone="warning" />
+                <div className="grid min-w-0 gap-3 sm:grid-cols-3 lg:min-w-[320px]">
+                  <Metric label="Current committed" value={formatCurrency(partner.committedAmount)} />
+                  <Metric label="Current paid" value={formatCurrency(partner.paidAmount)} tone="positive" />
+                  <Metric label="Current unpaid" value={formatCurrency(partner.unpaidAmount)} tone="warning" />
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button size="sm" onClick={() => startCommitmentCreate(partner.id)}>Add Commitment</Button>
-                <Button size="sm" variant="outline" onClick={() => startTransferCreate(partner.id)}>Transfer Shares</Button>
+                <Button size="sm" variant="outline" onClick={() => startTransferCreate(partner.id)} disabled={!partner.isActive}>Transfer Shares</Button>
                 <Button size="sm" variant="outline" onClick={() => startPartnerEdit(partner)}><Pencil className="h-4 w-4" />Edit</Button>
                 {(partner.commitments.length || (data?.transfers ?? []).some((transfer) => transfer.fromPartnerId === partner.id || transfer.toPartnerId === partner.id)) ? (
                   <Button size="sm" variant="outline" onClick={() => togglePartnerHistory(partner.id)}>
                     {expandedPartnerIds.has(partner.id) ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    {expandedPartnerIds.has(partner.id) ? "Hide history" : "View history"}
+                    {expandedPartnerIds.has(partner.id) ? "Hide original history" : "View original history"}
                   </Button>
                 ) : null}
-                <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void removePartner(partner)} disabled={deletingId === partner.id}><Trash2 className="h-4 w-4" />Delete</Button>
+                <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void removePartner(partner)} disabled={deletingId === partner.id || (data?.transfers ?? []).some((transfer) => transfer.fromPartnerId === partner.id || transfer.toPartnerId === partner.id)} title="Partners with transfers are retained with their original history."><Trash2 className="h-4 w-4" />Delete</Button>
               </div>
               {partner.commitments.length && expandedPartnerIds.has(partner.id) ? (
                 <div className="mt-4 space-y-3">
+                  <p className="text-xs text-pocket-navy/60">Original commitment and payment records stay here. The figures above reflect current ownership.</p>
                   {partner.commitments.map((commitment) => (
                     <div key={commitment.id} className="rounded-lg border border-pocket-navy/10 p-3">
                       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                         <div>
                           <p className="font-bold text-pocket-navy">{formatCurrency(commitment.amount)} committed on {new Date(commitment.commitmentDate).toLocaleDateString("en-PK")}</p>
                           <p className="text-sm text-pocket-navy/60">Paid {formatCurrency(commitment.paidAmount)} - Unpaid {formatCurrency(commitment.unpaidAmount)}</p>
+                          <p className="mt-1 text-xs text-pocket-navy/60">Current holders: {(commitment.currentHolders ?? []).map((holder) => `${holder.partnerName} (${formatCurrency(holder.amount)} committed, ${formatCurrency(holder.paidAmount)} paid)`).join("; ") || "None"}</p>
                           {commitment.note ? <p className="mt-1 text-sm text-pocket-navy/60">{commitment.note}</p> : null}
                         </div>
                         <div className="flex flex-wrap gap-2">
                           {commitment.unpaidAmount > 0 ? <Button size="sm" onClick={() => startPaymentCreate(commitment)}>Record Payment</Button> : null}
                           <Button size="sm" variant="outline" onClick={() => startCommitmentEdit(commitment)}><Pencil className="h-4 w-4" />Edit</Button>
-                          <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void removeCommitment(commitment)} disabled={deletingId === commitment.id}><Trash2 className="h-4 w-4" />Delete</Button>
+                          <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => void removeCommitment(commitment)} disabled={deletingId === commitment.id || commitment.ownershipLocked}><Trash2 className="h-4 w-4" />Delete</Button>
                         </div>
                       </div>
                       {commitment.payments.length ? (
