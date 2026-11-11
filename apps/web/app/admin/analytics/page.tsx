@@ -26,7 +26,7 @@ const periodOptions: Array<{ value: AdminRangePreset; label: string }> = [
 const segmentOptions: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All sources" },
   { value: "inshop", label: "Inshop" },
-  { value: "foodpanda", label: "Foodpanda" }
+  { value: "foodpanda", label: "Foodpanda" }, { value: "golootlo", label: "Golootlo" }
 ];
 
 export default function BusinessAnalyticsPage() {

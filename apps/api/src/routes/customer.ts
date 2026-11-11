@@ -10,6 +10,9 @@ import { applyOrderInventory } from "../lib/inventory.js";
 import { DELIVERY_CITY, findActiveDeliverySector, getDeliveryConfigSnapshot, isDeliverySubsector } from "../lib/delivery-config.js";
 import { publishDeliveryOrderEvent } from "../lib/delivery-events.js";
 
+import { assertProductServiceType } from "../lib/golootlo.js";
+import { publicProductWhere } from "../lib/public-catalog.js";
+
 const router = Router();
 
 router.use(authenticate);
@@ -81,6 +84,7 @@ router.get("/cart", async (req, res) => {
     include: {
       branch: true,
       items: {
+        where: { product: { requiredServiceType: null } },
         include: {
           product: {
             include: {
@@ -109,6 +113,8 @@ router.post("/cart/items", async (req, res, next) => {
       .parse(req.body);
 
     const branch = await prisma.branch.findUniqueOrThrow({ where: { slug: payload.branchSlug } });
+    const product = await prisma.product.findFirst({ where: { id: payload.productId, ...publicProductWhere(branch.id) }, select: { id: true } });
+    if (!product) return res.status(400).json({ message: "This item is not available for public ordering." });
     const cart = await prisma.shoppingCart.upsert({
       where: { userId: req.user!.id },
       update: { branchId: branch.id },
@@ -144,6 +150,7 @@ router.patch("/cart/items/:itemId", async (req, res, next) => {
     const existing = await prisma.cartItem.findFirst({
       where: {
         id: req.params.itemId,
+        product: { requiredServiceType: null },
         cart: {
           is: {
             userId: req.user!.id
@@ -189,7 +196,7 @@ router.delete("/cart/items/:itemId", async (req, res) => {
 
 router.get("/favorites", async (req, res) => {
   const favorites = await prisma.favorite.findMany({
-    where: { userId: req.user!.id },
+    where: { userId: req.user!.id, product: { requiredServiceType: null } },
     include: {
       product: {
         include: {
@@ -204,6 +211,8 @@ router.get("/favorites", async (req, res) => {
 });
 
 router.post("/favorites/:productId", async (req, res) => {
+  const product = await prisma.product.findFirst({ where: { id: req.params.productId, requiredServiceType: null, isActive: true }, select: { id: true } });
+  if (!product) return res.status(404).json({ message: "Product not found." });
   const favorite = await prisma.favorite.upsert({
     where: {
       userId_productId: {
@@ -301,7 +310,8 @@ router.post("/checkout", async (req, res, next) => {
                   include: {
                     options: {
                       where: { isActive: true },
-                      orderBy: { sortOrder: "asc" }
+                      orderBy: { sortOrder: "asc" },
+                      include: { linkedProduct: { select: { name: true, requiredServiceType: true } } }
                     }
                   }
                 }
@@ -317,6 +327,7 @@ router.post("/checkout", async (req, res, next) => {
     }
 
     const normalizedItems = cart.items.map((item) => {
+      assertProductServiceType(item.product, "ONLINE");
       const selectedAddOnIds = [...new Set(item.selectedAddOnIds)];
       const addOns = item.product.addOnGroups.flatMap((group) => {
         const selectedOptions = group.options.filter((option) => selectedAddOnIds.includes(option.id));
@@ -324,6 +335,7 @@ router.post("/checkout", async (req, res, next) => {
           throw Object.assign(new Error(`${item.product.name}: ${group.name} requires ${group.minSelect} to ${group.maxSelect} selections.`), { statusCode: 400 });
         }
 
+        for (const option of selectedOptions) if (option.linkedProduct) assertProductServiceType(option.linkedProduct, "ONLINE");
         return selectedOptions.map((option) => ({
           optionId: option.id,
           optionName: option.name,

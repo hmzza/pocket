@@ -22,6 +22,7 @@ import { loadInvestorReport } from "../lib/investor-report-data.js";
 import { renderInvestorReport } from "../lib/investor-report-pdf.js";
 import { loadProfitLossReport } from "../lib/profit-loss-report-data.js";
 import { renderProfitLossReport } from "../lib/profit-loss-report-pdf.js";
+import { golootloReceivableWhere, syncGolootloOptions } from "../lib/golootlo.js";
 import { calculateInvestmentPositions } from "../lib/investment-positions.js";
 import {
   getDeliveryConfigSnapshot,
@@ -58,7 +59,7 @@ const dashboardQueryBaseSchema = z.object({
   start: z.string().datetime().optional(),
   end: z.string().datetime().optional(),
   monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional(),
-  segment: z.enum(["all", "inshop", "foodpanda", "delivery"]).default("all")
+  segment: z.enum(["all", "inshop", "foodpanda", "golootlo", "delivery"]).default("all")
 });
 
 const dashboardQuerySchema = dashboardQueryBaseSchema.superRefine((value, context) => {
@@ -1113,7 +1114,9 @@ async function recalculateIngredientAverageCost(branchInventoryId: string) {
   return averageCost;
 }
 
-function buildAdminSegmentWhere(segment: "all" | "inshop" | "dine_in" | "takeaway" | "foodpanda" | "delivery"): Prisma.OrderWhereInput {
+function buildAdminSegmentWhere(segment: "all" | "inshop" | "dine_in" | "takeaway" | "foodpanda" | "golootlo" | "delivery"): Prisma.OrderWhereInput {
+  if (segment === "golootlo") return { serviceType: ServiceType.GOLOOTLO };
+
   if (segment === "foodpanda") {
     return { serviceType: ServiceType.FOODPANDA };
   }
@@ -1149,6 +1152,8 @@ function getServiceBreakdown(value: ServiceType | string) {
   if (value === ServiceType.DINE_IN) {
     return { key: "DINE_IN", label: "Dine-in" };
   }
+
+  if (value === ServiceType.GOLOOTLO) return { key: "GOLOOTLO", label: "Golootlo" };
 
   if (value === ServiceType.FOODPANDA) {
     return { key: "FOODPANDA", label: "Foodpanda" };
@@ -1928,6 +1933,7 @@ router.get("/analytics/sales", async (req, res, next) => {
 
 router.get("/products", async (req, res, next) => {
   try {
+    await syncGolootloOptions(prisma);
     const branchContext = await resolveBranchContext(req);
     const includeBase = {
       category: true,
@@ -2506,6 +2512,7 @@ router.patch("/products/:id", async (req, res, next) => {
       select: {
         slug: true,
         nutritionInfo: true,
+        requiredServiceType: true,
         category: { select: { slug: true } },
         bundleComponents: {
           select: { componentProductId: true, quantity: true, componentProduct: { select: { id: true, slug: true } } }
@@ -2514,6 +2521,9 @@ router.patch("/products/:id", async (req, res, next) => {
     });
     if (!currentProduct) {
       throw Object.assign(new Error("Product not found."), { statusCode: 404 });
+    }
+    if (currentProduct.requiredServiceType === "GOLOOTLO" && ((slug && normalizeSlug(slug) !== currentProduct.slug) || normalizedBundleComponents?.length)) {
+      throw Object.assign(new Error("Golootlo deal identity and bundle slots are fixed. Edit the name, price or availability instead."), { statusCode: 400 });
     }
     const nextCategorySlug = payload.categoryId
       ? (await prisma.category.findUnique({ where: { id: payload.categoryId }, select: { slug: true } }))?.slug
@@ -2674,11 +2684,13 @@ router.put("/products/:id/deal-configuration", async (req, res, next) => {
       select: {
         id: true,
         name: true,
+        requiredServiceType: true,
         category: { select: { slug: true } },
         addOnGroups: { include: { options: true } }
       }
     });
     if (!product) throw Object.assign(new Error("Product not found."), { statusCode: 404 });
+    if (product.requiredServiceType === "GOLOOTLO") throw Object.assign(new Error("Golootlo deal choices are generated from active menu flavours and cannot be edited manually."), { statusCode: 400 });
     if (product.category.slug !== "deals" && payload.groups.length) {
       throw Object.assign(new Error("Selectable deal choices can only be added to products in the Deals category."), { statusCode: 400 });
     }
@@ -2700,7 +2712,7 @@ router.put("/products/:id/deal-configuration", async (req, res, next) => {
       throw Object.assign(new Error("A deal cannot contain itself as a selectable item."), { statusCode: 400 });
     }
     const linkedProducts = linkedProductIds.length
-      ? await prisma.product.findMany({ where: { id: { in: linkedProductIds }, isActive: true }, select: { id: true } })
+      ? await prisma.product.findMany({ where: { id: { in: linkedProductIds }, isActive: true, requiredServiceType: null }, select: { id: true } })
       : [];
     if (linkedProducts.length !== linkedProductIds.length) {
       throw Object.assign(new Error("One or more selected deal products are unavailable."), { statusCode: 400 });
@@ -3876,7 +3888,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     prisma.openingBalance.findFirst({ where: { branchId, balanceDate: { lte: start } }, orderBy: { balanceDate: "desc" } })
   ]);
 
-  const [orders, foodpandaOrders, expenses, transfers, additions, loanCashflow, investmentCashflow, savingsCashflow, currentClosing, recentClosings] = await Promise.all([
+  const [orders, foodpandaOrders, expenses, transfers, additions, loanCashflow, investmentCashflow, savingsCashflow, currentClosing, recentClosings, golootloTotal] = await Promise.all([
     prisma.order.findMany({
       where: {
         branchId,
@@ -3936,7 +3948,8 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
       orderBy: { closingDate: "desc" },
       take: 8,
       include: { closedBy: true }
-    })
+    }),
+    prisma.order.aggregate({ where: golootloReceivableWhere(branchId, start, end), _sum: { totalAmount: true } })
   ]);
 
   const openingSource = openingBalance && (!previousClosing || openingBalance.balanceDate > previousClosing.closingDate) ? openingBalance : null;
@@ -4001,6 +4014,7 @@ async function buildClosingSnapshot(branchId: string, closingDate: Date) {
     opening,
     sales,
     foodpandaSales,
+    golootloReceivables: parseDecimal(golootloTotal._sum.totalAmount),
     expenses: expenseTotals,
     transferIn,
     transferOut,
@@ -4083,11 +4097,12 @@ router.get("/finance/cash-position", async (req, res, next) => {
     const branchContext = await resolveBranchContext(req);
     const todayStart = startOfDay(new Date());
     const todayEnd = endOfDay(new Date());
-    const [pendingSettlements, receivedToday, fixedExpenses, loans] = await Promise.all([
+    const [pendingSettlements, receivedToday, fixedExpenses, loans, golootloTotal] = await Promise.all([
       prisma.foodpandaSettlement.findMany({ where: { status: { not: "RECEIVED" } }, select: { expectedNet: true } }),
       prisma.foodpandaSettlement.findMany({ where: { status: "RECEIVED", receivedAt: { gte: todayStart, lte: todayEnd } }, select: { amountReceived: true, receivedSource: true } }),
       prisma.fixedExpense.findMany({ where: { branchId: branchContext.branchId, isActive: true }, select: { monthlyAmount: true } }),
-      prisma.loan.findMany({ where: { branchId: branchContext.branchId }, select: { amount: true, repayments: { select: { amount: true } } } })
+      prisma.loan.findMany({ where: { branchId: branchContext.branchId }, select: { amount: true, repayments: { select: { amount: true } } } }),
+      prisma.order.aggregate({ where: golootloReceivableWhere(branchContext.branchId), _sum: { totalAmount: true } })
     ]);
     const snapshots = [await buildClosingSnapshot(branchContext.branchId, new Date())];
     const available = emptyMoneyTotals();
@@ -4104,11 +4119,13 @@ router.get("/finance/cash-position", async (req, res, next) => {
     const fixedObligations = roundMoney(fixedExpenses.reduce((sum, expense) => sum + parseDecimal(expense.monthlyAmount), 0));
     const loanObligations = roundMoney(loans.reduce((sum, loan) => sum + parseDecimal(loan.amount) - loan.repayments.reduce((repaymentSum, repayment) => repaymentSum + parseDecimal(repayment.amount), 0), 0));
     const totalUpcoming = roundMoney(fixedObligations + loanObligations);
-    const projectedAfterPayments = roundMoney(totalAvailable + pendingFoodpanda - totalUpcoming);
+    const pendingGolootlo = parseDecimal(golootloTotal._sum.totalAmount);
+    const totalReceivables = roundMoney(pendingFoodpanda + pendingGolootlo);
+    const projectedAfterPayments = roundMoney(totalAvailable + totalReceivables - totalUpcoming);
     const health = projectedAfterPayments < 0 ? "risk" : projectedAfterPayments < totalUpcoming * 0.25 ? "watch" : "healthy";
     return res.json({
       available: { ...available, total: totalAvailable },
-      pendingReceivables: { foodpanda: pendingFoodpanda, other: 0, total: pendingFoodpanda },
+      pendingReceivables: { foodpanda: pendingFoodpanda, golootlo: pendingGolootlo, other: 0, total: totalReceivables },
       upcomingObligations: { fixedExpenses: fixedObligations, loanInstallments: loanObligations, supplierPayables: 0, total: totalUpcoming },
       projectedAfterPayments,
       health
@@ -6214,8 +6231,8 @@ router.get("/order-audit", async (req, res, next) => {
       preset: z.enum(["today", "yesterday", "tomorrow", "7d", "30d", "month", "year", "custom"]).default("today"),
       start: z.string().datetime().optional(),
       end: z.string().datetime().optional(),
-      segment: z.enum(["all", "inshop", "dine_in", "takeaway", "foodpanda", "delivery"]).default("all"),
-      payment: z.enum(["CASH", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT"]).optional(),
+      segment: z.enum(["all", "inshop", "dine_in", "takeaway", "foodpanda", "golootlo", "delivery"]).default("all"),
+      payment: z.enum(["CASH", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT", "GOLOOTLO"]).optional(),
       scope: z.enum(["all", "active", "deleted"]).default("all")
     }).superRefine((value, context) => {
       if (value.preset === "custom" && (!value.start || !value.end)) {
@@ -6286,7 +6303,9 @@ router.get("/order-audit", async (req, res, next) => {
         if (query.status && order.status !== query.status) return false;
         if (query.payment && order.paymentMethod !== query.payment) return false;
         if (query.segment !== "all") {
-          const matchesSegment = query.segment === "foodpanda"
+          const matchesSegment = query.segment === "golootlo"
+            ? order.serviceType === ServiceType.GOLOOTLO
+            : query.segment === "foodpanda"
             ? order.serviceType === ServiceType.FOODPANDA
             : query.segment === "delivery"
               ? order.serviceType === ServiceType.DELIVERY
@@ -6365,7 +6384,7 @@ router.get("/orders", async (req, res, next) => {
         preset: z.enum(["today", "7d", "30d", "month", "year", "custom"]).default("today"),
         start: z.string().datetime().optional(),
         end: z.string().datetime().optional(),
-        segment: z.enum(["all", "inshop", "foodpanda", "delivery"]).default("all")
+        segment: z.enum(["all", "inshop", "foodpanda", "golootlo", "delivery"]).default("all")
       })
       .superRefine((value, context) => {
         if (value.preset === "custom" && (!value.start || !value.end)) {

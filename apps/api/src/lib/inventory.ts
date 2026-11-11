@@ -372,7 +372,8 @@ export function computeInventoryChanges({
         continue;
       }
 
-      addProductRecipeUsage(component.productId, component.quantity * item.quantity);
+      // Order bundle quantities already include the parent line quantity.
+      addProductRecipeUsage(component.productId, component.quantity);
     }
 
     for (const addOn of item.addOns ?? []) {

@@ -45,7 +45,7 @@ database.
 
 ### POS
 
-- Counter checkout for dine-in, takeaway, delivery, Foodpanda, Nascon Stall, and online pickup orders
+- Counter checkout for dine-in, takeaway, delivery, Foodpanda, Golootlo, Nascon Stall, and online pickup orders
 - Active order queue, watch-later flow, order history, editing, deletion, receipts,
   payment status, and payment-method capture
 - Delivery rider assignment and WhatsApp dispatch
@@ -53,6 +53,12 @@ database.
 - Nascon Stall can be enabled from Promotions; its POS orders are tagged and shown with red queue cards
 - Realtime incoming delivery and pickup notifications with browser sound controls
 - Branch-specific catalog, pricing, availability, and product ordering
+- Golootlo Deals offers two shawarmas for Rs 550, three wraps for Rs 1,700, or
+  one wrap and one chiller for Rs 1,000. Every item has an independent required
+  flavour choice, including free items. Regular menu items can share the cart.
+- Cashiers explicitly select Golootlo for its exclusive deals. Golootlo orders
+  accept Cash, Easypaisa, JazzCash or Golootlo; Foodpanda keeps its payout-only
+  payment and required external order number. Golootlo uses normal Pocket tickets.
 
 ### Admin portal
 
@@ -86,6 +92,19 @@ POS permissions.
   switch branches; other users are restricted to assigned branches.
 - Product catalog prices and availability are branch-specific through
   `BranchProduct`.
+- Nullable `Product.requiredServiceType` restricts the three Golootlo deals to
+  POS Golootlo orders. Name/category edits preserve this restriction. Public
+  catalogs, product details, cart/favorites and both checkout paths exclude or
+  reject restricted products. Golootlo choice slots are fixed; active flavour
+  products and branch availability supply their options at no surcharge.
+- Golootlo payments are derived gross receivables from paid, non-cancelled
+  order totals, labelled "Golootlo receivables - payouts not tracked" in finance
+  and daily closing. They never enter the three wallets. Golootlo orders paid
+  through Cash/Easypaisa/JazzCash enter those wallets normally. Order edits,
+  refunds, cancellations and deletions change the derived receivables. There
+  is no external redemption integration, payout recording or assumed Golootlo
+  commission. Reports show Golootlo as a separate channel and count bundle
+  revenue only once. Bundle stock quantities include paid and free items.
 - Products are managed with a single-image editor. Slugs and legacy merchandising
   fields remain backend-compatible but are not required in the active form.
 - Product order controls use `BranchProduct.sortOrder`; manual moves can cross
@@ -279,6 +298,14 @@ control.
 6. Reloads the PM2 process and performs a health check.
 
 It does not run `prisma:seed`.
+
+The workflow waits for a successful backend deployment before releasing frontend
+changes when both apps change. Golootlo deploys enum additions in
+`20261108120000_golootlo_enums` before the additive catalog/metadata migration
+`20261108121000_golootlo_deals`. Existing catalog values and branch prices are
+not overwritten. Do not run the production seed to add these deals. Validate
+with `npm run test:golootlo --workspace @pocket/api`, the existing API regression
+suites, and `npm run build` before deployment.
 
 Database migrations are additive unless explicitly reviewed otherwise. A failed
 deployment can roll back application code, but an already-applied database

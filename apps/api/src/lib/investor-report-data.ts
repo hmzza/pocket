@@ -9,7 +9,7 @@ export const cents = (value: Money) => Math.round(Number(value.toString()) * 100
 export const rupees = (value: number) => value / 100;
 
 export type ReportOrder = {
-  branchId: string; placedAt: Date; status: string; paymentStatus: string; serviceType: string;
+  branchId: string; placedAt: Date; status: string; paymentStatus: string; serviceType: string; paymentMethod?: string;
   customerId: string | null; customerPhone: string | null; customer: { phone: string | null } | null;
   totalAmount: Money; subtotal: Money; discountAmount: Money; taxAmount: Money; deliveryFee: Money;
   items: Array<{ productName: string; quantity: number; unitPrice: Money }>;
@@ -59,7 +59,7 @@ export function createReportAccumulator(now: Date) {
   const summary = {
     allOrders: 0, excludedOrders: 0, excludedValue: 0, openOrders: 0, openValue: 0,
     orders: 0, sales: 0, paidSales: 0, unverifiedSales: 0, identifiedOrders: 0,
-    tax: 0, delivery: 0, discounts: 0, subtotal: 0, foodpanda: 0, fulfilledOrders: 0,
+    tax: 0, delivery: 0, discounts: 0, subtotal: 0, foodpanda: 0, golootloReceivables: 0, fulfilledOrders: 0,
     firstOrder: null as Date | null, lastOrder: null as Date | null, reconciliationExceptions: 0
   };
   function addOrder(order: ReportOrder) {
@@ -91,6 +91,7 @@ export function createReportAccumulator(now: Date) {
     summary.discounts += discount;
     summary.subtotal += cents(order.subtotal);
     summary.fulfilledOrders += order.status === "DELIVERED" ? 1 : 0;
+    if (order.paymentStatus === "PAID" && order.paymentMethod === "GOLOOTLO") summary.golootloReceivables += total;
     if (order.paymentStatus === "PAID") summary.paidSales += total;
     else summary.unverifiedSales += total;
     if (Math.abs(cents(order.subtotal) - discount + tax + delivery - total) > 1) summary.reconciliationExceptions++;
@@ -138,7 +139,7 @@ export function createReportAccumulator(now: Date) {
 }
 
 const orderSelect = {
-  id: true, branchId: true, placedAt: true, status: true, paymentStatus: true, serviceType: true,
+  id: true, branchId: true, placedAt: true, status: true, paymentStatus: true, serviceType: true, paymentMethod: true,
   customerId: true, customerPhone: true, customer: { select: { phone: true } }, totalAmount: true,
   subtotal: true, discountAmount: true, taxAmount: true, deliveryFee: true,
   items: { select: { productName: true, quantity: true, unitPrice: true } }

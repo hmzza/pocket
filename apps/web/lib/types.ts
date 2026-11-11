@@ -125,7 +125,7 @@ export type TrackedOrder = {
 };
 
 export type AdminRangePreset = "today" | "yesterday" | "tomorrow" | "7d" | "30d" | "month" | "year" | "custom";
-export type AdminOrderSegment = "all" | "inshop" | "dine_in" | "takeaway" | "foodpanda" | "delivery";
+export type AdminOrderSegment = "all" | "inshop" | "dine_in" | "takeaway" | "foodpanda" | "golootlo" | "delivery";
 
 export type DashboardData = {
   range: {
@@ -682,6 +682,7 @@ export type AdminDailyClosingData = {
   } | null;
   sales: Record<MoneySource, number>;
   foodpandaSales: number;
+  golootloReceivables: number;
   expenses: Record<MoneySource, number>;
   transferIn: Record<MoneySource, number>;
   transferOut: Record<MoneySource, number>;
@@ -791,7 +792,7 @@ export type AdminFoodpandaSettlementData = {
 
 export type AdminCashPositionData = {
   available: Record<MoneySource, number> & { total: number };
-  pendingReceivables: { foodpanda: number; other: number; total: number };
+  pendingReceivables: { foodpanda: number; golootlo: number; other: number; total: number };
   upcomingObligations: { fixedExpenses: number; loanInstallments: number; supplierPayables: number; total: number };
   projectedAfterPayments: number;
   health: "healthy" | "watch" | "risk";
@@ -924,6 +925,7 @@ export type AdminCustomer = {
 };
 
 export type AdminProduct = {
+  requiredServiceType: string | null;
   id: string;
   sortOrder: number;
   categoryId: string;
@@ -1034,6 +1036,8 @@ export type AdminOrderAuditEvent = {
 };
 
 export type PosCatalogProduct = {
+  requiredServiceType: string | null;
+  unavailableReason: string | null;
   id: string;
   name: string;
   categoryId: string;
@@ -1201,6 +1205,7 @@ export type PosEditableOrder = {
     orderInstructions?: string | null;
   } | null;
   items: Array<{
+    requiredServiceType?: string | null;
     id: string;
     productId: string | null;
     productName: string;

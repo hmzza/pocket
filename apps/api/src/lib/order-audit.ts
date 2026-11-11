@@ -174,7 +174,7 @@ function formatServiceType(value: unknown) {
     DINE_IN: "Dine-in",
     TAKEAWAY: "Takeaway",
     DELIVERY: "Delivery",
-    FOODPANDA: "Foodpanda",
+    FOODPANDA: "Foodpanda", GOLOOTLO: "Golootlo",
     NASCON: "Nascon"
   };
   return labels[String(value)] ?? String(value ?? "None").replaceAll("_", " ");
@@ -186,7 +186,7 @@ function formatPaymentMethod(value: unknown) {
     EASYPAISA: "Easypaisa",
     JAZZCASH: "JazzCash",
     CASH_ON_DELIVERY: "Cash on Delivery",
-    FOODPANDA_PAYOUT: "Foodpanda payout"
+    GOLOOTLO: "Golootlo", FOODPANDA_PAYOUT: "Foodpanda payout"
   };
   return labels[String(value)] ?? String(value ?? "None").replaceAll("_", " ");
 }

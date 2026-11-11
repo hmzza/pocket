@@ -341,6 +341,7 @@ export function DailyClosingManagement() {
         </Card>
       ) : null}
 
+      {data ? <Card className="border-blue-200 p-4"><p className="text-sm font-bold text-pocket-navy">Golootlo receivables &mdash; payouts not tracked</p><p className="mt-1 text-lg font-black text-pocket-navy">{formatCurrency(data.golootloReceivables ?? 0)}</p><p className="text-xs text-pocket-navy/60">Paid Golootlo-mode orders for this business day. Excluded from Cash, Easypaisa and JazzCash balances.</p></Card> : null}
       {loading || !data ? <Card className="p-6 text-sm text-pocket-navy/60">Loading daily closing...</Card> : (
         <>
           <Card className="p-5">

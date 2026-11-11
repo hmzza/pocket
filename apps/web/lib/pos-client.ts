@@ -12,6 +12,7 @@ const POS_CATEGORY_PRIORITY = new Map([
   ["fries", 3],
   ["slider", 4],
   ["deals", 5],
+  ["golootlo-deals", 5.5],
   ["make-it-a-meal", 6],
   ["chillers", 7],
   ["ice-cream-shakes", 8],
@@ -133,6 +134,8 @@ export async function fetchPosCatalog(params?: { branchId?: string; categoryId?:
     })),
     products: products.map(
       (product): PosCatalogProduct => ({
+        requiredServiceType: product.requiredServiceType ?? null,
+        unavailableReason: product.unavailableReason ?? null,
         id: product.id,
         name: product.name,
         categoryId: product.categoryId,

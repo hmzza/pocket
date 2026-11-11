@@ -60,12 +60,12 @@ const ITEM_TYPE_LABELS: Record<(typeof ITEM_TYPES)[number], string> = {
   RETAIL: "Retail Item"
 };
 const WASTAGE_REASONS = ["expired", "spilled", "over-prepped", "damaged", "staff meal", "wrong order", "other"] as const;
-const SERVICE_TYPES = ["DEFAULT", "INSHOP", "TAKEAWAY", "FOODPANDA"] as const;
+const SERVICE_TYPES = ["DEFAULT", "INSHOP", "TAKEAWAY", "FOODPANDA", "GOLOOTLO"] as const;
 const SERVICE_TYPE_LABELS: Record<(typeof SERVICE_TYPES)[number], string> = {
   DEFAULT: "Any service",
   INSHOP: "Dine-in",
   TAKEAWAY: "Takeaway",
-  FOODPANDA: "Foodpanda"
+  FOODPANDA: "Foodpanda", GOLOOTLO: "Golootlo"
 };
 const TABS: Array<{ id: InventoryTab; label: string; icon: typeof ClipboardList }> = [
   { id: "stock", label: "Stock", icon: ClipboardList },

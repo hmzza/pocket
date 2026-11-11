@@ -42,8 +42,8 @@ const DEAL_GROUPS: Record<string, DealGroupDefinition[]> = {
   ]
 };
 
-export function isDealProduct(product: { category?: { slug?: string | null } | null }) {
-  return product.category?.slug === DEAL_CATEGORY_SLUG;
+export function isDealProduct(product: { requiredServiceType?: string | null; category?: { slug?: string | null } | null }) {
+  return product.category?.slug === DEAL_CATEGORY_SLUG || product.requiredServiceType === "GOLOOTLO";
 }
 
 export async function getAvailableDealChoiceProductIds(client: DealOptionClient, branchId: string) {
@@ -51,7 +51,7 @@ export async function getAvailableDealChoiceProductIds(client: DealOptionClient,
     where: {
       branchId,
       isAvailable: true,
-      product: { isActive: true, category: { isActive: true } }
+      product: { isActive: true, requiredServiceType: null, category: { isActive: true } }
     },
     select: { productId: true }
   });
@@ -60,6 +60,7 @@ export async function getAvailableDealChoiceProductIds(client: DealOptionClient,
 }
 
 export function filterDealProductOptions<T extends {
+  requiredServiceType?: string | null;
   category?: { slug?: string | null } | null;
   addOnGroups?: Array<{
     options: Array<{ linkedProductId?: string | null }>;

@@ -14,7 +14,7 @@ import { formatAddOnNames, formatBundleSummary, formatItemDetailLines, hasDealSe
 const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "all", label: "All" },
   { value: "inshop", label: "Dine-in / Takeaway" },
-  { value: "foodpanda", label: "Foodpanda Orders" },
+  { value: "foodpanda", label: "Foodpanda Orders" }, { value: "golootlo", label: "Golootlo Orders" },
   { value: "delivery", label: "Delivery Orders" }
 ];
 
@@ -27,14 +27,15 @@ const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "custom", label: "Custom" }
 ];
 
-type PaymentFilter = "all" | "cash" | "easypaisa" | "jazzcash" | "foodpanda";
+type PaymentFilter = "all" | "cash" | "easypaisa" | "jazzcash" | "foodpanda" | "golootlo";
 
 const paymentFilters: Array<{ value: PaymentFilter; label: string; method?: string }> = [
   { value: "all", label: "All Payments" },
   { value: "cash", label: "Cash", method: "CASH" },
   { value: "easypaisa", label: "Easypaisa", method: "EASYPAISA" },
   { value: "jazzcash", label: "JazzCash", method: "JAZZCASH" },
-  { value: "foodpanda", label: "Foodpanda Payout", method: "FOODPANDA_PAYOUT" }
+  { value: "foodpanda", label: "Foodpanda Payout", method: "FOODPANDA_PAYOUT" },
+  { value: "golootlo", label: "Golootlo", method: "GOLOOTLO" }
 ];
 
 const orderGridColumns = "grid grid-cols-[minmax(0,1.25fr)_minmax(0,1.1fr)_minmax(0,0.95fr)_minmax(0,0.5fr)_minmax(0,0.8fr)_minmax(0,0.7fr)] gap-4";
@@ -47,6 +48,7 @@ function formatServiceType(value: string) {
   if (["INSHOP", "DINE_IN"].includes(value)) return "Dine-in";
   if (value === "TAKEAWAY") return "Takeaway";
   if (value === "FOODPANDA") return "Foodpanda";
+  if (value === "GOLOOTLO") return "Golootlo";
   if (value === "NASCON") return "Nascon";
   if (value === "DELIVERY") return "Delivery";
   return value.replaceAll("_", " ");
@@ -60,7 +62,7 @@ function formatPaymentMethod(value: string) {
     ONLINE: "Online",
     JAZZCASH: "JazzCash",
     EASYPAISA: "Easypaisa",
-    FOODPANDA_PAYOUT: "Foodpanda payout"
+    GOLOOTLO: "Golootlo", FOODPANDA_PAYOUT: "Foodpanda payout"
   };
 
   return map[value] ?? value.replaceAll("_", " ");
@@ -210,9 +212,10 @@ export function OrderManagement() {
         if (order.paymentMethod === "EASYPAISA") counts.easypaisa += 1;
         if (order.paymentMethod === "JAZZCASH") counts.jazzcash += 1;
         if (order.paymentMethod === "FOODPANDA_PAYOUT") counts.foodpanda += 1;
+        if (order.paymentMethod === "GOLOOTLO") counts.golootlo += 1;
         return counts;
       },
-      { all: 0, cash: 0, easypaisa: 0, jazzcash: 0, foodpanda: 0 }
+      { all: 0, cash: 0, easypaisa: 0, jazzcash: 0, foodpanda: 0, golootlo: 0 }
     );
   }, [orders]);
 

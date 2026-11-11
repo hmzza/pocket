@@ -7,7 +7,7 @@ const money = (value: number) => `PKR ${rupees(value).toLocaleString("en-PK", { 
 const number = (value: number) => value.toLocaleString("en-PK", { maximumFractionDigits: 0 });
 const percent = (part: number, total: number) => total ? `${(part / total * 100).toFixed(1)}%` : "N/A";
 const change = (current: number, previous: number) => previous > 0 ? `${current >= previous ? "+" : ""}${((current / previous - 1) * 100).toFixed(1)}%` : "N/A";
-const serviceNames: Record<string, string> = { DELIVERY: "Direct delivery", TAKEAWAY: "Takeaway / pickup", DINE_IN: "Dine-in", INSHOP: "Inshop", FOODPANDA: "Foodpanda", NASCON: "Nascon stall" };
+const serviceNames: Record<string, string> = { DELIVERY: "Direct delivery", TAKEAWAY: "Takeaway / pickup", DINE_IN: "Dine-in", INSHOP: "Inshop", FOODPANDA: "Foodpanda", GOLOOTLO: "Golootlo", NASCON: "Nascon stall" };
 const clean = (value: string) => value.replace(/[\r\n\t]/g, " ").replace(/[\u0000-\u001f]/g, "").replace(/[\u2010-\u2015]/g, "-");
 
 /** Build in memory: no public file, persisted report, browser, or production write is needed. */
@@ -162,6 +162,7 @@ export async function renderInvestorReport(data: InvestorReportData): Promise<Bu
   startPage("Routes to the customer", "Channel mix and branch footprint for paid or fulfilled orders.");
   bars(data.services.map((service) => ({ label: serviceNames[service.label] ?? service.label, value: service.sales })));
   table(["Channel", "Orders", "Sales", "Share"], data.services.map((service) => [serviceNames[service.label] ?? service.label, number(service.orders), money(service.sales), percent(service.sales, s.sales)]), [0.34, 0.15, 0.33, 0.18]);
+  note("Golootlo receivables - payouts not tracked", `${money(s.golootloReceivables)} from paid Golootlo-payment orders in the reporting period. This amount is already included in sales and excluded from the Cash, Easypaisa and JazzCash wallets. Golootlo orders paid through those wallets remain ordinary wallet receipts. No Golootlo commission or settlement receipts are assumed; this is not a reconciled outstanding balance.`);
   heading("Whole-business branch coverage");
   table(["Branch / city", "Orders", "Sales", "Share"], data.branchDirectory.map((branch) => {
     const bucket = data.branches.find((entry) => entry.label === branch.id);

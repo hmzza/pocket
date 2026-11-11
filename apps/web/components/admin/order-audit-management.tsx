@@ -14,7 +14,7 @@ const segments: Array<{ value: AdminOrderSegment; label: string }> = [
   { value: "dine_in", label: "Dine-in" },
   { value: "takeaway", label: "Takeaway" },
   { value: "delivery", label: "Delivery" },
-  { value: "foodpanda", label: "Foodpanda" }
+  { value: "foodpanda", label: "Foodpanda" }, { value: "golootlo", label: "Golootlo" }
 ];
 
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
@@ -31,13 +31,14 @@ const paymentOptions = [
   ["CASH", "Cash"],
   ["EASYPAISA", "Easypaisa"],
   ["JAZZCASH", "JazzCash"],
-  ["FOODPANDA_PAYOUT", "Foodpanda payout"]
+  ["FOODPANDA_PAYOUT", "Foodpanda payout"], ["GOLOOTLO", "Golootlo"]
 ] as const;
 
 function formatService(value: string) {
   if (["INSHOP", "DINE_IN"].includes(value)) return "Dine-in";
   if (value === "TAKEAWAY") return "Takeaway";
   if (value === "FOODPANDA") return "Foodpanda";
+  if (value === "GOLOOTLO") return "Golootlo";
   if (value === "DELIVERY") return "Delivery";
   return value.replaceAll("_", " ");
 }
@@ -48,7 +49,7 @@ function formatPayment(value: string) {
     EASYPAISA: "Easypaisa",
     JAZZCASH: "JazzCash",
     CASH_ON_DELIVERY: "Cash on Delivery",
-    FOODPANDA_PAYOUT: "Foodpanda payout"
+    GOLOOTLO: "Golootlo", FOODPANDA_PAYOUT: "Foodpanda payout"
   }[value] ?? value.replaceAll("_", " ");
 }
 
