@@ -17,7 +17,7 @@ import { cn, formatCompactCurrency, formatCompactNumber, getCurrentBusinessDateK
 const presets: Array<{ value: AdminRangePreset; label: string }> = [
   { value: "today", label: "Today" }, { value: "7d", label: "7 Days" }, { value: "30d", label: "30 Days" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }, { value: "custom", label: "Custom" }
 ];
-const segments: Array<{ value: AdminOrderSegment; label: string }> = [{ value: "all", label: "All" }, { value: "inshop", label: "Inshop" }, { value: "foodpanda", label: "Foodpanda" }, { value: "delivery", label: "Delivery" }];
+const segments: Array<{ value: AdminOrderSegment; label: string }> = [{ value: "all", label: "All" }, { value: "inshop", label: "Inshop" }, { value: "foodpanda", label: "Foodpanda" }, { value: "golootlo", label: "Golootlo" }, { value: "delivery", label: "Delivery" }];
 
 function KPI({ label, value, helper, accent = false }: { label: string; value: string; helper: string; accent?: boolean }) {
   return <Card className={cn("min-w-0 p-4", accent && "border-pocket-orange/30 bg-pocket-orange/5")}><p className="text-xs font-semibold uppercase tracking-[0.2em] text-pocket-orange">{label}</p><p className="mt-2 min-w-0 truncate text-xl font-black text-pocket-navy">{value}</p><p className="mt-1 text-xs text-pocket-navy/60">{helper}</p></Card>;
@@ -67,7 +67,8 @@ export default function AdminPage() {
 
   const foodpandaRevenue = useMemo(() => dashboard?.breakdowns.serviceTypes.find((entry) => entry.label.toLowerCase() === "foodpanda")?.revenue ?? 0, [dashboard]);
   const deliveryRevenue = useMemo(() => dashboard?.breakdowns.serviceTypes.find((entry) => entry.label.toLowerCase() === "delivery")?.revenue ?? 0, [dashboard]);
-  const directRevenue = Math.max(0, (dashboard?.summary.revenue ?? 0) - foodpandaRevenue);
+  const golootloRevenue = dashboard?.breakdowns.serviceTypes.find((entry) => entry.label.toLowerCase() === "golootlo")?.revenue ?? 0;
+  const directRevenue = Math.max(0, (dashboard?.summary.revenue ?? 0) - foodpandaRevenue - golootloRevenue);
   const revenueAfterFoodpandaCut = getRevenueAfterFoodpandaCut(dashboard?.summary.revenue ?? 0, foodpandaRevenue);
   const foodpandaCommission = foodpandaRevenue * FOODPANDA_COMMISSION_RATE;
   const operatingExpenses = expenses?.summary.totalAmount ?? 0;

@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit -p tsconfig.json",
     "test:investor-report": "tsx --test tests/investor-report.test.ts",
     "test:profit-loss-report": "tsx --test tests/profit-loss-report.test.ts",
+    "test:golootlo": "tsx --test tests/golootlo.test.ts",
     "test:investment-positions": "tsx --test tests/investment-positions.test.ts"
   },
   "dependencies": {

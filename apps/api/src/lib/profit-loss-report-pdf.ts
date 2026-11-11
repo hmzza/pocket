@@ -9,7 +9,7 @@ const amount = (value: number) => {
   return value < 0 ? `(${formatted})` : formatted;
 };
 const clean = (value: string) => value.replace(/[\u0000-\u001f]/g, " ").replace(/[\u2010-\u2015]/g, "-");
-const serviceNames: Record<string, string> = { DELIVERY: "Direct delivery", TAKEAWAY: "Takeaway / pickup", DINE_IN: "Dine-in", INSHOP: "Inshop", FOODPANDA: "Foodpanda", NASCON: "Nascon stall" };
+const serviceNames: Record<string, string> = { DELIVERY: "Direct delivery", TAKEAWAY: "Takeaway / pickup", DINE_IN: "Dine-in", INSHOP: "Inshop", FOODPANDA: "Foodpanda", GOLOOTLO: "Golootlo", NASCON: "Nascon stall" };
 type Row = { cells: string[]; kind?: "section" | "total" | "result" };
 
 export async function renderProfitLossReport(data: ProfitLossReport): Promise<Buffer> {
@@ -101,6 +101,7 @@ export async function renderProfitLossReport(data: ProfitLossReport): Promise<Bu
     : data.feeSource === "estimate"
       ? `No explicitly named Foodpanda fee entries were found. A provisional 38% of qualified Foodpanda gross order value (${amount(s.foodpanda)}) is added separately; replace this estimate through correctly labelled ledger entries when actual fees are available.`
       : "No qualifying Foodpanda orders or explicitly named Foodpanda fee entries were found; no marketplace estimate is added.");
+  paragraph(`Golootlo receivables - payouts not tracked: ${amount(s.golootloReceivables)} in this reporting period. These are recorded totals of paid Golootlo-payment orders, already included in sales above. Cash, Easypaisa and JazzCash payments remain in their own wallets. No Golootlo commission or settlement receipts are assumed.`);
   if (!s.orders && !data.costs.entries) paragraph("No qualifying sales or expense records were found for this month. Zero totals indicate the available records, not a verified statement that the business did not trade.");
 
   page("Expense detail");

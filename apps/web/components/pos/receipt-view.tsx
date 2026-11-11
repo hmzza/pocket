@@ -16,7 +16,7 @@ function formatPaymentMethod(value: string) {
     JAZZCASH: "JazzCash",
     EASYPAISA: "Easypaisa",
     PAY_AT_COUNTER: "Payment at branch",
-    FOODPANDA_PAYOUT: "Foodpanda payout"
+    GOLOOTLO: "Golootlo", FOODPANDA_PAYOUT: "Foodpanda payout"
   };
 
   return map[value] ?? value.replaceAll("_", " ");
@@ -25,7 +25,7 @@ function formatPaymentMethod(value: string) {
 function formatServiceType(value: string) {
   const map: Record<string, string> = {
     INSHOP: "Dine-in",
-    FOODPANDA: "Foodpanda",
+    FOODPANDA: "Foodpanda", GOLOOTLO: "Golootlo",
     TAKEAWAY: "Takeaway",
     DINE_IN: "Dine-in",
     DELIVERY: "Delivery",

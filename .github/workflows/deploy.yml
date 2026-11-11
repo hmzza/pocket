@@ -1,7 +1,7 @@
 name: Deploy
 
 # Auto-deploy on every push to main (after this workflow's checks).
-# Backend and frontend deploy independently based on which paths changed.
+# Backend migrations and deployment finish before a dependent frontend release.
 on:
   push:
     branches: [main]
@@ -73,8 +73,8 @@ jobs:
 
   deploy-frontend:
     name: Deploy frontend (pocketpakistan.com)
-    needs: changes
-    if: needs.changes.outputs.web == 'true'
+    needs: [changes, deploy-backend]
+    if: always() && needs.changes.result == 'success' && needs.changes.outputs.web == 'true' && (needs.deploy-backend.result == 'success' || needs.deploy-backend.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

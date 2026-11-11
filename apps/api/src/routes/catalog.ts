@@ -7,6 +7,7 @@ import { buildUniqueUsername } from "../lib/username.js";
 import { withGeneratedOrderNumber } from "../lib/order-number.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { applyOrderInventory } from "../lib/inventory.js";
+import { assertProductServiceType } from "../lib/golootlo.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { verifyReceiptToken } from "../lib/receipt-token.js";
 import { DELIVERY_CITY, findActiveDeliverySector, getDeliveryConfigSnapshot, isDeliverySubsector, isWithinScheduleAt } from "../lib/delivery-config.js";
@@ -349,13 +350,14 @@ router.get("/products/:slug", async (req, res) => {
     }
   });
 
-  if (!product || !product.isActive || !product.category.isActive || PUBLIC_HIDDEN_CATEGORY_SLUGS.includes(product.category.slug as any) || product.category.slug === MEAL_CATEGORY_SLUG || !product.branchPricing[0]?.isAvailable || (isBoxOfSixProduct(product) && product.id !== boxOfSix.canonicalProductId)) {
+  if (!product || product.requiredServiceType || !product.isActive || !product.category.isActive || PUBLIC_HIDDEN_CATEGORY_SLUGS.includes(product.category.slug as any) || product.category.slug === MEAL_CATEGORY_SLUG || !product.branchPricing[0]?.isAvailable || (isBoxOfSixProduct(product) && product.id !== boxOfSix.canonicalProductId)) {
     return res.status(404).json({ message: "Product not found." });
   }
 
   const related = await prisma.product.findMany({
       where: {
         categoryId: product.categoryId,
+        requiredServiceType: null,
         id: { not: product.id },
         isActive: true,
         category: { is: { isActive: true, slug: { notIn: [...PUBLIC_HIDDEN_CATEGORY_SLUGS, MEAL_CATEGORY_SLUG] } } },
@@ -707,6 +709,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
                     id: true,
                     name: true,
                     isActive: true,
+                    requiredServiceType: true,
                     branchPricing: {
                       select: { branchId: true, isAvailable: true }
                     }
@@ -720,7 +723,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
           orderBy: { sortOrder: "asc" },
           include: {
             componentProduct: {
-              select: { id: true, name: true, slug: true, isActive: true }
+              select: { id: true, name: true, slug: true, isActive: true, requiredServiceType: true }
             }
           }
         },
@@ -748,6 +751,8 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
       if (!product) {
         throw new Error("One or more items are unavailable.");
       }
+      assertProductServiceType(product, "ONLINE");
+      for (const component of product.bundleComponents) assertProductServiceType(component.componentProduct, "ONLINE");
       if (!product.branchPricing[0] || !product.branchPricing[0].isAvailable) {
         throw Object.assign(new Error(`${product.name} is unavailable from the selected branch.`), { statusCode: 400 });
       }
@@ -785,6 +790,7 @@ router.post("/checkout", publicCheckoutLimiter, checkoutIdempotency, async (req,
         }
 
         return selectedOptions.flatMap((option) => {
+          if (option.linkedProduct) assertProductServiceType(option.linkedProduct, "ONLINE");
           const optionQuantity = optionQuantities.get(option.id) ?? 1;
           if (optionQuantity <= 0) return [];
           if (isCanonicalMealProduct(product) && (!option.linkedProductId || !availableMealBeverageIds.has(option.linkedProductId) || !productMap.has(option.linkedProductId))) {

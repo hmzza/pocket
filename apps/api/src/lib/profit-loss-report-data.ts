@@ -5,7 +5,7 @@ import { prisma } from "./prisma.js";
 
 type Amount = number | string | { toString(): string };
 export type PnlOrder = {
-  status: string; paymentStatus: string; serviceType: string; subtotal: Amount;
+  status: string; paymentStatus: string; serviceType: string; paymentMethod?: string; subtotal: Amount;
   discountAmount: Amount; totalAmount: Amount; taxAmount: Amount; deliveryFee: Amount;
 };
 export type PnlExpense = {
@@ -33,7 +33,7 @@ function isFoodpandaFee(expense: PnlExpense) {
 export function createPnlAccumulator() {
   const sales = {
     allOrders: 0, orders: 0, excludedOrders: 0, openOrders: 0, openValue: 0,
-    subtotal: 0, discounts: 0, total: 0, tax: 0, delivery: 0, foodpanda: 0,
+    subtotal: 0, discounts: 0, total: 0, tax: 0, delivery: 0, foodpanda: 0, golootloReceivables: 0,
     paid: 0, fulfilledWithoutPayment: 0, paidAwaitingFulfilment: 0, arithmeticExceptions: 0
   };
   const costs = { total: 0, stock: 0, unpaidFixed: 0, ledgerMarketplace: 0, ledgerMarketplaceEntries: 0, entries: 0 };
@@ -50,6 +50,7 @@ export function createPnlAccumulator() {
     sales.orders++; sales.total += total; sales.tax += tax; sales.delivery += delivery;
     sales.subtotal += subtotal; sales.discounts += discount;
     if (order.serviceType === "FOODPANDA") sales.foodpanda += total;
+    if (order.paymentStatus === "PAID" && order.paymentMethod === "GOLOOTLO") sales.golootloReceivables += total;
     if (order.paymentStatus === "PAID") sales.paid += total;
     else sales.fulfilledWithoutPayment += total;
     if (order.paymentStatus === "PAID" && order.status !== "DELIVERED") sales.paidAwaitingFulfilment += total;
@@ -94,7 +95,7 @@ export function createPnlAccumulator() {
 }
 
 const orderSelect = {
-  id: true, status: true, paymentStatus: true, serviceType: true, subtotal: true,
+  id: true, status: true, paymentStatus: true, serviceType: true, paymentMethod: true, subtotal: true,
   discountAmount: true, totalAmount: true, taxAmount: true, deliveryFee: true
 } satisfies Prisma.OrderSelect;
 const expenseSelect = {

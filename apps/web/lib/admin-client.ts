@@ -120,6 +120,7 @@ export async function fetchAdminProducts() {
   }));
 
   const products: AdminProduct[] = productResponse.products.map((product) => ({
+    requiredServiceType: product.requiredServiceType ?? null,
     id: product.id,
     sortOrder: Number(product.branchPricing?.[0]?.sortOrder ?? product.sortOrder ?? 0),
     categoryId: product.categoryId,

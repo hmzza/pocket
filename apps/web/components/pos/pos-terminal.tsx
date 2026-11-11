@@ -18,6 +18,7 @@ import { formatAddOnNames, formatBundleSummary, formatItemDetailLines } from "@/
 import { BOX_OF_SIX_SIZE, isBoxOfSixGroup, isBoxOfSixProduct } from "@/lib/box-of-six";
 
 type TicketLine = {
+  requiredServiceType?: string | null;
   id: string;
   type: "product" | "manual";
   productId?: string;
@@ -34,8 +35,8 @@ type TicketLine = {
 
 type ProductSelection = { groupId: string; optionIds: string[]; optionQuantities?: Record<string, number> };
 
-type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT" | "CASH_ON_DELIVERY" | "PAY_AT_COUNTER";
-type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA" | "DELIVERY" | "NASCON";
+type PaymentOptionValue = "CASH" | "EASYPAISA" | "JAZZCASH" | "FOODPANDA_PAYOUT" | "GOLOOTLO" | "CASH_ON_DELIVERY" | "PAY_AT_COUNTER";
+type ServiceTypeValue = "INSHOP" | "TAKEAWAY" | "FOODPANDA" | "GOLOOTLO" | "DELIVERY" | "NASCON";
 type ServiceTypeSelection = ServiceTypeValue | "";
 
 const basePaymentOptions = [
@@ -45,11 +46,13 @@ const basePaymentOptions = [
 ] as const;
 
 const foodpandaPaymentOption = { value: "FOODPANDA_PAYOUT", label: "Foodpanda payout", logo: "/images/foodpanda-logo.png" } as const;
+const golootloPaymentOption = { value: "GOLOOTLO", label: "Golootlo", logo: "/images/golootlo-logo.png" } as const;
 
 const serviceTypes = [
   { value: "INSHOP", label: "Dine-in", logo: "/images/instore-logo.png" },
   { value: "TAKEAWAY", label: "Takeaway", icon: Car },
   { value: "FOODPANDA", label: "Foodpanda", logo: "/images/foodpanda-logo.png" },
+  { value: "GOLOOTLO", label: "Golootlo", logo: "/images/golootlo-logo.png" },
   { value: "DELIVERY", label: "Delivery", icon: Bike }
 ] as const;
 
@@ -160,7 +163,7 @@ function formatPaymentMethod(value: string) {
     ONLINE: "Online",
     JAZZCASH: "JazzCash",
     EASYPAISA: "Easypaisa",
-    FOODPANDA_PAYOUT: "Foodpanda payout"
+    GOLOOTLO: "Golootlo", FOODPANDA_PAYOUT: "Foodpanda payout"
   };
 
   return map[value] ?? value.replaceAll("_", " ");
@@ -169,13 +172,14 @@ function formatPaymentMethod(value: string) {
 function getPaymentOptions(serviceType: ServiceTypeSelection) {
   if (!serviceType) return [];
   if (serviceType === "FOODPANDA") return [foodpandaPaymentOption];
+  if (serviceType === "GOLOOTLO") return [...basePaymentOptions, golootloPaymentOption];
   return basePaymentOptions;
 }
 
 function formatServiceType(value: string) {
   const map: Record<string, string> = {
     INSHOP: "Dine-in",
-    FOODPANDA: "Foodpanda",
+    FOODPANDA: "Foodpanda", GOLOOTLO: "Golootlo",
     TAKEAWAY: "Takeaway",
     DINE_IN: "Dine-in",
     DELIVERY: "Delivery",
@@ -356,6 +360,7 @@ function mapEditableOrderToTicket(order: PosEditableOrder): TicketLine[] {
     id: crypto.randomUUID(),
     type: item.productId ? "product" : "manual",
     productId: item.productId ?? undefined,
+    requiredServiceType: item.requiredServiceType ?? null,
     name: item.productName,
     categoryName: item.categoryName,
     quantity: item.quantity,
@@ -556,7 +561,7 @@ export function PosTerminal() {
       return;
     }
 
-    if (paymentMethod === "FOODPANDA_PAYOUT" || paymentMethod === "CASH_ON_DELIVERY" || paymentMethod === "PAY_AT_COUNTER") {
+    if ((paymentMethod === "GOLOOTLO" && serviceType !== "GOLOOTLO") || paymentMethod === "FOODPANDA_PAYOUT" || paymentMethod === "CASH_ON_DELIVERY" || paymentMethod === "PAY_AT_COUNTER") {
       setPaymentMethod("");
     }
   }, [paymentMethod, serviceType]);
@@ -592,6 +597,10 @@ export function PosTerminal() {
   }, [customerName, customerPhone, ticketLocked]);
 
   function selectServiceType(nextServiceType: ServiceTypeValue) {
+    if (nextServiceType !== "GOLOOTLO" && ticket.some((line) => line.requiredServiceType === "GOLOOTLO" || products.find((product) => product.id === line.productId)?.requiredServiceType === "GOLOOTLO")) {
+      setError("Remove the Golootlo deals before changing to another order type.");
+      return;
+    }
     setServiceType(nextServiceType);
     if (nextServiceType === "DELIVERY") {
       setDeliveryDialogOpen(true);
@@ -602,6 +611,7 @@ export function PosTerminal() {
     if (ticketLocked) {
       return;
     }
+    if (product.unavailableReason) { setError(product.unavailableReason); return; }
 
     if (product.addOnGroups.length) {
       setProductDialog(product);
@@ -620,6 +630,7 @@ export function PosTerminal() {
         id: crypto.randomUUID(),
         type: "product",
         productId: product.id,
+        requiredServiceType: product.requiredServiceType,
         name: product.name,
         categoryName: product.categoryName,
         quantity: 1,
@@ -676,6 +687,7 @@ export function PosTerminal() {
         id: crypto.randomUUID(),
         type: "product",
         productId: productDialog.id,
+        requiredServiceType: productDialog.requiredServiceType,
         name: productDialog.name,
         categoryName: productDialog.categoryName,
         quantity: parsePositiveInteger(productQuantity),
@@ -687,7 +699,7 @@ export function PosTerminal() {
     );
     setProductDialog(null);
     setProductOptionQuantities({});
-    setError("");
+    setError(productDialog.requiredServiceType === "GOLOOTLO" && serviceType !== "GOLOOTLO" ? "Select the Golootlo order type to checkout these exclusive deals." : "");
   }
 
   function updateBoxOptionQuantity(optionId: string, delta: number) {
@@ -809,11 +821,16 @@ export function PosTerminal() {
     const submittedFoodpandaOrderNumber = foodpandaOrderNumber.trim();
 
     if (!serviceType) {
-      setError("Pick Dine-in, Takeaway, Foodpanda, Nascon, or Delivery before finishing the order.");
+      setError("Pick Dine-in, Takeaway, Foodpanda, Golootlo, Nascon, or Delivery before finishing the order.");
       setSubmitting(false);
       return;
     }
 
+    if (serviceType !== "GOLOOTLO" && ticket.some((line) => line.requiredServiceType === "GOLOOTLO" || products.find((product) => product.id === line.productId)?.requiredServiceType === "GOLOOTLO")) {
+      setError("Select the Golootlo order type to checkout these exclusive deals.");
+      setSubmitting(false);
+      return;
+    }
     if (!paymentMethod) {
       setError("Pick a payment mode before finishing the order.");
       setSubmitting(false);
@@ -1084,7 +1101,7 @@ export function PosTerminal() {
                     key={product.id}
                     type="button"
                     onClick={() => addProductToTicket(product)}
-                    disabled={ticketLocked}
+                    disabled={ticketLocked || Boolean(product.unavailableReason)}
                     className={
                       splitView
                         ? "relative rounded-2xl border border-white/10 bg-white/5 p-2 text-left transition hover:-translate-y-0.5 hover:border-amber-300/40 hover:bg-white/10"
@@ -1101,6 +1118,8 @@ export function PosTerminal() {
                     <p className={splitView ? "mt-1 break-words text-[0.78rem] font-semibold leading-tight text-amber-200" : "mt-1.5 break-words text-sm font-semibold leading-tight text-amber-200"}>{formatCompactCurrency(product.price)}</p>
                     {product.bundleComponents.length ? <p className={splitView ? "mt-1 text-[0.64rem] text-amber-100/80" : "mt-1 text-[0.72rem] text-amber-100/80"}>Bundle meal</p> : null}
                     {product.addOnGroups.length ? <p className={splitView ? "mt-1 text-[0.64rem] text-white/60" : "mt-1 text-[0.72rem] text-white/60"}>Customization required</p> : null}
+                    {product.requiredServiceType === "GOLOOTLO" ? <p className="mt-1 text-xs text-blue-200">Golootlo only</p> : null}
+                    {product.unavailableReason ? <p className="mt-1 text-xs text-red-200">{product.unavailableReason}</p> : null}
                   </button>
                 );
               })}

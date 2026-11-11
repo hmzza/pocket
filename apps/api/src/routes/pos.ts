@@ -10,6 +10,7 @@ import { env } from "../config.js";
 import { formatOrderForReceipt } from "../lib/pos-receipt.js";
 import { signReceiptToken } from "../lib/receipt-token.js";
 import { applyOrderInventory } from "../lib/inventory.js";
+import { assertProductServiceType, golootloUnavailableReason, syncGolootloOptions, validateGolootloPayment, validateGolootloSelections } from "../lib/golootlo.js";
 import {
   BEVERAGE_CATEGORY_SLUGS,
   MEAL_BASE_PRICE,
@@ -57,6 +58,7 @@ const posProductInclude = {
               id: true,
               name: true,
               isActive: true,
+              requiredServiceType: true,
               branchPricing: {
                 select: { branchId: true, isAvailable: true }
               }
@@ -74,7 +76,8 @@ const posProductInclude = {
           id: true,
           name: true,
           slug: true,
-          isActive: true
+          isActive: true,
+          requiredServiceType: true
         }
       }
     }
@@ -88,6 +91,7 @@ const POS_CATEGORY_PRIORITY = new Map([
   ["fries", 3],
   ["slider", 4],
   ["deals", 5],
+  ["golootlo-deals", 5.5],
   ["make-it-a-meal", 6],
   ["chillers", 7],
   ["ice-cream-shakes", 8],
@@ -144,11 +148,11 @@ const deliveryDetailsSchema = z.object({
   orderInstructions: z.string().max(240).optional()
 });
 
-const checkoutSchema = z
+export const checkoutSchema = z
   .object({
     branchId: z.string().cuid().optional(),
-    serviceType: z.enum(["INSHOP", "TAKEAWAY", "FOODPANDA", "DELIVERY", "NASCON"]),
-    paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT", "CASH_ON_DELIVERY"]),
+    serviceType: z.enum(["INSHOP", "TAKEAWAY", "FOODPANDA", "GOLOOTLO", "DELIVERY", "NASCON"]),
+    paymentMethod: z.enum(["CASH", "CARD", "EASYPAISA", "JAZZCASH", "FOODPANDA_PAYOUT", "GOLOOTLO", "CASH_ON_DELIVERY"]),
     customerName: z.string().max(80).optional(),
     customerPhone: z.string().max(20).optional(),
     foodpandaOrderNumber: z.string().max(40).optional(),
@@ -159,6 +163,8 @@ const checkoutSchema = z
     items: z.array(cartItemSchema).min(1)
   })
   .superRefine((value, ctx) => {
+    try { validateGolootloPayment(value.serviceType, value.paymentMethod); }
+    catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["paymentMethod"], message: (error as Error).message }); }
     if (value.serviceType === "FOODPANDA" && !value.foodpandaOrderNumber?.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -276,6 +282,7 @@ function formatEditablePosOrder(order: any) {
       id: item.id,
       productId: item.productId ?? item.product?.id ?? null,
       productName: item.productName,
+      requiredServiceType: item.product?.requiredServiceType ?? null,
       categoryName: item.product?.category?.name ?? "Manual",
       quantity: Number(item.quantity),
       promotionFreeQuantity: Number(item.promotionFreeQuantity ?? 0),
@@ -336,9 +343,9 @@ router.get("/delivery-config", async (req, res, next) => {
   }
 });
 
-async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
+export async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
   const boxOfSix = await syncBoxOfSixOptions(prisma);
-  await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
+  await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma), syncGolootloOptions(prisma)]);
   const requestedProductIds = getProductIds(payload.items);
   const [promotion, nasconPromotion] = await Promise.all([
     readIndependencePromotion(prisma, payload.branchId),
@@ -399,6 +406,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
   const productMap = new Map(scopedProducts.map((product) => [product.id, product]));
   for (const productId of requestedProductIds) {
     const product = rawProductMap.get(productId);
+    if (product) assertProductServiceType(product, payload.serviceType);
     if (product && isLegacyMealProduct(product)) {
       throw Object.assign(new Error("Legacy meal products are no longer available. Use the single Make It A Meal product."), { statusCode: 400 });
     }
@@ -435,6 +443,9 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
     if (!product) {
       throw Object.assign(new Error("Selected product is unavailable."), { statusCode: 400 });
     }
+    validateGolootloSelections(product, item.selections);
+    if (product.requiredServiceType === "GOLOOTLO" && item.promotionFreeQuantity) throw Object.assign(new Error("Golootlo bundle prices already include their free items."), { statusCode: 400 });
+    for (const component of product.bundleComponents) assertProductServiceType(component.componentProduct, payload.serviceType);
 
     const branchPricing = product.branchPricing[0];
     if (branchPricing && !branchPricing.isAvailable) {
@@ -489,6 +500,7 @@ async function buildPosOrderPayload(payload: ResolvedCheckoutPayload) {
           }
         }
 
+        if (option.linkedProduct) assertProductServiceType(option.linkedProduct, payload.serviceType);
         const optionQuantity = optionQuantities.get(option.id) ?? 1;
         if (optionQuantity <= 0) continue;
 
@@ -703,6 +715,7 @@ const posOrderInclude = {
         select: {
           id: true,
           name: true,
+          requiredServiceType: true,
           category: {
             select: {
               name: true
@@ -738,7 +751,7 @@ router.get("/catalog", async (req, res, next) => {
     const branches = branchContext.branches;
     const branchId = branchContext.branchId;
     const boxOfSix = await syncBoxOfSixOptions(prisma);
-    await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma)]);
+    await Promise.all([syncMealPairingOptions(prisma), syncDealOptions(prisma), syncGolootloOptions(prisma)]);
     const [promotion, nasconPromotion] = await Promise.all([
       readIndependencePromotion(prisma, branchId),
       readNasconPromotion(prisma)
@@ -781,6 +794,7 @@ router.get("/catalog", async (req, res, next) => {
       availableDealChoiceProductIds
     ).map((product) => ({
       ...product,
+      unavailableReason: golootloUnavailableReason(product),
       sortOrder: product.branchPricing[0]?.sortOrder ?? product.sortOrder
     })).sort((left, right) => {
       const productDifference = left.sortOrder - right.sortOrder;

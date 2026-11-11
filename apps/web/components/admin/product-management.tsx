@@ -16,6 +16,7 @@ import { resolvePocketImagePath } from "@/lib/image-paths";
 import { formatCurrency } from "@/lib/utils";
 
 type ProductFormState = {
+  requiredServiceType: string | null;
   categoryId: string;
   slug: string;
   name: string;
@@ -97,6 +98,7 @@ const MODE_COPY: Record<
 };
 
 const EMPTY_FORM: ProductFormState = {
+  requiredServiceType: null,
   categoryId: "",
   slug: "",
   name: "",
@@ -124,6 +126,7 @@ function slugify(value: string) {
 
 function mapProductToForm(product: AdminProduct): ProductFormState {
   return {
+    requiredServiceType: product.requiredServiceType,
     categoryId: product.categoryId,
     slug: product.slug,
     name: product.name,
@@ -192,9 +195,10 @@ function ProductEditor({
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
-  const bundleProductOptions = products.filter((product) => product.isActive && product.id !== editingProductId);
+  const bundleProductOptions = products.filter((product) => product.isActive && !product.requiredServiceType && product.id !== editingProductId);
   const selectedCategory = categories.find((category) => category.id === value.categoryId);
-  const isDeal = selectedCategory?.slug === "deals";
+  const isGolootlo = value.requiredServiceType === "GOLOOTLO";
+  const isDeal = !isGolootlo && selectedCategory?.slug === "deals";
   const dealProductOptions = bundleProductOptions.filter((product) => product.category.slug !== "deals");
   const assetLibrary: string[] = [];
   async function handleUpload(fileOrIndex: File | number, maybeFile?: File) {
@@ -483,7 +487,7 @@ function ProductEditor({
             <label className="text-sm font-semibold text-pocket-navy">Calories <span className="text-pocket-navy/40">(optional)</span></label>
             <Input type="number" min="0" value={value.calories} onChange={(event) => onChange({ ...value, calories: event.target.value })} />
           </div>
-          <div className="space-y-3 md:col-span-2">
+          {!isGolootlo ? <div className="space-y-3 md:col-span-2">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <label className="text-sm font-semibold text-pocket-navy">Bundle components <span className="text-pocket-navy/40">(optional)</span></label>
@@ -558,7 +562,7 @@ function ProductEditor({
                 </div>
               )}
             </div>
-          </div>
+          </div> : <p className="rounded-lg bg-blue-50 p-4 text-sm text-pocket-navy md:col-span-2">Golootlo only - hidden from the public menu. Required slots are fixed and choices follow active menu flavours at each branch. Flavours have no surcharge.</p>}
           {isDeal ? (
             <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-4 md:col-span-2">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -778,9 +782,10 @@ function SimpleProductEditor({
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
-  const bundleProductOptions = products.filter((product) => product.isActive && product.id !== editingProductId);
+  const bundleProductOptions = products.filter((product) => product.isActive && !product.requiredServiceType && product.id !== editingProductId);
   const selectedCategory = categories.find((category) => category.id === value.categoryId);
-  const isDeal = selectedCategory?.slug === "deals";
+  const isGolootlo = value.requiredServiceType === "GOLOOTLO";
+  const isDeal = !isGolootlo && selectedCategory?.slug === "deals";
   const dealProductOptions = bundleProductOptions.filter((product) => product.category.slug !== "deals");
 
   async function uploadImage(file: File) {
@@ -899,7 +904,7 @@ function SimpleProductEditor({
             </div>
           </div>
 
-          <section className="space-y-3">
+          {!isGolootlo ? <section className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div><p className="text-sm font-semibold text-pocket-navy">Bundle components <span className="text-pocket-navy/40">(optional)</span></p><p className="text-xs text-pocket-navy/50">Use this for meals, deals, and combo products.</p></div>
               <Button type="button" variant="outline" onClick={() => onChange({ ...value, bundleComponents: [...value.bundleComponents, { componentProductId: "", quantity: "1" }] })}><Plus className="h-4 w-4" />Add item</Button>
@@ -911,8 +916,7 @@ function SimpleProductEditor({
                 <Button type="button" variant="ghost" className="text-red-600" onClick={() => onChange({ ...value, bundleComponents: value.bundleComponents.filter((_, entryIndex) => entryIndex !== index) })}>Remove</Button>
               </div>
             )) : <div className="rounded-md border border-dashed border-pocket-navy/15 px-4 py-3 text-sm text-pocket-navy/50">No bundle components.</div>}
-          </section>
-
+          </section> : <p className="rounded-lg bg-blue-50 p-4 text-sm text-pocket-navy">Golootlo only - hidden from the public menu. Required slots are fixed and choices follow active menu flavours at each branch. Flavours have no surcharge.</p>}
           {isDeal ? (
             <section className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-sm font-bold text-pocket-navy">Deal configuration</p><p className="mt-1 text-xs text-pocket-navy/60">Configure selectable products for this deal.</p></div><Button type="button" variant="outline" onClick={() => { const number = value.dealGroups.length + 1; onChange({ ...value, dealGroups: [...value.dealGroups, { name: `Choice ${number}`, minSelect: "1", maxSelect: "1", options: [{ linkedProductId: "", name: `Choice ${number}: New option`, priceDelta: "0" }] }] }); }}><Plus className="h-4 w-4" />Add choice</Button></div>
@@ -1022,7 +1026,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
     }
 
     const selectedCategory = categories.find((category) => category.id === form.categoryId);
-    const isDealForm = selectedCategory?.slug === "deals";
+    const isDealForm = !editingProduct?.requiredServiceType && selectedCategory?.slug === "deals";
     const dealGroups = form.dealGroups.map((group) => ({
       id: group.id,
       name: group.name.trim(),
@@ -1075,7 +1079,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
         savedProductId = createdProduct.id;
         flashNotice("success", `${copy.editorLabel} added.`);
       }
-      if (isDealForm || editingProduct?.category.slug === "deals") {
+      if (!editingProduct?.requiredServiceType && (isDealForm || editingProduct?.category.slug === "deals")) {
         await updateAdminDealConfiguration(savedProductId, isDealForm ? dealGroups : []);
       }
       setEditorOpen(false);
@@ -1269,6 +1273,7 @@ export function ProductManagement({ mode = "catalog" }: { mode?: ProductManageme
                 <div className="min-w-0">
                   <p className="font-bold text-pocket-navy">{product.name}</p>
                   <p className="text-pocket-navy/60">{product.description}</p>
+                  {product.requiredServiceType ? <p className="mt-1 text-xs font-bold text-blue-700">Golootlo only / POS only</p> : null}
                   {product.bundleComponents.length ? (
                     <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-pocket-orange">
                       Bundle · {product.bundleComponents.length} component{product.bundleComponents.length === 1 ? "" : "s"}

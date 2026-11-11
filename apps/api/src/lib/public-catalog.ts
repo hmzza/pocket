@@ -19,6 +19,7 @@ export async function resolvePublicBranch(branchSlug?: string) {
 export function publicProductWhere(branchId: string): Prisma.ProductWhereInput {
   return {
     isActive: true,
+    requiredServiceType: null,
     category: {
       is: {
         isActive: true,

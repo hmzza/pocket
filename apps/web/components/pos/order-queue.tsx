@@ -46,7 +46,7 @@ function formatDateTime(value: string) {
 function formatServiceType(value: string) {
   const map: Record<string, string> = {
     INSHOP: "Dine-in",
-    FOODPANDA: "Foodpanda",
+    FOODPANDA: "Foodpanda", GOLOOTLO: "Golootlo",
     TAKEAWAY: "Takeaway",
     DINE_IN: "Dine-in",
     DELIVERY: "Delivery",
@@ -64,7 +64,7 @@ function formatPaymentMethod(value: string) {
     ONLINE: "Online",
     JAZZCASH: "JazzCash",
     EASYPAISA: "Easypaisa",
-    FOODPANDA_PAYOUT: "Payout",
+    GOLOOTLO: "Golootlo", FOODPANDA_PAYOUT: "Payout",
     PAY_AT_COUNTER: "Payment pending"
   };
 

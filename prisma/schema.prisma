@@ -41,6 +41,7 @@ enum PaymentMethod {
   JAZZCASH
   EASYPAISA
   FOODPANDA_PAYOUT
+  GOLOOTLO
 }
 
 enum OrderChannel {
@@ -54,6 +55,7 @@ enum ServiceType {
   DINE_IN
   INSHOP
   FOODPANDA
+  GOLOOTLO
   NASCON
 }
 
@@ -316,6 +318,7 @@ model Product {
   isActive                  Boolean                    @default(true)
   sortOrder                 Int                        @default(0)
   stockStatus               String                     @default("IN_STOCK")
+  requiredServiceType       ServiceType?
   createdAt                 DateTime                   @default(now())
   updatedAt                 DateTime                   @updatedAt
   category                  Category                   @relation(fields: [categoryId], references: [id])
